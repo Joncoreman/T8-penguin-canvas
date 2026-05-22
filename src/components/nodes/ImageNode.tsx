@@ -287,7 +287,14 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
             const main = q.imageUrl || '';
             const grid = q.imageUrls || [];
             const all = grid.length ? grid : (main ? [main] : []);
-            if (!all.length) throw new Error('MJ 任务完成但未返回图片');
+            if (!all.length) {
+              // 调试：上游字段名可能变化，把原始报文打到日志便于定位
+              try {
+                const dump = JSON.stringify(q.raw)?.slice(0, 800) || String(q.raw);
+                logBus.warn(`MJ 任务完成但未拿到 imageUrl/imageUrls，raw=${dump}`, src);
+              } catch {}
+              throw new Error('MJ 任务完成但未返回图片');
+            }
             const final = main || all[0];
             logBus.success(`MJ 任务完成 → ${final}` + (grid.length ? ` (含 ${grid.length} 张子图)` : ''), src);
             update({

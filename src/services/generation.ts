@@ -252,10 +252,12 @@ export async function queryMjTask(taskId: string, speed: MjSpeed = 'fast'): Prom
   if (!r.ok || !data.success) throw new Error(data?.error || `HTTP ${r.status}`);
   const d = data.data || {};
   // 主项目 L4675~L4694: image_urls 可能是 JSON 字符串 / 对象数组 / 字符串数组
-  // 元素可能为字符串 '...' 或对象 { url: '...' }，及时主项目用 x.url || x 兼容
+  // 元素可能为字符串 '...' 或对象 { url: '...' }，对齐主项目用 x.url || x 兼容
+  // 另外上游字段名可能为 snake_case (image_url/image_urls) 或 camelCase (imageUrl/imageUrls)
   let imageUrls: string[] | undefined;
-  if (d.image_urls) {
-    let parsed: any = d.image_urls;
+  const rawList = d.image_urls ?? d.imageUrls;
+  if (rawList) {
+    let parsed: any = rawList;
     if (typeof parsed === 'string') {
       try { parsed = JSON.parse(parsed); } catch { parsed = null; }
     }
@@ -268,7 +270,7 @@ export async function queryMjTask(taskId: string, speed: MjSpeed = 'fast'): Prom
   return {
     status: d.status || 'IN_PROGRESS',
     progress: d.progress,
-    imageUrl: d.image_url,
+    imageUrl: d.image_url || d.imageUrl,
     imageUrls,
     failReason: d.fail_reason || d.failReason,
     raw: d,
