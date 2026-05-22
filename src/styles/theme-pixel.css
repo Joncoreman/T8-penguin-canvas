@@ -326,6 +326,32 @@ html[data-theme-style="pixel"] .react-flow__node select:focus {
   box-shadow: 2px 2px 0 var(--px-ink) !important;
 }
 
+/* select 下拉打开后的 option(浏览器默认会用系统深色,导致像素风下黑底看不清)
+ * 强制奶油底 + 黑字,选中态用 mint 高亮 */
+html[data-theme-style="pixel"] .react-flow__node select option,
+html[data-theme-style="pixel"] select option {
+  background: var(--px-bg) !important;
+  background-color: var(--px-bg) !important;
+  color: var(--px-ink) !important;
+  font-family: var(--px-font-display) !important;
+}
+html[data-theme-style="pixel"] .react-flow__node select option:checked,
+html[data-theme-style="pixel"] .react-flow__node select option:hover,
+html[data-theme-style="pixel"] select option:checked,
+html[data-theme-style="pixel"] select option:hover {
+  background: var(--px-mint) !important;
+  background-color: var(--px-mint) !important;
+  color: var(--px-ink) !important;
+}
+/* 工具栏/全局非节点内 select 也兜底 */
+html[data-theme-style="pixel"] select {
+  background: var(--px-bg) !important;
+  color: var(--px-ink) !important;
+  border: 1.5px solid var(--px-ink) !important;
+  border-radius: 8px !important;
+  font-family: var(--px-font-display) !important;
+}
+
 /* 节点内 button 默认折中:变胶囊 + 像素黑边 */
 html[data-theme-style="pixel"] .react-flow__node button {
   font-family: var(--px-font-display) !important;

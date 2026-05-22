@@ -295,6 +295,18 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
   const handlePaste = useCallback(() => {
     const cb = clipboardRef.current;
     if (!cb || cb.nodes.length === 0) return;
+    // 运行时字段黑名单(复制/粘贴时必须重置,避免新节点显示为进行中/携带旧 taskId)
+    // 注意:不清 imageUrl/videoUrl/audioUrl 等内容类字段,因为画板/上传/预设等节点会用它们存用户内容
+    const RUNTIME_KEYS = [
+      'status', 'taskId', 'progress', 'error',
+      'isRunning', 'isPolling', 'pollingTimer',
+    ];
+    const sanitize = (data: any) => {
+      const next: any = { ...(data || {}) };
+      for (const k of RUNTIME_KEYS) delete next[k];
+      next.status = 'idle';
+      return next;
+    };
     const idMap = new Map<string, string>();
     const stamp = Date.now();
     const newNodes = cb.nodes.map((n, idx) => {
@@ -308,6 +320,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
           x: (n.position?.x ?? 0) + 40,
           y: (n.position?.y ?? 0) + 40,
         },
+        data: sanitize(n.data),
       } as Node;
     });
     const newEdges = cb.edges
