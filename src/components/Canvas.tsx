@@ -120,10 +120,10 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
   image: { model: 'gpt-image-2', aspectRatio: '1:1', sizeLevel: '1K', referenceImages: [] },
   edit: { mode: 'edit', model: 'gpt-image-2', aspectRatio: '1:1', sizeLevel: '1K', referenceImages: [] },
   seedance: {
-    model: 'doubao-seedance-2-0-260128',
+    model: 'doubao-seedance-2-0-fast-260128',
     duration: 5,
     ratio: '16:9',
-    resolution: '720p',
+    resolution: '480p',
     generateAudio: true,
     returnLastFrame: false,
     watermark: false,

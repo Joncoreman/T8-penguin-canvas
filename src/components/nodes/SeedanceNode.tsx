@@ -28,11 +28,12 @@ import { logBus } from '../../stores/logs';
  */
 
 const MODEL_OPTIONS = [
-  { value: 'doubao-seedance-2-0-260128', label: 'seedance-2-0' },
   { value: 'doubao-seedance-2-0-fast-260128', label: 'seedance-2-0-fast' },
+  { value: 'doubao-seedance-2-0-260128', label: 'seedance-2-0' },
 ];
 const RATIO_OPTIONS = ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9', '9:21', 'adaptive'];
 const RESOLUTION_OPTIONS = ['480p', '720p', 'native1080p', '1080p', '2k', '4k'];
+const DURATION_OPTIONS = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 const SeedanceNode = ({ id, data, selected }: NodeProps) => {
   const update = useUpdateNodeData(id);
@@ -45,7 +46,7 @@ const SeedanceNode = ({ id, data, selected }: NodeProps) => {
   const model: string = d.model || MODEL_OPTIONS[0].value;
   const duration: number = typeof d.duration === 'number' ? d.duration : 5;
   const ratio: string = d.ratio || '16:9';
-  const resolution: string = d.resolution || '720p';
+  const resolution: string = d.resolution || '480p';
   const generateAudio: boolean = d.generateAudio !== false; // 默认 true
   const returnLastFrame: boolean = d.returnLastFrame === true;
   const watermark: boolean = d.watermark === true;
@@ -260,14 +261,15 @@ const SeedanceNode = ({ id, data, selected }: NodeProps) => {
         <div className="grid grid-cols-2 gap-1.5">
           <div>
             <label className="text-[10px] text-white/50 block mb-1">Duration(s)</label>
-            <input
-              type="number"
-              value={duration}
-              min={4}
-              max={15}
-              onChange={(e) => update({ duration: Math.max(4, Math.min(15, Number(e.target.value) || 5)) })}
+            <select
+              value={String(duration)}
+              onChange={(e) => update({ duration: Number(e.target.value) })}
               className="w-full rounded bg-white/5 border border-white/10 px-2 py-1 text-xs text-white outline-none focus:border-white/30"
-            />
+            >
+              {DURATION_OPTIONS.map((s) => (
+                <option key={s} value={s} className="bg-zinc-900">{s}s</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="text-[10px] text-white/50 block mb-1">Ratio</label>
@@ -319,8 +321,8 @@ const SeedanceNode = ({ id, data, selected }: NodeProps) => {
             className="w-full rounded bg-white/5 border border-white/10 px-2 py-1 text-xs text-white outline-none focus:border-white/30"
           >
             <option value="auto" className="bg-zinc-900">全部作参考图(auto)</option>
-            <option value="first" className="bg-zinc-900">第1张为首帧 + 其余参考</option>
-            <option value="firstlast" className="bg-zinc-900">第1首帧 + 第2末帧 + 其余参考</option>
+            <option value="first" className="bg-zinc-900">上传首帧（图生视频）</option>
+            <option value="firstlast" className="bg-zinc-900">传入首帧+尾帧（首尾帧视频）</option>
           </select>
         </div>
 
