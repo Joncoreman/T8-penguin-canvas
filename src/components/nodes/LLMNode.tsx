@@ -298,13 +298,18 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
 
   const handleColor = PORT_COLOR.text; // 输出 text;输入兼容 text+image(由 portTypes.llm 决定)
 
+  const mainRef = useRef<HTMLDivElement>(null);
   const hasChat = history.length > 0 || !!streamingText;
 
+  // 动态计算左侧主体高度，让右侧面板对齐
+  const mainH = mainRef.current?.offsetHeight;
+
   return (
-    <div className="flex items-stretch gap-0">
+    <div className="flex items-start gap-0">
     {/* 主体 */}
     <div
-      className={`relative rounded-xl border-2 transition-all w-[320px] flex flex-col ${
+      ref={mainRef}
+      className={`relative rounded-xl border-2 transition-all w-[320px] ${
         selected ? 'border-emerald-400 shadow-2xl shadow-emerald-500/20' : 'border-white/15 hover:border-white/30'
       }`}
       style={{ background: 'rgba(20,20,22,.92)', backdropFilter: 'blur(8px)' }}
@@ -555,7 +560,7 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
         className={`llm-chat-panel w-[260px] rounded-xl border-2 overflow-y-auto p-2.5 space-y-1.5 ${
           selected ? 'border-emerald-400/60' : 'border-white/10'
         }`}
-        style={{ background: 'rgba(20,20,22,.94)', backdropFilter: 'blur(8px)' }}
+        style={{ background: 'rgba(20,20,22,.94)', backdropFilter: 'blur(8px)', maxHeight: mainH ? `${mainH}px` : '600px' }}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {history.map((t, i) => (
