@@ -251,13 +251,18 @@ export async function queryMjTask(taskId: string, speed: MjSpeed = 'fast'): Prom
   const data = await r.json();
   if (!r.ok || !data.success) throw new Error(data?.error || `HTTP ${r.status}`);
   const d = data.data || {};
-  // 主项目 L4685: image_urls 可能是 JSON 字符串
+  // 主项目 L4675~L4694: image_urls 可能是 JSON 字符串 / 对象数组 / 字符串数组
+  // 元素可能为字符串 '...' 或对象 { url: '...' }，及时主项目用 x.url || x 兼容
   let imageUrls: string[] | undefined;
   if (d.image_urls) {
-    if (typeof d.image_urls === 'string') {
-      try { const arr = JSON.parse(d.image_urls); if (Array.isArray(arr)) imageUrls = arr.filter((x: any) => typeof x === 'string'); } catch { imageUrls = undefined; }
-    } else if (Array.isArray(d.image_urls)) {
-      imageUrls = d.image_urls.filter((x: any) => typeof x === 'string');
+    let parsed: any = d.image_urls;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+    }
+    if (Array.isArray(parsed)) {
+      imageUrls = parsed
+        .map((x: any) => (typeof x === 'string' ? x : (x && (x.url || x.image_url || x.imageUrl)) || ''))
+        .filter((u: any): u is string => typeof u === 'string' && !!u);
     }
   }
   return {
