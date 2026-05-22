@@ -274,22 +274,31 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     }, 800);
   }, [nodes, edges, activeId, loaded]);
 
-  // 添加节点(供 Sidebar 调用)
+  // 添加节点(供 Sidebar 调用) —— 默认落在当前视口中心
   const addNode = useCallback(
     (type: NodeType) => {
       const id = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      // 以 ReactFlow 画布容器中心为默认插入点；拿不到则 fallback 到 window 中心
+      const flowEl =
+        document.querySelector('.react-flow') as HTMLElement | null;
+      const rect = flowEl?.getBoundingClientRect();
+      const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+      const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+      const center = screenToFlowPosition({ x: cx, y: cy });
+      // 小的随机偏移避免连续添加时完全重叠
+      const jitter = () => (Math.random() - 0.5) * 80;
       const newNode: Node = {
         id,
         type,
         position: {
-          x: 200 + Math.random() * 200,
-          y: 150 + Math.random() * 200,
+          x: center.x - 160 + jitter(),
+          y: center.y - 100 + jitter(),
         },
         data: { ...(INITIAL_DATA[type] || {}) },
       };
       setNodes((prev) => [...prev, newNode]);
     },
-    []
+    [screenToFlowPosition]
   );
 
   // ===== 复制 / 粘贴 / 删除 =====
