@@ -1829,3 +1829,111 @@ const collected = useMemo(() => {
 
 
 ---
+
+## 24. xyflow 内置保留 type 名陷阱（极重要）
+
+### 24.1 现象
+
+OutputNode 在科技风（深色）主题下，节点本体（深色圆角矩形）外**还包了一圈白色矩形**：
+- 比节点本体每边大约多出 8–12 px
+- 是实心白色填充，不是边框线
+- 在浅色主题下因画布也偏白，视觉对比低，几乎察觉不到
+- 在科技风深色画布上一眼就看见，像「节点被裹了一层白色信封」
+- 改 OutputNode.tsx 内部任何样式（去 shadow / 去 backdropFilter / 加 overflow:hidden / 不透明 background）都**完全无效**
+
+### 24.2 真正的根因
+
+xyflow 自带 `@xyflow/react/dist/style.css`（被 main.tsx 全局 import）里有这一段：
+
+```css
+.react-flow__node-input,
+.react-flow__node-default,
+.react-flow__node-output,
+.react-flow__node-group {
+  padding: 10px;
+  border-radius: var(--xy-node-border-radius, 3px);
+  width: 150px;
+  font-size: 12px;
+  color: var(--xy-node-color, #222);
+  text-align: center;
+  border: var(--xy-node-border, 1px solid #1a192b);
+  background-color: var(--xy-node-background-color, #fff);
+}
+.react-flow__node-output.selectable.selected {
+  box-shadow: 0 0 0 0.5px #1a192b;
+}
+```
+
+xyflow 把 `input` / `output` / `default` / `group` 视为**保留内置节点类型名**，自动给打上 `react-flow__node-output` class 的元素套上一套老风格皮肤（白底 + 1px 黑边 + 10px padding + 150px 固定宽度）。
+
+我们项目在 [`Canvas.tsx`](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/Canvas.tsx) 用 `output: OutputNode` 注册业务节点，DOM 上就被 xyflow 自动加了 `react-flow__node-output` class，于是「白底 + padding:10px」叠加在我们自定义容器外面 —— 那圈「白色矩形」就是 xyflow 默认 padding 把白色 background-color 露出来的部分，根本不是我们 OutputNode.tsx 内部画出来的，难怪改 OutputNode.tsx 怎么改都没用。
+
+### 24.3 修复方案（已落地）
+
+**最稳妥**：在 [`src/styles/index.css`](file:///e:/PenguinPravite/T8-penguin-canvas/src/styles/index.css) 加一段防御性 CSS，重置所有保留 type 名的默认皮肤：
+
+```css
+/* === xyflow 内置保留 type 名防御 === */
+.react-flow__node-input,
+.react-flow__node-output,
+.react-flow__node-default,
+.react-flow__node-group {
+  padding: 0 !important;
+  width: auto !important;
+  font-size: inherit !important;
+  color: inherit !important;
+  text-align: left !important;
+  border: none !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+.react-flow__node-input.selectable:hover,
+.react-flow__node-output.selectable:hover,
+.react-flow__node-default.selectable:hover,
+.react-flow__node-group.selectable:hover,
+.react-flow__node-input.selectable.selected,
+.react-flow__node-output.selectable.selected,
+.react-flow__node-default.selectable.selected,
+.react-flow__node-group.selectable.selected {
+  box-shadow: none !important;
+}
+```
+
+**替代方案**（更彻底但工作量大）：把节点 type 改名避开保留字，例如 `output` → `outputAsset`、`input` → `materialInput`。要同步改 NODE_REGISTRY、SPECIFIC_NODES、所有持久化 graph 数据的迁移逻辑，**风险高**，不推荐。
+
+### 24.4 xyflow v12 保留 type 名清单
+
+截至 @xyflow/react v12.x，**禁止**直接用以下名字作为业务节点 `type`，否则 DOM 会被 xyflow 默认皮肤吞掉：
+
+| 保留名 | xyflow 默认效果 |
+|---|---|
+| `input` | 白底 + 黑边 + padding:10 + width:150 + 圆点 source handle |
+| `output` | 白底 + 黑边 + padding:10 + width:150 + 圆点 target handle |
+| `default` | 白底 + 黑边 + padding:10 + width:150 + 双向 handle |
+| `group` | 半透明背景 + 1px 边框，作为 sub-flow 容器 |
+
+如果一定要用这些名字（例如历史遗留无法改名），**必须**在全局 CSS 用 24.3 的方式重置默认样式。
+
+### 24.5 排查方法（DOM 层面）
+
+遇到「节点视觉上多出一圈背景 / 边框 / 颜色，改组件内部代码无效」时：
+
+1. F12 打开 DevTools → Elements 选中节点最外层（`.react-flow__node`）
+2. 看它的 class 列表里有没有 `react-flow__node-input/-output/-default/-group`
+3. 切到 Styles 面板，**关键：要看『来源』列**。如果命中规则来自 `style.css`（xyflow 包自带），不来自我们的 `index.css` / `theme-pixel.css`，**就是踩了这个坑**
+4. 任何「component 内部怎么改都没用，外圈样式纹丝不动」的现象，几乎肯定是上层（xyflow 默认 / 全局 CSS）覆盖了，要去 DOM 里逐层找命中规则
+
+### 24.6 节点 type 命名规范（强制）
+
+- **业务节点禁止使用** `input` / `output` / `default` / `group` 这四个名字
+- 推荐命名：业务语义 + 后缀，例如 `outputAsset`、`textInput`、`imageRelay`、`videoOutput`
+- `groupBox` 已经是我们项目的容器节点（避开了 `group`），是正确范例
+- 新增节点 type 前先 grep `node_modules/@xyflow/react/dist/style.css` 看 `.react-flow__node-` 后面有没有同名规则
+
+### 24.7 关键 Commit 索引
+
+- `a211575` 错误尝试：去 backdropFilter + overflow:hidden + Handle 显式定位（**无效**，因为根本没改对地方）
+- `feb1b72` 真正修复：在 index.css 重置 `.react-flow__node-output` 等保留 type 名默认样式（**有效**）
+
+---
