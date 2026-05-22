@@ -645,56 +645,27 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
     [isRunning, nodes, edges, runNodesByOrder]
   );
 
- // ===== ALT+拖动复制节点 =====
-  // 按住 ALT 键开始拖动时,在原位克隆一份副本,拖走的是原节点(视觉上等同于"复制并拖出")
-  const altDragCloneRef = useRef<boolean>(false);
+  // ===== ALT+拖动复制节点 =====
+  // 按住 ALT 键开始拖动时,记录原节点位置;拖放结束后在新位置生成克隆体,原节点恢复到初始位置
+  // 视觉效果: 原节点不动,拖出来的是新复制的节点
+  const altDragCloneRef = useRef<{ originPositions: Map<string, { x: number; y: number }> } | null>(null);
 
   const onNodeDragStart = useCallback(
     (e: React.MouseEvent | MouseEvent, node: Node) => {
-      altDragCloneRef.current = false;
+      altDragCloneRef.current = null;
       if (!e.altKey) return;
-      // ALT 按下: 克隆所有选中节点(或仅当前节点)到原位
+      // ALT 按下: 记录当前选中节点(或仅拖动节点)的原始位置
       const selected = nodes.filter((n) => n.selected);
       const targets = selected.length > 0 && selected.some((n) => n.id === node.id)
         ? selected
         : [node];
-      const ids = new Set(targets.map((n) => n.id));
-      // 运行时字段黑名单
-      const RUNTIME_KEYS = ['status', 'taskId', 'progress', 'error', 'isRunning', 'isPolling', 'pollingTimer'];
-      const sanitize = (data: any) => {
-        const next: any = { ...(data || {}) };
-        for (const k of RUNTIME_KEYS) delete next[k];
-        next.status = 'idle';
-        return next;
-      };
-      const stamp = Date.now();
-      const idMap = new Map<string, string>();
-      const clones = targets.map((n, idx) => {
-        const newId = `${n.type}-${stamp}-${idx}-${Math.random().toString(36).slice(2, 5)}`;
-        idMap.set(n.id, newId);
-        return {
-          ...n,
-          id: newId,
-          selected: false,
-          position: { ...n.position },
-          data: sanitize(n.data),
-        } as Node;
-      });
-      // 克隆内部边
-      const cloneEdges = edges
-        .filter((e2) => ids.has(e2.source) && ids.has(e2.target))
-        .map((e2, idx) => {
-          const s = idMap.get(e2.source);
-          const t = idMap.get(e2.target);
-          if (!s || !t) return null;
-          return { ...e2, id: `e-alt-${stamp}-${idx}-${Math.random().toString(36).slice(2, 5)}`, source: s, target: t } as Edge;
-        })
-        .filter(Boolean) as Edge[];
-      setNodes((prev) => [...prev, ...clones]);
-      if (cloneEdges.length > 0) setEdges((prev) => [...prev, ...cloneEdges]);
-      altDragCloneRef.current = true;
+      const originPositions = new Map<string, { x: number; y: number }>();
+      for (const n of targets) {
+        originPositions.set(n.id, { x: n.position.x, y: n.position.y });
+      }
+      altDragCloneRef.current = { originPositions };
     },
-    [nodes, edges]
+    [nodes]
   );
 
   // ===== 节点组(GroupBox) =====
@@ -914,6 +885,61 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
 
   const onNodeDragStop = useCallback((_e: any, node: Node) => {
     setGuides({ vertical: [], horizontal: [] });
+
+    // ===== ALT+拖动结束: 在拖放位置生成克隆体,原节点恢复初始位置 =====
+    if (altDragCloneRef.current) {
+      const { originPositions } = altDragCloneRef.current;
+      altDragCloneRef.current = null;
+      const draggedIds = new Set(originPositions.keys());
+      // 运行时字段黑名单
+      const RUNTIME_KEYS = ['status', 'taskId', 'progress', 'error', 'isRunning', 'isPolling', 'pollingTimer'];
+      const sanitize = (data: any) => {
+        const next: any = { ...(data || {}) };
+        for (const k of RUNTIME_KEYS) delete next[k];
+        next.status = 'idle';
+        return next;
+      };
+      const stamp = Date.now();
+      const idMap = new Map<string, string>();
+
+      setNodes((prev) => {
+        const clones: Node[] = [];
+        const restored = prev.map((n) => {
+          if (!draggedIds.has(n.id)) return n;
+          // 生成克隆体(放在当前拖到的位置)
+          const newId = `${n.type}-${stamp}-${clones.length}-${Math.random().toString(36).slice(2, 5)}`;
+          idMap.set(n.id, newId);
+          clones.push({
+            ...n,
+            id: newId,
+            selected: true,
+            position: { ...n.position }, // 当前拖放位置
+            data: sanitize(n.data),
+          } as Node);
+          // 原节点恢复到初始位置
+          const orig = originPositions.get(n.id)!;
+          return { ...n, selected: false, position: { x: orig.x, y: orig.y } };
+        });
+        return [...restored, ...clones];
+      });
+
+      // 克隆内部边
+      setEdges((prev) => {
+        const cloneEdges = prev
+          .filter((e2) => draggedIds.has(e2.source) && draggedIds.has(e2.target))
+          .map((e2, idx) => {
+            const s = idMap.get(e2.source);
+            const t = idMap.get(e2.target);
+            if (!s || !t) return null;
+            return { ...e2, id: `e-alt-${stamp}-${idx}-${Math.random().toString(36).slice(2, 5)}`, source: s, target: t } as Edge;
+          })
+          .filter(Boolean) as Edge[];
+        return cloneEdges.length > 0 ? [...prev, ...cloneEdges] : prev;
+      });
+      groupDragRef.current = null;
+      return;
+    }
+
     // 拖动组结束: 将最新的几何成员同步到 data.memberIds(供 GroupBoxNode 显示节点数/执行使用)
     if (node?.type === 'groupBox' && groupDragRef.current?.groupId === node.id) {
       const latestIds = groupDragRef.current.memberIds;
