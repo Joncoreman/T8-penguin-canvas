@@ -489,9 +489,29 @@ const RunningHubNode = ({ id, data, selected }: NodeProps) => {
                             : 'bg-white/5 border-white/10 focus:border-white/30'
                         }`}
                       />
-                      {vt === 'image' && /\.(png|jpe?g|webp|gif|bmp)$/i.test(cur.value) && (
-                        <img src={cur.value} alt="预览" className="w-full max-h-24 object-contain rounded border border-white/10" />
-                      )}
+                      {vt === 'image' && (() => {
+                        // 只有真正可加载的 url 才预览：http(s):// 或本地静态路径；
+                        // RH 内部 fileName（如 api/xxx.png、纯 hash）不能加载，不渲染避免破图占位符
+                        const v = cur.value || '';
+                        const isHttpUrl = /^https?:\/\//i.test(v);
+                        const isLocalUrl =
+                          v.startsWith('/files/output/') ||
+                          v.startsWith('/output/') ||
+                          v.startsWith('/files/input/') ||
+                          v.startsWith('/input/');
+                        const isImgExt = /\.(png|jpe?g|webp|gif|bmp|avif)(\?.*)?$/i.test(v);
+                        if (!(isHttpUrl || isLocalUrl) || !isImgExt) return null;
+                        return (
+                          <img
+                            src={v}
+                            alt="预览"
+                            className="w-full max-h-24 object-contain rounded border border-white/10"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        );
+                      })()}
                     </>
                   ) : fieldDataOptions ? (
                     <select
