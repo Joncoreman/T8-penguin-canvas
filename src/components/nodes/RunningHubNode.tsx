@@ -28,6 +28,52 @@ function inferValueType(fieldType: string | undefined): 'text' | 'number' | 'ima
   return 'text';
 }
 
+// ========== 提取字段选项列表（LIST / SELECT / DROPDOWN 等下拉类型字段）==========
+// RH apiCallDemo 响应中选项可能出现在多个字段名下，有些应用还会把选项数组直接放在 fieldValue 里。
+// 返回纯文本/数字数组；null 表示不是下拉选项字段。
+function extractFieldOptions(it: any): Array<string | number> | null {
+  // 按优先级依次尝试多种字段名
+  const candidates = [
+    it?.fieldData,
+    it?.options,
+    it?.list,
+    it?.values,
+    it?.enum,
+    it?.choices,
+    it?.items,
+    it?.selectOptions,
+    it?.dropdown,
+  ];
+  for (const c of candidates) {
+    if (!Array.isArray(c) || c.length === 0) continue;
+    // 1) 纯文本/数字数组
+    if (c.every((x) => typeof x === 'string' || typeof x === 'number')) {
+      return c as Array<string | number>;
+    }
+    // 2) [{label, value}] 或 [{name, value}] 形式
+    if (c.every((x) => x && typeof x === 'object' && ('value' in x || 'label' in x || 'name' in x))) {
+      return c.map((x: any) => (x.value ?? x.label ?? x.name)).filter((v: any) => v != null);
+    }
+  }
+  // 3) 兑底：fieldType=LIST/SELECT 且 fieldValue 本身就是选项数组
+  const t = String(it?.fieldType || '').toUpperCase();
+  if ((t === 'LIST' || t === 'SELECT' || t === 'DROPDOWN' || t === 'COMBO' || t === 'ENUM') && Array.isArray(it?.fieldValue)) {
+    const arr = it.fieldValue;
+    if (arr.length > 0 && arr.every((x: any) => typeof x === 'string' || typeof x === 'number')) {
+      return arr as Array<string | number>;
+    }
+  }
+  return null;
+}
+
+// 取字段默认值：如果 fieldValue 是数组（选项集同时充当默认值），取第 0 个作为默认选中。
+function extractDefaultValue(it: any): string {
+  let v = it?.fieldValue;
+  if (Array.isArray(v)) v = v[0];
+  if (v == null) return '';
+  return typeof v === 'object' ? '' : String(v);
+}
+
 // 上游媒体聚合现在由项目统一的 useUpstreamMaterials hook 处理（详见 ./useUpstreamMaterials.ts），
 // 本文件不再手写 extractUpstreamUrl，避免与项目其他节点的 url 提取逻辑产生不一致。
 
@@ -218,7 +264,8 @@ const RunningHubNode = ({ id, data, selected, type }: NodeProps) => {
       const vt = inferValueType(it?.fieldType);
       const v = values[k]?.value;
       // 未填 且 原始 fieldValue 为空且非必填 → 跳过
-      const finalVal = v != null && v !== '' ? v : (it?.fieldValue ?? '');
+      // 如果 fieldValue 是数组（选项集），走 extractDefaultValue 取首项，避免被隐式转成 "a,b,c"。
+      const finalVal = v != null && v !== '' ? v : extractDefaultValue(it);
       seen.add(k);
       out.push({
         nodeId: it.nodeId,
@@ -412,7 +459,8 @@ const RunningHubNode = ({ id, data, selected, type }: NodeProps) => {
           next[k] = { value: upUrl || '', sourceFromUpstream: true };
           continue;
         }
-        next[k] = { value: it?.fieldValue ?? '' };
+        // 非媒体字段：如果 fieldValue 是数组（选项集充当默认值），取第 0 个项作为默认选中。
+        next[k] = { value: extractDefaultValue(it) };
       }
       update({ appInfo: info, paramValues: next });
       return { list, paramValues: next };
@@ -577,18 +625,16 @@ const RunningHubNode = ({ id, data, selected, type }: NodeProps) => {
             {nodeInfoList.map((it: any, i: number) => {
               const vt = inferValueType(it?.fieldType);
               const k = paramKey(it.nodeId, it.fieldName);
-              const cur = paramValues[k] || { value: it?.fieldValue ?? '' };
+              const cur = paramValues[k] || { value: extractDefaultValue(it) };
               const isMedia = vt === 'image' || vt === 'video' || vt === 'audio';
-              const fieldDataOptions = (() => {
-                const fd = it?.fieldData;
-                if (Array.isArray(fd) && fd.length > 0 && fd.every((x) => typeof x === 'string' || typeof x === 'number')) return fd as any[];
-                return null;
-              })();
+              const fieldDataOptions = extractFieldOptions(it);
               return (
                 <div key={i} className="space-y-1 pb-2 border-b border-white/5 last:border-0 last:pb-0">
                   <div className="flex items-center justify-between gap-1">
                     <span className="text-[10px] text-white/80 font-medium truncate">{it.fieldName}</span>
-                    <span className="text-[9px] text-cyan-300/60 px-1 rounded bg-cyan-500/10">{vt}</span>
+                    <span className="text-[9px] text-cyan-300/60 px-1 rounded bg-cyan-500/10">
+                      {fieldDataOptions ? `select(${fieldDataOptions.length})` : vt}
+                    </span>
                     <span className="text-[9px] text-white/30">#{it.nodeId}</span>
                   </div>
                   {it?.description && (
@@ -640,6 +686,10 @@ const RunningHubNode = ({ id, data, selected, type }: NodeProps) => {
                       onChange={(e) => setParam(k, { value: e.target.value })}
                       className="w-full rounded bg-white/5 border border-white/10 px-2 py-1 text-[11px] text-white outline-none focus:border-white/30"
                     >
+                      {/* 当前值不在 options 里（用户手填/定制值）→ 保留一个“(当前) value”项避免丢失选中 */}
+                      {cur.value && !fieldDataOptions.some((o) => String(o) === String(cur.value)) && (
+                        <option value={String(cur.value)}>(当前) {String(cur.value)}</option>
+                      )}
                       {!cur.value && <option value="">(选择)</option>}
                       {fieldDataOptions.map((opt, oi) => (
                         <option key={oi} value={String(opt)}>{String(opt)}</option>
@@ -650,14 +700,14 @@ const RunningHubNode = ({ id, data, selected, type }: NodeProps) => {
                       type="number"
                       value={cur.value}
                       onChange={(e) => setParam(k, { value: e.target.value })}
-                      placeholder={String(it?.fieldValue ?? '')}
+                      placeholder={extractDefaultValue(it)}
                       className="w-full rounded bg-white/5 border border-white/10 px-2 py-1 text-[11px] text-white outline-none focus:border-white/30 placeholder:text-white/30"
                     />
                   ) : (
                     <textarea
                       value={cur.value}
                       onChange={(e) => setParam(k, { value: e.target.value })}
-                      placeholder={String(it?.fieldValue ?? '')}
+                      placeholder={extractDefaultValue(it)}
                       rows={2}
                       className="w-full resize-none rounded bg-white/5 border border-white/10 px-2 py-1 text-[11px] text-white outline-none focus:border-white/30 placeholder:text-white/30"
                     />
