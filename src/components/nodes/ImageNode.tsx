@@ -1158,6 +1158,11 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
             src={imageUrl}
             alt="生成结果"
             className="w-full rounded object-cover"
+            data-drag-source
+            data-drag-kind="image"
+            data-drag-url={imageUrl}
+            data-drag-preview={imageUrl}
+            data-drag-node-id={id}
             onMouseDown={(e) =>
               beginMaterialDrag(e, { kind: 'image', url: imageUrl, sourceNodeId: id, previewUrl: imageUrl })
             }

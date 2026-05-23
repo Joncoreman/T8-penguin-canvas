@@ -363,6 +363,11 @@ const UploadNode = ({ id, data, selected }: NodeProps) => {
                 alt={fileName}
                 className="w-full h-auto rounded block"
                 style={{ background: '#0008', objectFit: 'contain', maxHeight: 480 }}
+                data-drag-source
+                data-drag-kind="image"
+                data-drag-url={url}
+                data-drag-preview={url}
+                data-drag-node-id={id}
                 onMouseDown={(e) =>
                   beginMaterialDrag(e, { kind: 'image', url, sourceNodeId: id, previewUrl: url })
                 }
@@ -375,6 +380,11 @@ const UploadNode = ({ id, data, selected }: NodeProps) => {
                 controls
                 className="w-full h-auto rounded block"
                 style={{ background: '#000', objectFit: 'contain', maxHeight: 480 }}
+                data-drag-source
+                data-drag-kind="video"
+                data-drag-url={url}
+                data-drag-preview={url}
+                data-drag-node-id={id}
                 onMouseDown={(e) =>
                   beginMaterialDrag(e, { kind: 'video', url, sourceNodeId: id, previewUrl: url })
                 }
@@ -385,6 +395,10 @@ const UploadNode = ({ id, data, selected }: NodeProps) => {
                 src={url}
                 controls
                 className="w-full"
+                data-drag-source
+                data-drag-kind="audio"
+                data-drag-url={url}
+                data-drag-node-id={id}
                 onMouseDown={(e) =>
                   beginMaterialDrag(e, { kind: 'audio', url, sourceNodeId: id })
                 }

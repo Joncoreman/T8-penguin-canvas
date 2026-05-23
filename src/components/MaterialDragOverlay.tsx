@@ -17,6 +17,7 @@ import {
   MATERIAL_DROP_EVENT,
   useDragMaterialStore,
   type MaterialDropEventDetail,
+  type MaterialKind,
 } from '../stores/dragMaterial';
 import { useThemeStore } from '../stores/theme';
 
@@ -30,17 +31,84 @@ const MaterialDragOverlay = () => {
   const hoverAccepts = useDragMaterialStore((s) => s.hoverAccepts);
   const move = useDragMaterialStore((s) => s.move);
   const end = useDragMaterialStore((s) => s.end);
+  const start = useDragMaterialStore((s) => s.start);
 
   const { style: themeStyle } = useThemeStore();
   const isPixel = themeStyle === 'pixel';
+
+  // === 全局 capture 阶段 mousedown 拦截 ===
+  // 原因: ReactFlow 在 Ctrl 按下时会渲染 SelectionPane (全屏覆盖层, pointer-events:all),
+  // 接管了所有 mousedown 事件, 导致节点内部 onMouseDown 拿不到 Ctrl+点击.
+  // 解决: 在 document capture 阶段先于 SelectionPane 拦截事件,
+  //       用 elementsFromPoint 穿透 SelectionPane 查找 [data-drag-source] 素材元素.
+  useEffect(() => {
+    const onCaptureMouseDown = (e: MouseEvent) => {
+      // 仅响应 Ctrl/Meta + 左键
+      if (e.button !== 0) return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      // 已在拖拽中不重复启动
+      if (useDragMaterialStore.getState().dragging) return;
+
+      // elementsFromPoint 穿透覆盖层取堆叠元素
+      const stack = document.elementsFromPoint(e.clientX, e.clientY);
+      let dragEl: HTMLElement | null = null;
+      for (const el of stack) {
+        if (!(el instanceof HTMLElement)) continue;
+        if (el.hasAttribute('data-drag-source')) {
+          dragEl = el;
+          break;
+        }
+        const closest = el.closest('[data-drag-source]') as HTMLElement | null;
+        if (closest) {
+          dragEl = closest;
+          break;
+        }
+      }
+      if (!dragEl) return;
+
+      const kind = dragEl.getAttribute('data-drag-kind') as MaterialKind | null;
+      if (!kind) return;
+      const url = dragEl.getAttribute('data-drag-url') || undefined;
+      const text = dragEl.getAttribute('data-drag-text') || undefined;
+      const sourceNodeId = dragEl.getAttribute('data-drag-node-id') || undefined;
+      const previewUrl = dragEl.getAttribute('data-drag-preview') || url;
+
+      // 严格拦截: 阻止 ReactFlow SelectionPane 启动选区
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
+      start(
+        { kind, url, text, sourceNodeId, previewUrl },
+        e.clientX,
+        e.clientY,
+      );
+    };
+
+    document.addEventListener('mousedown', onCaptureMouseDown, true);
+    return () => document.removeEventListener('mousedown', onCaptureMouseDown, true);
+  }, [start]);
 
   useEffect(() => {
     if (!dragging) return;
 
     const onMove = (e: MouseEvent) => {
       // 探测命中: data-drop-kinds 节点
-      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
-      const dropEl = el?.closest('[data-drop-kinds]') as HTMLElement | null;
+      // 使用 elementsFromPoint 穿透 ReactFlow SelectionPane 覆盖层
+      const stack = document.elementsFromPoint(e.clientX, e.clientY);
+      let dropEl: HTMLElement | null = null;
+      for (const el of stack) {
+        if (!(el instanceof HTMLElement)) continue;
+        if (el.hasAttribute('data-drop-kinds')) {
+          dropEl = el;
+          break;
+        }
+        const closest = el.closest('[data-drop-kinds]') as HTMLElement | null;
+        if (closest) {
+          dropEl = closest;
+          break;
+        }
+      }
       let hoverTargetId: string | null = null;
       let accepts = false;
       if (dropEl) {

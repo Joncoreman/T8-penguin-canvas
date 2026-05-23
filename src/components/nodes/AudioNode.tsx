@@ -481,6 +481,11 @@ const AudioNode = ({ id, data, selected }: NodeProps) => {
                 src={t.audioUrl}
                 controls
                 className="w-full h-8"
+                data-drag-source
+                data-drag-kind="audio"
+                data-drag-url={t.audioUrl}
+                data-drag-preview={t.audioUrl}
+                data-drag-node-id={id}
                 onMouseDown={(e) => beginMaterialDrag(e, { kind: 'audio', url: t.audioUrl, sourceNodeId: id, previewUrl: t.audioUrl })}
                 title="按住 Ctrl 拖拽到其他节点"
               />

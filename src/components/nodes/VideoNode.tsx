@@ -599,6 +599,11 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
                   <img
                     src={u}
                     alt=""
+                    data-drag-source
+                    data-drag-kind="image"
+                    data-drag-url={u}
+                    data-drag-preview={u}
+                    data-drag-node-id={id}
                     onMouseDown={(e) => beginMaterialDrag(e, { kind: 'image', url: u, sourceNodeId: id, previewUrl: u })}
                     className="w-10 h-10 object-cover rounded border border-white/10 cursor-grab"
                   />
@@ -664,6 +669,11 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
             controls
             className="w-full rounded"
             style={{ aspectRatio: ratio.replace(':', '/') }}
+            data-drag-source
+            data-drag-kind="video"
+            data-drag-url={videoUrl}
+            data-drag-preview={videoUrl}
+            data-drag-node-id={id}
             onMouseDown={(e) => beginMaterialDrag(e, { kind: 'video', url: videoUrl, sourceNodeId: id, previewUrl: videoUrl })}
             title="按住 Ctrl 拖拽到其他节点"
           />

@@ -502,6 +502,11 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
                   alt={`图像 ${i + 1}`}
                   className="w-full h-auto rounded block cursor-zoom-in"
                   style={{ background: '#0008', objectFit: 'contain', maxHeight: 480 }}
+                  data-drag-source
+                  data-drag-kind="image"
+                  data-drag-url={u}
+                  data-drag-preview={u}
+                  data-drag-node-id={id}
                   onMouseDown={(e) =>
                     beginMaterialDrag(e, { kind: 'image', url: u, sourceNodeId: id, previewUrl: u })
                   }
@@ -544,6 +549,11 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
                   controls
                   className="w-full h-auto rounded block"
                   style={{ background: '#000', objectFit: 'contain', maxHeight: 480 }}
+                  data-drag-source
+                  data-drag-kind="video"
+                  data-drag-url={u}
+                  data-drag-preview={u}
+                  data-drag-node-id={id}
                   onMouseDown={(e) =>
                     beginMaterialDrag(e, { kind: 'video', url: u, sourceNodeId: id, previewUrl: u })
                   }
@@ -580,6 +590,10 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
                   src={u}
                   controls
                   className="w-full"
+                  data-drag-source
+                  data-drag-kind="audio"
+                  data-drag-url={u}
+                  data-drag-node-id={id}
                   onMouseDown={(e) =>
                     beginMaterialDrag(e, { kind: 'audio', url: u, sourceNodeId: id })
                   }

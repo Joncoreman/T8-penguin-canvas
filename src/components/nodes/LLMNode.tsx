@@ -570,6 +570,11 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
                   <img
                     src={f.dataUrl}
                     alt={f.name}
+                    data-drag-source
+                    data-drag-kind="image"
+                    data-drag-url={f.dataUrl}
+                    data-drag-preview={f.dataUrl}
+                    data-drag-node-id={id}
                     onMouseDown={(e) => beginMaterialDrag(e, { kind: 'image', url: f.dataUrl, sourceNodeId: id, previewUrl: f.dataUrl })}
                     className="w-10 h-10 object-cover rounded border border-white/10 cursor-grab"
                   />
@@ -669,6 +674,11 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
                     key={j}
                     src={u}
                     alt=""
+                    data-drag-source
+                    data-drag-kind="image"
+                    data-drag-url={u}
+                    data-drag-preview={u}
+                    data-drag-node-id={id}
                     onMouseDown={(e) => beginMaterialDrag(e, { kind: 'image', url: u, sourceNodeId: id, previewUrl: u })}
                     className="w-12 h-12 object-cover rounded border border-white/10 cursor-grab"
                     title="按住 Ctrl 拖拽到其他节点"

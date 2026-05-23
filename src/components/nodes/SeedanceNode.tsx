@@ -493,6 +493,11 @@ const SeedanceNode = ({ id, data, selected }: NodeProps) => {
                     <img
                       src={u}
                       alt=""
+                      data-drag-source
+                      data-drag-kind="image"
+                      data-drag-url={u}
+                      data-drag-preview={u}
+                      data-drag-node-id={id}
                       onMouseDown={(e) => beginMaterialDrag(e, { kind: 'image', url: u, sourceNodeId: id, previewUrl: u })}
                       className="w-10 h-10 object-cover rounded border border-white/10 cursor-grab"
                     />
@@ -512,6 +517,11 @@ const SeedanceNode = ({ id, data, selected }: NodeProps) => {
                   <div key={`v${i}`} className="flex items-center gap-1">
                     <video
                       src={u}
+                      data-drag-source
+                      data-drag-kind="video"
+                      data-drag-url={u}
+                      data-drag-preview={u}
+                      data-drag-node-id={id}
                       onMouseDown={(e) => beginMaterialDrag(e, { kind: 'video', url: u, sourceNodeId: id, previewUrl: u })}
                       className="w-12 h-8 object-cover rounded border border-white/10 cursor-grab"
                     />
@@ -531,6 +541,10 @@ const SeedanceNode = ({ id, data, selected }: NodeProps) => {
                 {localRefAudios.map((u, i) => (
                   <div key={`a${i}`} className="flex items-center gap-1">
                     <span
+                      data-drag-source
+                      data-drag-kind="audio"
+                      data-drag-url={u}
+                      data-drag-node-id={id}
                       onMouseDown={(e) => beginMaterialDrag(e, { kind: 'audio', url: u, sourceNodeId: id, previewUrl: u })}
                       className="text-[14px] cursor-grab"
                       title="按住 Ctrl 拖拽"
@@ -599,6 +613,11 @@ const SeedanceNode = ({ id, data, selected }: NodeProps) => {
             controls
             className="w-full rounded"
             style={{ aspectRatio: ratio === 'adaptive' ? undefined : ratio.replace(':', '/') }}
+            data-drag-source
+            data-drag-kind="video"
+            data-drag-url={videoUrl}
+            data-drag-preview={videoUrl}
+            data-drag-node-id={id}
             onMouseDown={(e) => beginMaterialDrag(e, { kind: 'video', url: videoUrl, sourceNodeId: id, previewUrl: videoUrl })}
             title="按住 Ctrl 拖拽到其他节点"
           />
