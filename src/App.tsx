@@ -276,13 +276,14 @@ function App() {
               <div
                 className={
                   isPixel
-                    ? 'absolute right-0 top-full mt-2 z-[60] w-[360px] px-panel p-3 animate-[fadeIn_.18s_ease-out]'
+                    ? 'absolute right-0 top-full mt-2 z-[60] w-[360px] px-panel rounded-2xl p-3 animate-[fadeIn_.18s_ease-out]'
                     : `absolute right-0 top-full mt-2 z-[60] w-[360px] rounded-xl p-3 border shadow-2xl backdrop-blur-md animate-[fadeIn_.18s_ease-out] ${
                         isDark
                           ? 'bg-zinc-900/95 border-orange-400/20 shadow-orange-500/10'
                           : 'bg-white/95 border-orange-200 shadow-orange-500/10'
                       }`
                 }
+                style={{ zoom: 1.5 }}
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 {/* 标题 */}
@@ -417,13 +418,14 @@ function App() {
               <div
                 className={
                   isPixel
-                    ? 'absolute right-0 top-full mt-2 z-[60] w-[340px] px-panel p-3 animate-[fadeIn_.18s_ease-out]'
+                    ? 'absolute right-0 top-full mt-2 z-[60] w-[340px] px-panel rounded-2xl p-3 animate-[fadeIn_.18s_ease-out]'
                     : `absolute right-0 top-full mt-2 z-[60] w-[340px] rounded-xl p-3 border shadow-2xl backdrop-blur-md animate-[fadeIn_.18s_ease-out] ${
                         isDark
                           ? 'bg-zinc-900/95 border-violet-400/20 shadow-violet-500/10'
                           : 'bg-white/95 border-violet-200 shadow-violet-500/10'
                       }`
                 }
+                style={{ zoom: 1.5 }}
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 {/* 标题 */}
@@ -537,13 +539,14 @@ function App() {
               <div
                 className={
                   isPixel
-                    ? 'absolute right-0 top-full mt-2 z-[60] w-[320px] px-panel p-3 animate-[fadeIn_.18s_ease-out]'
+                    ? 'absolute right-0 top-full mt-2 z-[60] w-[320px] px-panel rounded-2xl p-3 animate-[fadeIn_.18s_ease-out]'
                     : `absolute right-0 top-full mt-2 z-[60] w-[320px] rounded-xl p-3 border shadow-2xl backdrop-blur-md animate-[fadeIn_.18s_ease-out] ${
                         isDark
                           ? 'bg-zinc-900/95 border-rose-400/20 shadow-rose-500/10'
                           : 'bg-white/95 border-rose-200 shadow-rose-500/10'
                       }`
                 }
+                style={{ zoom: 1.5 }}
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 {/* 标题 */}
@@ -662,13 +665,14 @@ function App() {
               <div
                 className={
                   isPixel
-                    ? 'absolute right-0 top-full mt-2 z-[60] w-[320px] px-panel p-3 animate-[fadeIn_.18s_ease-out]'
+                    ? 'absolute right-0 top-full mt-2 z-[60] w-[320px] px-panel rounded-2xl p-3 animate-[fadeIn_.18s_ease-out]'
                     : `absolute right-0 top-full mt-2 z-[60] w-[320px] rounded-xl p-3 border shadow-2xl backdrop-blur-md animate-[fadeIn_.18s_ease-out] ${
                         isDark
                           ? 'bg-zinc-900/95 border-emerald-400/20 shadow-emerald-500/10'
                           : 'bg-white/95 border-emerald-200 shadow-emerald-500/10'
                       }`
                 }
+                style={{ zoom: 1.5 }}
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 {/* 标题 */}
