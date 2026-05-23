@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react';
-import { AlertCircle, Loader2, Video as VideoIcon, Sparkles, Square } from 'lucide-react';
+import { AlertCircle, Loader2, Video as VideoIcon, Sparkles, Square, X } from 'lucide-react';
 import { VIDEO_MODELS, isFalVideoModel, VIDEO_FAL_REGISTRY, VEO_FAL_RATIOS, VEO_FAL_DURATIONS, VEO_FAL_RESOLUTIONS, GROK_FAL_RATIOS, GROK_FAL_RESOLUTIONS } from '../../providers/models';
 import { submitVideo, queryVideo, submitVideoFal, queryVideoFal, type VideoSubmitRequest, type VideoFalSubmitRequest } from '../../services/generation';
 import { useUpdateNodeData } from './useUpdateNodeData';
@@ -11,6 +11,8 @@ import { useThemeStore } from '../../stores/theme';
 import { useUpstreamMaterials } from './useUpstreamMaterials';
 import { useOrderedMaterials } from './useOrderedMaterials';
 import MaterialPreviewSection from './MaterialPreviewSection';
+import { useDragMaterialStore, type MaterialPayload } from '../../stores/dragMaterial';
+import { useMaterialDropTarget } from '../../hooks/useMaterialDropTarget';
 
 /**
  * VideoNode - 异步视频生成(完全对齐 gpt-image-2-web)
@@ -76,17 +78,24 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
   const orderedAudios = useOrderedMaterials(upstream.audios, materialOrder);
   const setMaterialOrder = (newOrder: string[]) => update({ materialOrder: newOrder });
 
+  // === 本地拖入参考图 (跨节点 Ctrl 拖拽) ===
+  const localRefImages: string[] = Array.isArray(d?.localRefImages) ? d.localRefImages : [];
+
   // 分组动态跟随子模型: seedance 支持 image/video/audio, 其他 (grok/veo) 仅 image
   const previewGroups = useMemo<ReadonlyArray<'text' | 'image' | 'video' | 'audio'>>(
     () => (modelDef.kind === 'seedance' ? ['text', 'image', 'video', 'audio'] : ['text', 'image']),
     [modelDef.kind],
   );
 
-  // 收集上游 prompt + 参考图 (按用户拖拽顺序)
+  // 收集上游 prompt + 参考图 (按用户拖拽顺序), 合并本地拖入参考图
   const collectUpstream = (): { prompt: string; imageUrls: string[] } => {
     const prompts = orderedTexts.map((t) => t.url).filter((s) => !!s);
-    const imageUrls = orderedImages.map((m) => m.url).filter((s) => !!s);
-    return { prompt: prompts.join('\n').trim(), imageUrls };
+    const upImageUrls = orderedImages.map((m) => m.url).filter((s) => !!s);
+    const merged: string[] = [];
+    for (const u of [...upImageUrls, ...localRefImages]) {
+      if (u && merged.indexOf(u) === -1) merged.push(u);
+    }
+    return { prompt: prompts.join('\n').trim(), imageUrls: merged };
   };
 
   // 本地 URL 转 base64(veo/seedance 路径使用;grok 可直接传 URL)
@@ -325,15 +334,47 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
     await handleGenerate();
   });
 
+  // === 跨节点拖拽: source (输出视频可拖出) ===
+  const startDrag = useDragMaterialStore((s) => s.start);
+  const beginMaterialDrag = (e: React.MouseEvent, payload: MaterialPayload) => {
+    if (e.button !== 0 || !(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startDrag(payload, e.clientX, e.clientY);
+  };
+
+  // === 跨节点拖拽: target (接收 image → localRefImages, text → prompt) ===
+  const handleDrop = (payload: MaterialPayload) => {
+    if (payload.kind === 'image' && payload.url) {
+      const cur = Array.isArray(d?.localRefImages) ? d.localRefImages : [];
+      if (cur.indexOf(payload.url) !== -1) return;
+      const cap = (modelDef.maxRefImages || 7) + 4; // 给本地一些余量
+      if (cur.length >= cap) return;
+      update({ localRefImages: [...cur, payload.url] });
+    } else if (payload.kind === 'text' && typeof payload.text === 'string') {
+      update({ prompt: payload.text });
+    }
+  };
+  const { dropProps, isAccepting } = useMaterialDropTarget({
+    id,
+    accepts: ['image', 'text'],
+    onDrop: handleDrop,
+  });
+
   const isBusy = status === 'submitting' || status === 'polling';
-  const refsCount = orderedImages.length;
+  const refsCount = orderedImages.length + localRefImages.length;
 
   return (
     <div
+      {...dropProps}
       className={`relative rounded-xl border-2 transition-all w-[300px] ${
-        selected ? 'border-rose-400 shadow-2xl shadow-rose-500/20' : 'border-white/15 hover:border-white/30'
+        selected ? 'border-rose-400 shadow-2xl shadow-rose-500/20' : isAccepting ? 'border-emerald-400' : 'border-white/15 hover:border-white/30'
       }`}
-      style={{ background: 'rgba(20,20,22,.92)', backdropFilter: 'blur(8px)' }}
+      style={{
+        background: 'rgba(20,20,22,.92)',
+        backdropFilter: 'blur(8px)',
+        boxShadow: isAccepting ? '0 0 0 2px rgba(52,211,153,.45), 0 12px 30px rgba(52,211,153,.18)' : undefined,
+      }}
     >
       <Handle type="target" position={Position.Left} className="!bg-rose-400 !border-0" />
       <Handle type="source" position={Position.Right} className="!bg-rose-400 !border-0" />
@@ -548,6 +589,31 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
           />
         )}
 
+        {/* 本地拖入参考图 (Ctrl+拖拽自其他节点) */}
+        {modelDef.supportImages && localRefImages.length > 0 && (
+          <div className="rounded border border-emerald-400/30 bg-emerald-500/5 p-1.5">
+            <div className="text-[10px] text-emerald-200/80 mb-1">本地拖入参考图 · {localRefImages.length}</div>
+            <div className="flex gap-1 flex-wrap">
+              {localRefImages.map((u, i) => (
+                <div key={i} className="relative w-10 h-10">
+                  <img
+                    src={u}
+                    alt=""
+                    onMouseDown={(e) => beginMaterialDrag(e, { kind: 'image', url: u, sourceNodeId: id, previewUrl: u })}
+                    className="w-10 h-10 object-cover rounded border border-white/10 cursor-grab"
+                  />
+                  <button
+                    onClick={() => update({ localRefImages: localRefImages.filter((x) => x !== u) })}
+                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center"
+                  >
+                    <X size={9} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Prompt */}
         <div>
           <label className="text-[10px] text-white/50 block mb-1">本地 Prompt(可选)</label>
@@ -598,6 +664,8 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
             controls
             className="w-full rounded"
             style={{ aspectRatio: ratio.replace(':', '/') }}
+            onMouseDown={(e) => beginMaterialDrag(e, { kind: 'video', url: videoUrl, sourceNodeId: id, previewUrl: videoUrl })}
+            title="按住 Ctrl 拖拽到其他节点"
           />
         </div>
       )}

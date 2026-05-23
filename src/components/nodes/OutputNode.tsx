@@ -13,6 +13,8 @@ import { useUpdateNodeData } from './useUpdateNodeData';
 import { useThemeStore } from '../../stores/theme';
 import { PORT_COLOR } from '../../config/portTypes';
 import ImageEditModal, { type ImageEditProduceMeta } from './ImageEditModal';
+import { useMaterialDropTarget } from '../../hooks/useMaterialDropTarget';
+import { useDragMaterialStore, type MaterialPayload } from '../../stores/dragMaterial';
 
 /**
  * OutputNode - 通用输出素材节点 (中继展示型)
@@ -103,11 +105,18 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     // 独立模式 (双击编辑生成的产物 OutputNode):
     //   节点本身携带 directImageUrl/directImageUrls, 未连任何上游也能独立展示。
     //   这些产物不会被 pickKind/pickIndex 过滤干预, 在下面独立补补。
+    //   v1.5: 新增 directVideoUrl / directAudioUrl / outputText 以支持跨节点拖拽投放。
     if (typeof d.directImageUrl === 'string' && d.directImageUrl) {
       pushUnique(out.images, d.directImageUrl);
     }
     if (Array.isArray(d.directImageUrls)) {
       d.directImageUrls.forEach((u: any) => pushUnique(out.images, u));
+    }
+    if (typeof d.directVideoUrl === 'string' && d.directVideoUrl) {
+      pushUnique(out.videos, d.directVideoUrl);
+    }
+    if (typeof d.directAudioUrl === 'string' && d.directAudioUrl) {
+      pushUnique(out.audios, d.directAudioUrl);
     }
 
     // 兜底: 一些节点把视频/音频塞在 imageUrl, 通过扩展名识别再纠正
@@ -150,7 +159,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     }
 
     return out;
-  }, [upstreamNodes, d.pickKind, d.pickIndex, d.directImageUrl, d.directImageUrls]);
+  }, [upstreamNodes, d.pickKind, d.pickIndex, d.directImageUrl, d.directImageUrls, d.directVideoUrl, d.directAudioUrl]);
 
   // 文本编辑
   const overrideText: string = typeof d.outputText === 'string' ? d.outputText : '';
@@ -221,6 +230,40 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     rf.addNodes(newNodes);
   };
 
+  // === 跨节点拖拽: source (从 collected.* 拖出) ===
+  // 独立函数避开 hooks-in-loop 限制
+  const startDrag = useDragMaterialStore((s) => s.start);
+  const beginMaterialDrag = (e: React.MouseEvent, payload: MaterialPayload) => {
+    if (e.button !== 0) return;
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startDrag(payload, e.clientX, e.clientY);
+  };
+
+  // === 跨节点拖拽: target (接收后以 direct* 独立模式补充, 不依赖上游) ===
+  const handleDrop = (payload: MaterialPayload) => {
+    if (payload.kind === 'image' && payload.url) {
+      const cur: string[] = Array.isArray(d.directImageUrls) ? d.directImageUrls : [];
+      if (!d.directImageUrl) {
+        update({ directImageUrl: payload.url });
+      } else if (cur.indexOf(payload.url) === -1) {
+        update({ directImageUrls: [...cur, payload.url] });
+      }
+    } else if (payload.kind === 'video' && payload.url) {
+      update({ directVideoUrl: payload.url });
+    } else if (payload.kind === 'audio' && payload.url) {
+      update({ directAudioUrl: payload.url });
+    } else if (payload.kind === 'text' && typeof payload.text === 'string') {
+      update({ outputText: payload.text });
+    }
+  };
+  const { dropProps, isAccepting } = useMaterialDropTarget({
+    id,
+    accepts: ['image', 'video', 'audio', 'text'],
+    onDrop: handleDrop,
+  });
+
   // === 下游透传: 将 collected + displayText 写到自身 data 供下游节点读取 ===
   // 仅在生成的输出实际变化时调用 update, 避免 setNode 风暴.
   // 不踩 outputText (保留 「用户编辑覆盖」 语义), 文本透传到 prompt/text/reply.
@@ -272,6 +315,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
     <div
       className="relative"
       style={{ width: 320 }}
+      {...dropProps}
     >
       {/* target handle (左侧) - 上游任意类型可连入 */}
       <Handle
@@ -318,7 +362,14 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
         style={{
           background: isDark ? 'rgb(20,20,22)' : 'rgb(255,255,255)',
           overflow: 'hidden',
-          borderColor: selected ? accent : isDark ? 'rgba(255,255,255,.15)' : 'rgba(0,0,0,.1)',
+          borderColor: isAccepting
+            ? '#22c55e'
+            : selected
+              ? accent
+              : isDark
+                ? 'rgba(255,255,255,.15)'
+                : 'rgba(0,0,0,.1)',
+          boxShadow: isAccepting ? '0 0 0 3px rgba(34,197,94,0.25)' : undefined,
         }}
       >
 
@@ -451,11 +502,14 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
                   alt={`图像 ${i + 1}`}
                   className="w-full h-auto rounded block cursor-zoom-in"
                   style={{ background: '#0008', objectFit: 'contain', maxHeight: 480 }}
+                  onMouseDown={(e) =>
+                    beginMaterialDrag(e, { kind: 'image', url: u, sourceNodeId: id, previewUrl: u })
+                  }
                   onDoubleClick={(e) => {
                     e.stopPropagation();
                     setEditingUrl(u);
                   }}
-                  title="双击编辑 (裁剪 / 宫格切分)"
+                  title="双击编辑 (裁剪 / 宫格切分) · Ctrl+拖拽可送到其他节点"
                 />
                 <div className={`flex items-center gap-1 text-[10px] ${isDark ? 'text-white/40' : 'text-zinc-400'}`}>
                   <span className="truncate flex-1" title={u}>{u.split('/').pop()}</span>
@@ -490,6 +544,9 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
                   controls
                   className="w-full h-auto rounded block"
                   style={{ background: '#000', objectFit: 'contain', maxHeight: 480 }}
+                  onMouseDown={(e) =>
+                    beginMaterialDrag(e, { kind: 'video', url: u, sourceNodeId: id, previewUrl: u })
+                  }
                 />
                 <div className={`flex items-center gap-1 text-[10px] ${isDark ? 'text-white/40' : 'text-zinc-400'}`}>
                   <span className="truncate flex-1" title={u}>{u.split('/').pop()}</span>
@@ -519,7 +576,14 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
             </div>
             {collected.audios.map((u, i) => (
               <div key={i} className="space-y-0.5">
-                <audio src={u} controls className="w-full" />
+                <audio
+                  src={u}
+                  controls
+                  className="w-full"
+                  onMouseDown={(e) =>
+                    beginMaterialDrag(e, { kind: 'audio', url: u, sourceNodeId: id })
+                  }
+                />
                 <div className={`flex items-center gap-1 text-[10px] ${isDark ? 'text-white/40' : 'text-zinc-400'}`}>
                   <span className="truncate flex-1" title={u}>{u.split('/').pop()}</span>
                   <a

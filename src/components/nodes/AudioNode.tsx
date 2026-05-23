@@ -12,6 +12,8 @@ import { useThemeStore } from '../../stores/theme';
 import { useUpstreamMaterials } from './useUpstreamMaterials';
 import { useOrderedMaterials } from './useOrderedMaterials';
 import MaterialPreviewSection from './MaterialPreviewSection';
+import { useDragMaterialStore, type MaterialPayload } from '../../stores/dragMaterial';
+import { useMaterialDropTarget } from '../../hooks/useMaterialDropTarget';
 
 /**
  * AudioNode - Suno (generate / cover / extend) — 完全对齐 gpt-image-2-web
@@ -71,6 +73,9 @@ const AudioNode = ({ id, data, selected }: NodeProps) => {
   const orderedTexts = useOrderedMaterials(upstream.texts, materialOrder);
   const orderedAudios = useOrderedMaterials(upstream.audios, materialOrder);
   const setMaterialOrder = (newOrder: string[]) => update({ materialOrder: newOrder });
+
+  // === 本地拖入参考音频 (跨节点 Ctrl 拖拽) ===
+  const localRefAudio: string = typeof d?.localRefAudio === 'string' ? d.localRefAudio : '';
   
   // 分组动态跟随模式: generate 只要文本, cover/extend 需要参考音频
   const previewGroups = useMemo<ReadonlyArray<'text' | 'image' | 'video' | 'audio'>>(
@@ -78,10 +83,10 @@ const AudioNode = ({ id, data, selected }: NodeProps) => {
     [mode],
   );
   
-  // 收集上游: prompt + audioUrl(cover/extend 兼底, 取 ordered 首个)
+  // 收集上游: prompt + audioUrl(cover/extend 兼底, 取 ordered 首个, 后补本地拖入)
   const collectUpstream = (): { prompt: string; audioUrl: string } => {
     const prompt = orderedTexts.map((t) => t.url).filter((s) => !!s).join('\n').trim();
-    const audioUrl = orderedAudios[0]?.url || '';
+    const audioUrl = orderedAudios[0]?.url || localRefAudio || '';
     return { prompt, audioUrl };
   };
 
@@ -218,16 +223,45 @@ const AudioNode = ({ id, data, selected }: NodeProps) => {
     await handleGenerate();
   });
 
+  // === 跨节点拖拽: source (输出 tracks 可拖出) ===
+  const startDrag = useDragMaterialStore((s) => s.start);
+  const beginMaterialDrag = (e: React.MouseEvent, payload: MaterialPayload) => {
+    if (e.button !== 0 || !(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startDrag(payload, e.clientX, e.clientY);
+  };
+
+  // === 跨节点拖拽: target (接收 audio → localRefAudio, text → prompt) ===
+  const handleDrop = (payload: MaterialPayload) => {
+    if (payload.kind === 'audio' && payload.url) {
+      update({ localRefAudio: payload.url, uploadedClipId: '', uploadedFilename: '' });
+      logBus.info('已接受拖入参考音频, 生成时将自动上传', src);
+    } else if (payload.kind === 'text' && typeof payload.text === 'string') {
+      update({ prompt: payload.text });
+    }
+  };
+  const { dropProps, isAccepting } = useMaterialDropTarget({
+    id,
+    accepts: ['audio', 'text'],
+    onDrop: handleDrop,
+  });
+
   const isBusy = status === 'submitting' || status === 'polling';
   const showRefArea = mode === 'cover' || mode === 'extend';
   const audioColor = PORT_COLOR.audio;
 
   return (
     <div
+      {...dropProps}
       className={`relative rounded-xl border-2 transition-all w-[320px] ${
-        selected ? 'border-violet-400 shadow-2xl shadow-violet-500/20' : 'border-white/15 hover:border-white/30'
+        selected ? 'border-violet-400 shadow-2xl shadow-violet-500/20' : isAccepting ? 'border-emerald-400' : 'border-white/15 hover:border-white/30'
       }`}
-      style={{ background: 'rgba(20,20,22,.92)', backdropFilter: 'blur(8px)' }}
+      style={{
+        background: 'rgba(20,20,22,.92)',
+        backdropFilter: 'blur(8px)',
+        boxShadow: isAccepting ? '0 0 0 2px rgba(52,211,153,.45), 0 12px 30px rgba(52,211,153,.18)' : undefined,
+      }}
     >
       <Handle type="target" position={Position.Left} style={{ background: audioColor, border: 0 }} />
       {/* 双输出口: 轨道 1 / 轨道 2 */}
@@ -356,8 +390,15 @@ const AudioNode = ({ id, data, selected }: NodeProps) => {
               <span className="text-[10px] text-violet-200/80">
                 {mode === 'cover' ? '参考音频 (Cover)' : '参考音频 (Extend)'}
               </span>
-              {uploadedClipId && (
-                <button onClick={clearUpload} className="text-violet-300/60 hover:text-violet-100" title="清除">
+              {(uploadedClipId || localRefAudio) && (
+                <button
+                  onClick={() => {
+                    clearUpload();
+                    if (localRefAudio) update({ localRefAudio: '' });
+                  }}
+                  className="text-violet-300/60 hover:text-violet-100"
+                  title="清除"
+                >
                   <X size={11} />
                 </button>
               )}
@@ -366,6 +407,11 @@ const AudioNode = ({ id, data, selected }: NodeProps) => {
               <div className="text-[10px] text-violet-100/90 truncate">
                 🎵 {uploadedFilename || uploadedClipId.slice(0, 12)}
                 <span className="text-white/40 ml-1">({uploadedClipId.slice(0, 8)}…)</span>
+              </div>
+            ) : localRefAudio ? (
+              <div className="text-[10px] text-emerald-200/90 truncate">
+                📥 本地拖入: {localRefAudio.split('/').pop()}
+                <span className="text-white/40 ml-1">(生成时上传)</span>
               </div>
             ) : (
               <div className="text-[10px] text-white/40">未上传 · 连接上游音频节点可自动拉取</div>
@@ -431,7 +477,13 @@ const AudioNode = ({ id, data, selected }: NodeProps) => {
                 {t.title && <span className="truncate">🎵 {t.title}</span>}
                 {t.clipId && <span className="ml-auto text-white/30">{t.clipId.slice(0, 8)}…</span>}
               </div>
-              <audio src={t.audioUrl} controls className="w-full h-8" />
+              <audio
+                src={t.audioUrl}
+                controls
+                className="w-full h-8"
+                onMouseDown={(e) => beginMaterialDrag(e, { kind: 'audio', url: t.audioUrl, sourceNodeId: id, previewUrl: t.audioUrl })}
+                title="按住 Ctrl 拖拽到其他节点"
+              />
             </div>
           ))}
         </div>

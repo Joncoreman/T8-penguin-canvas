@@ -36,6 +36,8 @@ import { useHasAutoOutput } from './useHasAutoOutput';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
 import { useThemeStore } from '../../stores/theme';
 import { logBus } from '../../stores/logs';
+import { useDragMaterialStore, type MaterialPayload } from '../../stores/dragMaterial';
+import { useMaterialDropTarget } from '../../hooks/useMaterialDropTarget';
 
 /**
  * ImageNode - 图像生成(ZhenzhenMagic)
@@ -502,12 +504,44 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
   // 接入运行总线,供批量运行调起
   useRunTrigger(id, handleGenerate);
 
+  // === 跨节点拖拽: source (从输出图 Ctrl+拖出) ===
+  const startDrag = useDragMaterialStore((s) => s.start);
+  const beginMaterialDrag = (e: React.MouseEvent, payload: MaterialPayload) => {
+    if (e.button !== 0) return;
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startDrag(payload, e.clientX, e.clientY);
+  };
+
+  // === 跨节点拖拽: target (接收图像 → 追加到 referenceImages; 接收文本 → 替换 prompt) ===
+  const handleDrop = (payload: MaterialPayload) => {
+    if (payload.kind === 'image' && payload.url) {
+      const cur = Array.isArray(d?.referenceImages) ? d.referenceImages : [];
+      if (cur.indexOf(payload.url) !== -1) return;
+      if (cur.length >= maxRefs) return;
+      update({ referenceImages: [...cur, payload.url] });
+    } else if (payload.kind === 'text' && typeof payload.text === 'string') {
+      update({ prompt: payload.text });
+    }
+  };
+  const { dropProps, isAccepting } = useMaterialDropTarget({
+    id,
+    accepts: ['image', 'text'],
+    onDrop: handleDrop,
+  });
+
   return (
     <div
       className={`relative rounded-xl border-2 transition-all w-[320px] ${
         selected ? 'border-amber-400 shadow-2xl shadow-amber-500/20' : 'border-white/15 hover:border-white/30'
       }`}
-      style={{ background: 'rgba(20,20,22,.92)', backdropFilter: 'blur(8px)' }}
+      style={{
+        background: 'rgba(20,20,22,.92)',
+        backdropFilter: 'blur(8px)',
+        ...(isAccepting ? { borderColor: '#22c55e', boxShadow: '0 0 0 3px rgba(34,197,94,0.25)' } : null),
+      }}
+      {...dropProps}
     >
       <Handle type="target" position={Position.Left} className="!bg-amber-400 !border-0" />
       <Handle type="source" position={Position.Right} className="!bg-amber-400 !border-0" />
@@ -1120,7 +1154,15 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
       {/* 结果展示：仅在未外挂 OutputNode 时在节点内预览，避免与下游 OutputNode 重复 */}
       {imageUrl && !hasAutoOutput && (
         <div className="border-t border-white/10 p-2">
-          <img src={imageUrl} alt="生成结果" className="w-full rounded object-cover" />
+          <img
+            src={imageUrl}
+            alt="生成结果"
+            className="w-full rounded object-cover"
+            onMouseDown={(e) =>
+              beginMaterialDrag(e, { kind: 'image', url: imageUrl, sourceNodeId: id, previewUrl: imageUrl })
+            }
+            title="Ctrl+拖拽可送到其他节点"
+          />
         </div>
       )}
     </div>

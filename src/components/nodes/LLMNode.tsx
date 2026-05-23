@@ -24,6 +24,8 @@ import { useUpdateNodeData } from './useUpdateNodeData';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
 import { logBus } from '../../stores/logs';
 import { PORT_COLOR } from '../../config/portTypes';
+import { useDragMaterialStore, type MaterialPayload } from '../../stores/dragMaterial';
+import { useMaterialDropTarget } from '../../hooks/useMaterialDropTarget';
 
 /**
  * LLM / Vision 节点 —— 完全对齐 gpt-image-2-web Chat (index.html L1600 / L8128~L8400)
@@ -324,6 +326,31 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
   // 接入运行总线
   useRunTrigger(id, handleSend);
 
+  // === 跨节点拖拽: source (生成图可拖出) ===
+  const startDrag = useDragMaterialStore((s) => s.start);
+  const beginMaterialDrag = (e: React.MouseEvent, payload: MaterialPayload) => {
+    if (e.button !== 0 || !(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startDrag(payload, e.clientX, e.clientY);
+  };
+
+  // === 跨节点拖拽: target (接收 image → pickedFiles, text → prompt) ===
+  const handleDrop = (payload: MaterialPayload) => {
+    if (payload.kind === 'image' && payload.url) {
+      const url = payload.url;
+      setPickedFiles((s) => (s.some((f) => f.dataUrl === url) ? s : [...s, { name: url.split('/').pop() || 'dropped', dataUrl: url }]));
+      logBus.info(`已接受拖入图像 · ${url.slice(-40)}`, src);
+    } else if (payload.kind === 'text' && typeof payload.text === 'string') {
+      update({ prompt: payload.text });
+    }
+  };
+  const { dropProps, isAccepting } = useMaterialDropTarget({
+    id,
+    accepts: ['image', 'text'],
+    onDrop: handleDrop,
+  });
+
   const handleColor = PORT_COLOR.text; // 输出 text;输入兼容 text+image(由 portTypes.llm 决定)
 
   const mainRef = useRef<HTMLDivElement>(null);
@@ -338,7 +365,7 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
   });
 
   return (
-    <div className="relative flex items-start gap-0">
+    <div className="relative flex items-start gap-0" {...dropProps}>
       {/* 输入 Handle — 固定在整体左侧 */}
       <Handle
         type="target"
@@ -355,9 +382,12 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
     <div
       ref={mainRef}
       className={`relative rounded-xl border-2 transition-all w-[320px] ${
-        selected ? 'border-emerald-400 shadow-2xl shadow-emerald-500/20' : 'border-white/15 hover:border-white/30'
+        selected ? 'border-emerald-400 shadow-2xl shadow-emerald-500/20' : isAccepting ? 'border-emerald-400' : 'border-white/15 hover:border-white/30'
       }`}
-      style={{ background: 'rgba(20,20,22,.92)' }}
+      style={{
+        background: 'rgba(20,20,22,.92)',
+        boxShadow: isAccepting ? '0 0 0 2px rgba(52,211,153,.45), 0 12px 30px rgba(52,211,153,.18)' : undefined,
+      }}
     >
 
       {/* Header */}
@@ -537,7 +567,12 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
             <div className="flex gap-1 flex-wrap">
               {pickedFiles.map((f, i) => (
                 <div key={i} className="relative w-10 h-10">
-                  <img src={f.dataUrl} alt={f.name} className="w-10 h-10 object-cover rounded border border-white/10" />
+                  <img
+                    src={f.dataUrl}
+                    alt={f.name}
+                    onMouseDown={(e) => beginMaterialDrag(e, { kind: 'image', url: f.dataUrl, sourceNodeId: id, previewUrl: f.dataUrl })}
+                    className="w-10 h-10 object-cover rounded border border-white/10 cursor-grab"
+                  />
                   <button
                     onClick={() => removePickedAt(i)}
                     className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center"
@@ -630,7 +665,14 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
             {t.images && t.images.length > 0 && (
               <div className="flex gap-1 flex-wrap mt-1">
                 {t.images.map((u, j) => (
-                  <img key={j} src={u} alt="" className="w-12 h-12 object-cover rounded border border-white/10" />
+                  <img
+                    key={j}
+                    src={u}
+                    alt=""
+                    onMouseDown={(e) => beginMaterialDrag(e, { kind: 'image', url: u, sourceNodeId: id, previewUrl: u })}
+                    className="w-12 h-12 object-cover rounded border border-white/10 cursor-grab"
+                    title="按住 Ctrl 拖拽到其他节点"
+                  />
                 ))}
               </div>
             )}

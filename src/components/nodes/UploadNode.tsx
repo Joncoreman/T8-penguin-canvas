@@ -13,6 +13,7 @@ import { useUpdateNodeData } from './useUpdateNodeData';
 import { useThemeStore } from '../../stores/theme';
 import { PORT_COLOR } from '../../config/portTypes';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
+import { useDragMaterialStore, type MaterialPayload } from '../../stores/dragMaterial';
 
 /**
  * UploadNode - 通用上传素材节点
@@ -162,6 +163,16 @@ const UploadNode = ({ id, data, selected }: NodeProps) => {
 
   // 接入运行总线, 供 NodeActionBar / 批量运行 调起
   useRunTrigger(id, handleRun);
+
+  // === 跨节点拖拽: source (从已上传缩略图 Ctrl+拖出) ===
+  const startDrag = useDragMaterialStore((s) => s.start);
+  const beginMaterialDrag = (e: React.MouseEvent, payload: MaterialPayload) => {
+    if (e.button !== 0) return;
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startDrag(payload, e.clientX, e.clientY);
+  };
 
   /** 重置:清空所有字段,回到默认拖拽上传状态 */
   const handleReset = () => {
@@ -352,6 +363,10 @@ const UploadNode = ({ id, data, selected }: NodeProps) => {
                 alt={fileName}
                 className="w-full h-auto rounded block"
                 style={{ background: '#0008', objectFit: 'contain', maxHeight: 480 }}
+                onMouseDown={(e) =>
+                  beginMaterialDrag(e, { kind: 'image', url, sourceNodeId: id, previewUrl: url })
+                }
+                title="Ctrl+拖拽可送到其他节点"
               />
             )}
             {uploadType === 'video' && (
@@ -360,10 +375,20 @@ const UploadNode = ({ id, data, selected }: NodeProps) => {
                 controls
                 className="w-full h-auto rounded block"
                 style={{ background: '#000', objectFit: 'contain', maxHeight: 480 }}
+                onMouseDown={(e) =>
+                  beginMaterialDrag(e, { kind: 'video', url, sourceNodeId: id, previewUrl: url })
+                }
               />
             )}
             {uploadType === 'audio' && (
-              <audio src={url} controls className="w-full" />
+              <audio
+                src={url}
+                controls
+                className="w-full"
+                onMouseDown={(e) =>
+                  beginMaterialDrag(e, { kind: 'audio', url, sourceNodeId: id })
+                }
+              />
             )}
             <div
               className={`flex items-center gap-1 text-[10px] ${
