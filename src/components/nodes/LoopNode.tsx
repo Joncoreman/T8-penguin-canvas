@@ -199,12 +199,15 @@ const LoopNode = (p: NodeProps) => {
     //      OutputNode 检测到上游含 __loopAccumulate 时跳过 fresh 收集 (让 direct*Urls 累积值独占显示)。
     //      LoopNode 每轮收尾读上游 fresh 产物 → 追加到 OutputNode 的 direct*Urls / directOutputText。
     //      跑 N 轮 = OutputNode 内累积 N 张图 (不增加节点污染画布), 生成节点本身始终只显示最新一轮。
+    // v1.2.9.4: 给 LoopNode 自身也注入 __loopAccumulate → 「直接接 LoopNode 的 OutputNode」也能进入累积模式,
+    //          每轮采集 LoopNode 自身 fresh (循环输入素材) → 累积到 direct*Urls → 避免 0 项空白。
     const outputNodeIds = new Set<string>(subNodes.filter((n) => n.type === 'output').map((n) => n.id));
     const execSubIds = new Set<string>(subNodes.filter((n) => EXEC_TYPES.has(n.type as string)).map((n) => n.id));
-    // 进入循环前: 仅标记下游 EXEC 节点 (让 OutputNode 跳过 fresh) + 清空 OutputNode 的累积字段。
-    //         不给 OutputNode 本身注入 __loopAccumulate ——避免下游二级 OutputNode 跳过一级 OutputNode 的 fresh 导致空显示。
+    // 进入循环前: 标记下游 EXEC 节点 + LoopNode 自身 (让直接下游 OutputNode 也能累积 LoopNode fresh)
+    //          + 清空 OutputNode 的累积字段。
+    //          不给 OutputNode 本身注入 __loopAccumulate ——避免下游二级 OutputNode 跳过一级 OutputNode 的 fresh 导致空显示。
     rf.setNodes((prev) => prev.map((nd) => {
-      const isExec = execSubIds.has(nd.id);
+      const isExec = execSubIds.has(nd.id) || nd.id === id; // v1.2.9.4: LoopNode 自身也走注入分支
       const isOut = outputNodeIds.has(nd.id);
       if (!isExec && !isOut) return nd;
       const od: any = nd.data || {};
@@ -266,10 +269,10 @@ const LoopNode = (p: NodeProps) => {
       }
     }
     } finally {
-    // === v1.2.9.0: 循环结束——清除所有下游 EXEC 节点的 __loopAccumulate 标记 ===
+    // === v1.2.9.0: 循环结束——清除所有下游 EXEC 节点 + LoopNode 自身的 __loopAccumulate 标记 ===
     //         OutputNode 恢复正常 collected 透传 (fresh + direct*Urls 累积都参与)
     rf.setNodes((prev) => prev.map((nd) => {
-      if (!execSubIds.has(nd.id)) return nd;
+      if (!execSubIds.has(nd.id) && nd.id !== id) return nd; // v1.2.9.4: 包含 LoopNode 自身
       const od: any = nd.data || {};
       if (!od.__loopAccumulate) return nd;
       const next: any = { ...od };

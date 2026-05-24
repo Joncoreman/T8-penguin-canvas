@@ -381,6 +381,10 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
 
   // === v1.2.9.2: 循环累积自接管 —— OutputNode 自己检测上游 __loopAccumulate 并将 fresh 追加到自身 direct*Urls
   //         不依赖 LoopNode 跨节点 setNodes 写回 (避免时序冲突/覆盖), LoopNode 只负责注入/清除 __loopAccumulate 标记。
+  // === v1.2.9.4: 改用 rf.setNodes 函数式形式读取自身节点最新 data 计算 merge ——避免闭包陈旧 d.directImageUrls
+  //         在快速多轮循环下被后来的 useEffect fire 覆盖 (表现为: ImageNode/VideoNode 等下游 OutputNode 只累积到 1−2 张)。
+  //         同时该机制是「通用」的 ——后续新增任何 EXEC 节点, 只要 update 写入 imageUrl/imageUrls/urls/generatedImages/videoUrl/videoUrls/audioUrl/audioUrl_1/audioUrls/outputText/reply/text
+  //         中任一字段, 下游 OutputNode 均可累积, 无需修改。
   useEffect(() => {
     const list = Array.isArray(upstreamNodes) ? upstreamNodes : [];
     const hasAccumUpstream = list.some((n: any) => n?.data?.__loopAccumulate);
@@ -410,6 +414,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
         if (wantLast) pushUniqLocal(freshImgs, ud.lastFrameUrl);
         continue;
       }
+      // 通用采集 —— 任何 EXEC 节点写入以下任一字段都会被累积
       pushUniqLocal(freshImgs, ud.imageUrl);
       if (Array.isArray(ud.imageUrls)) ud.imageUrls.forEach((u: any) => pushUniqLocal(freshImgs, u));
       if (Array.isArray(ud.urls)) ud.urls.forEach((u: any) => pushUniqLocal(freshImgs, u));
@@ -424,22 +429,28 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
       if (typeof ud.text === 'string' && ud.text) pushUniqLocal(freshTxts, ud.text);
     }
     if (freshImgs.length === 0 && freshVids.length === 0 && freshAuds.length === 0 && freshTxts.length === 0) return;
-    const curImgs: string[] = Array.isArray(d.directImageUrls) ? d.directImageUrls : [];
-    const curVids: string[] = Array.isArray(d.directVideoUrls) ? d.directVideoUrls : [];
-    const curAuds: string[] = Array.isArray(d.directAudioUrls) ? d.directAudioUrls : [];
-    const curTxts: string[] = typeof d.directOutputText === 'string' && d.directOutputText
-      ? d.directOutputText.split('\n\n')
-      : [];
-    const mergedImgs = curImgs.slice(); freshImgs.forEach((u) => { if (mergedImgs.indexOf(u) === -1) mergedImgs.push(u); });
-    const mergedVids = curVids.slice(); freshVids.forEach((u) => { if (mergedVids.indexOf(u) === -1) mergedVids.push(u); });
-    const mergedAuds = curAuds.slice(); freshAuds.forEach((u) => { if (mergedAuds.indexOf(u) === -1) mergedAuds.push(u); });
-    const mergedTxts = curTxts.slice(); freshTxts.forEach((t) => { if (mergedTxts.indexOf(t) === -1) mergedTxts.push(t); });
-    const patch: any = {};
-    if (mergedImgs.length !== curImgs.length) patch.directImageUrls = mergedImgs;
-    if (mergedVids.length !== curVids.length) patch.directVideoUrls = mergedVids;
-    if (mergedAuds.length !== curAuds.length) patch.directAudioUrls = mergedAuds;
-    if (mergedTxts.length !== curTxts.length) patch.directOutputText = mergedTxts.join('\n\n');
-    if (Object.keys(patch).length > 0) update(patch);
+    // v1.2.9.4: 函数式 setNodes —— 从 store 最新 data 读取 cur direct*Urls, 避免闭包旧值被其他 useEffect 覆盖
+    rf.setNodes((nds) => nds.map((nd) => {
+      if (nd.id !== id) return nd;
+      const od: any = nd.data || {};
+      const curImgs: string[] = Array.isArray(od.directImageUrls) ? od.directImageUrls : [];
+      const curVids: string[] = Array.isArray(od.directVideoUrls) ? od.directVideoUrls : [];
+      const curAuds: string[] = Array.isArray(od.directAudioUrls) ? od.directAudioUrls : [];
+      const curTxts: string[] = typeof od.directOutputText === 'string' && od.directOutputText
+        ? od.directOutputText.split('\n\n')
+        : [];
+      const mergedImgs = curImgs.slice(); freshImgs.forEach((u) => { if (mergedImgs.indexOf(u) === -1) mergedImgs.push(u); });
+      const mergedVids = curVids.slice(); freshVids.forEach((u) => { if (mergedVids.indexOf(u) === -1) mergedVids.push(u); });
+      const mergedAuds = curAuds.slice(); freshAuds.forEach((u) => { if (mergedAuds.indexOf(u) === -1) mergedAuds.push(u); });
+      const mergedTxts = curTxts.slice(); freshTxts.forEach((t) => { if (mergedTxts.indexOf(t) === -1) mergedTxts.push(t); });
+      let changed = false;
+      const nextData: any = { ...od };
+      if (mergedImgs.length !== curImgs.length) { nextData.directImageUrls = mergedImgs; changed = true; }
+      if (mergedVids.length !== curVids.length) { nextData.directVideoUrls = mergedVids; changed = true; }
+      if (mergedAuds.length !== curAuds.length) { nextData.directAudioUrls = mergedAuds; changed = true; }
+      if (mergedTxts.length !== curTxts.length) { nextData.directOutputText = mergedTxts.join('\n\n'); changed = true; }
+      return changed ? { ...nd, data: nextData } : nd;
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [upstreamSig]);
 
