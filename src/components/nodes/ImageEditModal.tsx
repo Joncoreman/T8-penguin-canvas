@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Crop as CropIcon,
@@ -9,11 +9,17 @@ import {
   Minus,
   Eraser,
   Undo2,
+  Redo2,
   Check,
   Loader2,
+  Brush,
+  Paintbrush,
+  Square as SquareIcon,
+  Circle as CircleIcon,
+  ListOrdered,
 } from 'lucide-react';
 import { useThemeStore } from '../../stores/theme';
-import { opCrop, opGridCrop } from '../../services/imageOps';
+import { opCrop, opGridCrop, uploadDataUrl } from '../../services/imageOps';
 
 /**
  * ImageEditModal
@@ -33,7 +39,9 @@ export type ImageEditProduceMeta =
       type: 'grid-split';
       layout: { rows: number; cols: number; gap: number };
       rects: Array<{ x: number; y: number; w: number; h: number; row: number; col: number }>;
-    };
+    }
+  | { type: 'mask'; strokeCount: number }
+  | { type: 'brush'; strokeCount: number };
 
 interface Props {
   srcUrl: string;
@@ -42,8 +50,29 @@ interface Props {
   onProduce: (urls: string[], meta: ImageEditProduceMeta) => void;
 }
 
-type EditMode = 'crop' | 'grid';
+type EditMode = 'crop' | 'mask' | 'brush' | 'grid';
 type GridSubMode = 'preset' | 'custom';
+type BrushTool = 'free' | 'rect' | 'ellipse' | 'label';
+
+interface Pt {
+  x: number; // 0..1 fraction of natural size
+  y: number;
+}
+interface FRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+/** 矢量化一笔画/一个图形 (fraction 坐标, 跨渲染不失真) */
+type DrawStroke =
+  | { kind: 'mask-stroke'; size: number; points: Pt[] }
+  | { kind: 'mask-erase'; size: number; points: Pt[] }
+  | { kind: 'brush-free'; color: string; size: number; points: Pt[] }
+  | { kind: 'brush-rect'; color: string; size: number; rect: FRect }
+  | { kind: 'brush-ellipse'; color: string; size: number; rect: FRect }
+  | { kind: 'brush-label'; color: string; size: number; pos: Pt; text: string };
+
 interface Line {
   type: 'h' | 'v';
   pos: number; // 0..1 fraction of natural size
@@ -130,17 +159,135 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
   const [busy, setBusy] = useState(false);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
+  // ---- mask / brush ----
+  const [maskStrokes, setMaskStrokes] = useState<DrawStroke[]>([]);
+  const [maskHistory, setMaskHistory] = useState<DrawStroke[][]>([]);
+  const [maskRedo, setMaskRedo] = useState<DrawStroke[][]>([]);
+  const [brushStrokes, setBrushStrokes] = useState<DrawStroke[]>([]);
+  const [brushHistory, setBrushHistory] = useState<DrawStroke[][]>([]);
+  const [brushRedo, setBrushRedo] = useState<DrawStroke[][]>([]);
+  const [maskBrushSize, setMaskBrushSize] = useState(42); // 0..1 不使用 —— 存 px @ natural
+  const [maskErasing, setMaskErasing] = useState(false);
+  const [brushTool, setBrushTool] = useState<BrushTool>('free');
+  const [brushColor, setBrushColor] = useState('#ff2d55');
+  const [brushSize, setBrushSize] = useState(14);
+  const [labelCounter, setLabelCounter] = useState(1);
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const drawCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawDragRef = useRef<{
+    pointerId: number;
+    startPt: Pt;
+    pending: DrawStroke | null;
+  } | null>(null);
 
-  // ESC 关闭
+  // ---- 撤销/恢复辅助 (mask/brush 各自一栈) ----
+  const pushHistory = useCallback(
+    (m: EditMode) => {
+      if (m === 'mask') {
+        setMaskHistory((h) => [...h, maskStrokes].slice(-50));
+        setMaskRedo([]);
+      } else if (m === 'brush') {
+        setBrushHistory((h) => [...h, brushStrokes].slice(-50));
+        setBrushRedo([]);
+      }
+    },
+    [maskStrokes, brushStrokes],
+  );
+  const undo = useCallback(() => {
+    if (mode === 'mask') {
+      setMaskHistory((h) => {
+        if (!h.length) return h;
+        const prev = h[h.length - 1];
+        setMaskRedo((r) => [...r, maskStrokes]);
+        setMaskStrokes(prev);
+        return h.slice(0, -1);
+      });
+    } else if (mode === 'brush') {
+      setBrushHistory((h) => {
+        if (!h.length) return h;
+        const prev = h[h.length - 1];
+        setBrushRedo((r) => [...r, brushStrokes]);
+        setBrushStrokes(prev);
+        return h.slice(0, -1);
+      });
+    }
+  }, [mode, maskStrokes, brushStrokes]);
+  const redo = useCallback(() => {
+    if (mode === 'mask') {
+      setMaskRedo((r) => {
+        if (!r.length) return r;
+        const next = r[r.length - 1];
+        setMaskHistory((h) => [...h, maskStrokes].slice(-50));
+        setMaskStrokes(next);
+        return r.slice(0, -1);
+      });
+    } else if (mode === 'brush') {
+      setBrushRedo((r) => {
+        if (!r.length) return r;
+        const next = r[r.length - 1];
+        setBrushHistory((h) => [...h, brushStrokes].slice(-50));
+        setBrushStrokes(next);
+        return r.slice(0, -1);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, maskStrokes, brushStrokes]);
+
+  const clearCurrent = () => {
+    if (mode === 'mask') {
+      pushHistory('mask');
+      setMaskStrokes([]);
+    } else if (mode === 'brush') {
+      pushHistory('brush');
+      setBrushStrokes([]);
+      setLabelCounter(1);
+    }
+  };
+
+  // ESC 关闭 + Ctrl+Z/Y 撤销恢复 + 1/2/3/4 切换 mode + [/] 调笔刷
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      // 避免 input/textarea 输入时拦截
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if (
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z') ||
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y')
+      ) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key === '1') setMode('crop');
+        else if (e.key === '2') setMode('mask');
+        else if (e.key === '3') setMode('brush');
+        else if (e.key === '4') setMode('grid');
+        else if (e.key === '[') {
+          if (mode === 'mask') setMaskBrushSize((s) => Math.max(2, s - 4));
+          else if (mode === 'brush') setBrushSize((s) => Math.max(2, s - 2));
+        } else if (e.key === ']') {
+          if (mode === 'mask') setMaskBrushSize((s) => Math.min(300, s + 4));
+          else if (mode === 'brush') setBrushSize((s) => Math.min(160, s + 2));
+        }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, undo, redo, mode]);
 
   // 主题样式 token
   const accent = isPixel ? '#C73B6B' : '#22d3ee';
@@ -365,6 +512,330 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
     }
   }
 
+  // ---- mask / brush 画布渲染 (如不同状态中跳转, 根据矢量重画) ----
+  const drawStrokeOnCtx = (
+    ctx: CanvasRenderingContext2D,
+    s: DrawStroke,
+    W: number,
+    H: number,
+  ) => {
+    if (s.kind === 'mask-stroke' || s.kind === 'mask-erase') {
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = s.size;
+      ctx.strokeStyle = '#fff';
+      ctx.fillStyle = '#fff';
+      ctx.globalCompositeOperation = s.kind === 'mask-erase' ? 'destination-out' : 'source-over';
+      if (s.points.length === 1) {
+        const p = s.points[0];
+        ctx.beginPath();
+        ctx.arc(p.x * W, p.y * H, s.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        s.points.forEach((p, i) => {
+          const x = p.x * W;
+          const y = p.y * H;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+    if (s.kind === 'brush-free') {
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = s.size;
+      ctx.strokeStyle = s.color;
+      ctx.fillStyle = s.color;
+      if (s.points.length === 1) {
+        const p = s.points[0];
+        ctx.beginPath();
+        ctx.arc(p.x * W, p.y * H, s.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        s.points.forEach((p, i) => {
+          const x = p.x * W;
+          const y = p.y * H;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+    if (s.kind === 'brush-rect') {
+      ctx.save();
+      ctx.lineWidth = s.size;
+      ctx.strokeStyle = s.color;
+      ctx.strokeRect(s.rect.x * W, s.rect.y * H, s.rect.w * W, s.rect.h * H);
+      ctx.restore();
+      return;
+    }
+    if (s.kind === 'brush-ellipse') {
+      ctx.save();
+      ctx.lineWidth = s.size;
+      ctx.strokeStyle = s.color;
+      ctx.beginPath();
+      const cx = (s.rect.x + s.rect.w / 2) * W;
+      const cy = (s.rect.y + s.rect.h / 2) * H;
+      const rx = Math.abs(s.rect.w / 2) * W;
+      const ry = Math.abs(s.rect.h / 2) * H;
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    if (s.kind === 'brush-label') {
+      ctx.save();
+      const fontPx = Math.max(14, s.size * 1.6);
+      const x = s.pos.x * W;
+      const y = s.pos.y * H;
+      const r = fontPx * 0.85;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = s.color;
+      ctx.fill();
+      ctx.lineWidth = Math.max(2, s.size / 4);
+      ctx.strokeStyle = '#fff';
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${Math.round(fontPx)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(s.text, x, y + 1);
+      ctx.restore();
+      return;
+    }
+  };
+
+  useEffect(() => {
+    const cv = drawCanvasRef.current;
+    if (!cv || !naturalSize) return;
+    if (cv.width !== naturalSize.w) cv.width = naturalSize.w;
+    if (cv.height !== naturalSize.h) cv.height = naturalSize.h;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    if (mode === 'mask') {
+      // 诊底透明 overlay; mask 的“黑底白笔”仅在调 applyMask 时走离屏
+      for (const s of maskStrokes) drawStrokeOnCtx(ctx, s, cv.width, cv.height);
+    } else if (mode === 'brush') {
+      for (const s of brushStrokes) drawStrokeOnCtx(ctx, s, cv.width, cv.height);
+    }
+  }, [mode, maskStrokes, brushStrokes, naturalSize]);
+
+  const getFracPt = (e: { clientX: number; clientY: number }): Pt | null => {
+    const img = imgRef.current;
+    if (!img) return null;
+    const r = img.getBoundingClientRect();
+    return {
+      x: clamp((e.clientX - r.left) / r.width, 0, 1),
+      y: clamp((e.clientY - r.top) / r.height, 0, 1),
+    };
+  };
+
+  // ---- mask/brush pointer 事件 ----
+  const onDrawPointerDown = (e: React.PointerEvent) => {
+    if (mode !== 'mask' && mode !== 'brush') return;
+    if (!naturalSize) return;
+    const pt = getFracPt(e);
+    if (!pt) return;
+    e.stopPropagation();
+    e.preventDefault();
+    pushHistory(mode);
+    if (mode === 'mask') {
+      const stroke: DrawStroke = {
+        kind: maskErasing ? 'mask-erase' : 'mask-stroke',
+        size: maskBrushSize,
+        points: [pt],
+      };
+      setMaskStrokes((arr) => [...arr, stroke]);
+      drawDragRef.current = { pointerId: e.pointerId, startPt: pt, pending: stroke };
+    } else {
+      // brush
+      if (brushTool === 'free') {
+        const stroke: DrawStroke = { kind: 'brush-free', color: brushColor, size: brushSize, points: [pt] };
+        setBrushStrokes((arr) => [...arr, stroke]);
+        drawDragRef.current = { pointerId: e.pointerId, startPt: pt, pending: stroke };
+      } else if (brushTool === 'rect') {
+        const stroke: DrawStroke = {
+          kind: 'brush-rect',
+          color: brushColor,
+          size: brushSize,
+          rect: { x: pt.x, y: pt.y, w: 0, h: 0 },
+        };
+        setBrushStrokes((arr) => [...arr, stroke]);
+        drawDragRef.current = { pointerId: e.pointerId, startPt: pt, pending: stroke };
+      } else if (brushTool === 'ellipse') {
+        const stroke: DrawStroke = {
+          kind: 'brush-ellipse',
+          color: brushColor,
+          size: brushSize,
+          rect: { x: pt.x, y: pt.y, w: 0, h: 0 },
+        };
+        setBrushStrokes((arr) => [...arr, stroke]);
+        drawDragRef.current = { pointerId: e.pointerId, startPt: pt, pending: stroke };
+      } else if (brushTool === 'label') {
+        const stroke: DrawStroke = {
+          kind: 'brush-label',
+          color: brushColor,
+          size: brushSize,
+          pos: pt,
+          text: String(labelCounter),
+        };
+        setBrushStrokes((arr) => [...arr, stroke]);
+        setLabelCounter((n) => n + 1);
+        drawDragRef.current = null;
+      }
+    }
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+  };
+  const onDrawPointerMove = (e: React.PointerEvent) => {
+    // 跟随鼠标 cursor 展示笔刷圈
+    if (mode === 'mask' || mode === 'brush') {
+      const img = imgRef.current;
+      if (img) {
+        const r = img.getBoundingClientRect();
+        setCursor({ x: e.clientX - r.left, y: e.clientY - r.top });
+      }
+    }
+    const ctx = drawDragRef.current;
+    if (!ctx) return;
+    const pt = getFracPt(e);
+    if (!pt) return;
+    if (mode === 'mask') {
+      setMaskStrokes((arr) => {
+        const last = arr[arr.length - 1];
+        if (!last || (last.kind !== 'mask-stroke' && last.kind !== 'mask-erase')) return arr;
+        const next = [...arr];
+        next[next.length - 1] = { ...last, points: [...last.points, pt] };
+        return next;
+      });
+    } else if (mode === 'brush') {
+      if (brushTool === 'free') {
+        setBrushStrokes((arr) => {
+          const last = arr[arr.length - 1];
+          if (!last || last.kind !== 'brush-free') return arr;
+          const next = [...arr];
+          next[next.length - 1] = { ...last, points: [...last.points, pt] };
+          return next;
+        });
+      } else if (brushTool === 'rect' || brushTool === 'ellipse') {
+        setBrushStrokes((arr) => {
+          const last = arr[arr.length - 1];
+          if (
+            !last ||
+            (last.kind !== 'brush-rect' && last.kind !== 'brush-ellipse')
+          )
+            return arr;
+          const next = [...arr];
+          next[next.length - 1] = {
+            ...last,
+            rect: {
+              x: Math.min(ctx.startPt.x, pt.x),
+              y: Math.min(ctx.startPt.y, pt.y),
+              w: Math.abs(pt.x - ctx.startPt.x),
+              h: Math.abs(pt.y - ctx.startPt.y),
+            },
+          };
+          return next;
+        });
+      }
+    }
+  };
+  const onDrawPointerUp = (e: React.PointerEvent) => {
+    if (drawDragRef.current) {
+      try {
+        (e.target as Element).releasePointerCapture?.(drawDragRef.current.pointerId);
+      } catch {}
+      drawDragRef.current = null;
+    }
+  };
+  const onDrawPointerLeave = () => setCursor(null);
+
+  // ---- 应用 mask: 黑底白笔 → 上传 → produce 2 张 (原图 + mask) ----
+  async function applyMask() {
+    if (!naturalSize || maskStrokes.length === 0) return;
+    setBusy(true);
+    setErrMsg(null);
+    try {
+      // 离屏 canvas A: mask (黑底白笔)
+      const cv = document.createElement('canvas');
+      cv.width = naturalSize.w;
+      cv.height = naturalSize.h;
+      const ctx = cv.getContext('2d');
+      if (!ctx) throw new Error('canvas 不可用');
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      for (const s of maskStrokes) drawStrokeOnCtx(ctx, s, cv.width, cv.height);
+      const maskDataUrl = cv.toDataURL('image/png');
+
+      // 原图转存（同步上传一份与 mask 同源）
+      const originUrl = await fetchAndUpload(srcUrl, 'mask-src');
+      const maskUrl = await uploadDataUrl(maskDataUrl, 'mask');
+      onProduce([originUrl, maskUrl], { type: 'mask', strokeCount: maskStrokes.length });
+      onClose();
+    } catch (e: any) {
+      setErrMsg(e?.message || '应用遮罩失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ---- 应用 brush: 原图 + 涵盖所有画笔 → 上传 → produce 1 张 ----
+  async function applyBrush() {
+    if (!naturalSize || brushStrokes.length === 0) return;
+    setBusy(true);
+    setErrMsg(null);
+    try {
+      const img = await loadImage(srcUrl);
+      const cv = document.createElement('canvas');
+      cv.width = naturalSize.w;
+      cv.height = naturalSize.h;
+      const ctx = cv.getContext('2d');
+      if (!ctx) throw new Error('canvas 不可用');
+      ctx.drawImage(img, 0, 0, cv.width, cv.height);
+      for (const s of brushStrokes) drawStrokeOnCtx(ctx, s, cv.width, cv.height);
+      const dataUrl = cv.toDataURL('image/png');
+      const url = await uploadDataUrl(dataUrl, 'brush');
+      onProduce([url], { type: 'brush', strokeCount: brushStrokes.length });
+      onClose();
+    } catch (e: any) {
+      setErrMsg(e?.message || '应用画板失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 将任意 url 原图转存为本地 dataUrl 后上传，保障同源 + 外链不被黑名单
+  async function fetchAndUpload(srcUrl: string, prefix: string): Promise<string> {
+    const img = await loadImage(srcUrl);
+    const cv = document.createElement('canvas');
+    cv.width = img.naturalWidth;
+    cv.height = img.naturalHeight;
+    const ctx = cv.getContext('2d');
+    if (!ctx) throw new Error('canvas 不可用');
+    ctx.drawImage(img, 0, 0);
+    const dataUrl = cv.toDataURL('image/png');
+    return uploadDataUrl(dataUrl, prefix);
+  }
+  function loadImage(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = (err) => reject(new Error('图片加载失败 (可能因 CORS)'));
+      img.src = src;
+    });
+  }
+
   // ---- 等分预览叠层 (svg) ----
   const previewLines = useMemo(() => {
     if (mode !== 'grid') return null;
@@ -462,6 +933,10 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
             <div style={{ fontSize: 11, color: subText, lineHeight: 1.2 }}>
               {mode === 'crop'
                 ? '拖动框体选择区域，4 角可缩放'
+                : mode === 'mask'
+                ? '用笔刷涂出需重绘区域，白色 = 遮罩区'
+                : mode === 'brush'
+                ? '选择工具 + 颜色，在图上记号、标注、画草图'
                 : gridMode === 'preset'
                 ? '调整横/纵线数量与 gap 进行等分切分'
                 : '点击画布添加切线，拖动进行调整'}
@@ -469,10 +944,16 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
           </div>
           <div style={{ flex: 1 }} />
           <div style={{ display: 'flex', gap: 6 }}>
-            <button style={tabBtn(mode === 'crop')} onClick={() => setMode('crop')}>
+            <button style={tabBtn(mode === 'crop')} onClick={() => setMode('crop')} title="裁剪 (1)">
               <CropIcon size={14} /> 裁剪
             </button>
-            <button style={tabBtn(mode === 'grid')} onClick={() => setMode('grid')}>
+            <button style={tabBtn(mode === 'mask')} onClick={() => setMode('mask')} title="遮罩 (2)">
+              <Brush size={14} /> 遮罩
+            </button>
+            <button style={tabBtn(mode === 'brush')} onClick={() => setMode('brush')} title="画板 (3)">
+              <Paintbrush size={14} /> 画板
+            </button>
+            <button style={tabBtn(mode === 'grid')} onClick={() => setMode('grid')} title="宫格切分 (4)">
               <Grid3x3 size={14} /> 宫格切分
             </button>
           </div>
@@ -594,12 +1075,117 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
               </button>
             </>
           )}
+          {mode === 'mask' && (
+            <>
+              <span style={{ color: subText }}>笔刷</span>
+              <input
+                type="range"
+                min={2}
+                max={300}
+                value={maskBrushSize}
+                onChange={(e) => setMaskBrushSize(Number(e.target.value))}
+                style={{ width: 140 }}
+              />
+              <span style={{ minWidth: 28, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                {maskBrushSize}
+              </span>
+              <button
+                style={tabBtn(maskErasing)}
+                onClick={() => setMaskErasing((v) => !v)}
+                title="橡皮切换 (仅擦除遮罩)"
+              >
+                <Eraser size={13} /> {maskErasing ? '橡皮中' : '橡皮'}
+              </button>
+              <button style={btnBase} onClick={undo} disabled={!maskHistory.length} title="撤销 (Ctrl+Z)">
+                <Undo2 size={13} />
+              </button>
+              <button style={btnBase} onClick={redo} disabled={!maskRedo.length} title="恢复 (Ctrl+Y)">
+                <Redo2 size={13} />
+              </button>
+              <button style={btnBase} onClick={clearCurrent} title="清空遮罩">
+                <Eraser size={13} /> 清空
+              </button>
+              <div style={{ flex: 1 }} />
+              <span style={{ color: subText }}>产物：原图 + 黑底白笔 mask</span>
+            </>
+          )}
+          {mode === 'brush' && (
+            <>
+              <button
+                style={tabBtn(brushTool === 'free')}
+                onClick={() => setBrushTool('free')}
+                title="自由笔刷"
+              >
+                <Paintbrush size={13} />
+              </button>
+              <button
+                style={tabBtn(brushTool === 'rect')}
+                onClick={() => setBrushTool('rect')}
+                title="矩形"
+              >
+                <SquareIcon size={13} />
+              </button>
+              <button
+                style={tabBtn(brushTool === 'ellipse')}
+                onClick={() => setBrushTool('ellipse')}
+                title="椭圆"
+              >
+                <CircleIcon size={13} />
+              </button>
+              <button
+                style={tabBtn(brushTool === 'label')}
+                onClick={() => setBrushTool('label')}
+                title="数字标签 (点一下 +1)"
+              >
+                <ListOrdered size={13} />
+              </button>
+              <span style={{ color: subText, marginLeft: 4 }}>颜色</span>
+              <input
+                type="color"
+                value={brushColor}
+                onChange={(e) => setBrushColor(e.target.value)}
+                style={{
+                  width: 28,
+                  height: 28,
+                  padding: 0,
+                  border: isPixel ? '2px solid #1A1410' : `1px solid ${isDark ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.18)'}`,
+                  borderRadius: isPixel ? 0 : 6,
+                  background: 'transparent',
+                  cursor: 'pointer',
+                }}
+              />
+              <span style={{ color: subText }}>笔刷</span>
+              <input
+                type="range"
+                min={2}
+                max={160}
+                value={brushSize}
+                onChange={(e) => setBrushSize(Number(e.target.value))}
+                style={{ width: 110 }}
+              />
+              <span style={{ minWidth: 24, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                {brushSize}
+              </span>
+              <button style={btnBase} onClick={undo} disabled={!brushHistory.length} title="撤销 (Ctrl+Z)">
+                <Undo2 size={13} />
+              </button>
+              <button style={btnBase} onClick={redo} disabled={!brushRedo.length} title="恢复 (Ctrl+Y)">
+                <Redo2 size={13} />
+              </button>
+              <button style={btnBase} onClick={clearCurrent} title="清空画板">
+                <Eraser size={13} /> 清空
+              </button>
+              <div style={{ flex: 1 }} />
+              <span style={{ color: subText }}>产物：原图 ⊕ 画板合成图</span>
+            </>
+          )}
         </div>
 
         {/* Stage */}
         <div
           ref={stageRef}
           className="img-edit-stage"
+          data-mode={mode}
           style={{
             flex: 1,
             overflow: 'auto',
@@ -610,7 +1196,9 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
             background: isPixel ? '#FFF1B8' : isDark ? '#020617' : '#f8fafc',
             minHeight: 360,
             cursor:
-              mode === 'grid' && gridMode === 'custom'
+              mode === 'mask' || mode === 'brush'
+                ? 'crosshair'
+                : mode === 'grid' && gridMode === 'custom'
                 ? orient === 'h'
                   ? 'row-resize'
                   : 'col-resize'
@@ -619,11 +1207,14 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
           onPointerMove={(e) => {
             moveCropDrag(e);
             onStagePointerMove(e);
+            onDrawPointerMove(e);
           }}
           onPointerUp={(e) => {
             endCropDrag();
             onStagePointerUp(e);
+            onDrawPointerUp(e);
           }}
+          onPointerLeave={onDrawPointerLeave}
         >
           <div
             style={{
@@ -632,13 +1223,20 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
               lineHeight: 0,
               userSelect: 'none',
             }}
-            onPointerDown={onStagePointerDown}
+            onPointerDown={(e) => {
+              if (mode === 'mask' || mode === 'brush') {
+                onDrawPointerDown(e);
+              } else {
+                onStagePointerDown(e);
+              }
+            }}
           >
             {/* eslint-disable-next-line jsx-a11y/alt-text */}
             <img
               ref={imgRef}
               src={srcUrl}
               draggable={false}
+              crossOrigin="anonymous"
               onLoad={(e) => {
                 const t = e.currentTarget;
                 setNaturalSize({ w: t.naturalWidth, h: t.naturalHeight });
@@ -650,8 +1248,46 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
                 background: isPixel ? '#fff' : '#000',
                 borderRadius: isPixel ? 0 : 8,
                 imageRendering: isPixel ? 'pixelated' : 'auto',
+                filter: mode === 'mask' ? 'brightness(.55)' : 'none',
+                transition: 'filter 160ms ease',
               }}
             />
+            {/* mask/brush 画布 overlay (始终渲染，在 crop/grid 模式下依然可见，但 pointer-events:none) */}
+            <canvas
+              ref={drawCanvasRef}
+              className="img-edit-draw"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: mode === 'mask' || mode === 'brush' ? 'auto' : 'none',
+                opacity: mode === 'mask' ? 0.85 : 1,
+                mixBlendMode: 'normal',
+                imageRendering: isPixel ? 'pixelated' : 'auto',
+                borderRadius: isPixel ? 0 : 8,
+              }}
+            />
+            {/* 跟随鼠标的笔刷圈 */}
+            {(mode === 'mask' || mode === 'brush') && cursor && (
+              <div
+                className="img-edit-cursor"
+                style={{
+                  position: 'absolute',
+                  left: cursor.x,
+                  top: cursor.y,
+                  width: (mode === 'mask' ? maskBrushSize : brushSize) *
+                    ((imgRef.current?.clientWidth || 1) / (naturalSize?.w || 1)),
+                  height: (mode === 'mask' ? maskBrushSize : brushSize) *
+                    ((imgRef.current?.clientHeight || 1) / (naturalSize?.h || 1)),
+                  transform: 'translate(-50%, -50%)',
+                  borderRadius: '50%',
+                  border: `1.5px solid ${mode === 'mask' ? '#fff' : brushColor}`,
+                  boxShadow: '0 0 0 1px rgba(0,0,0,.5)',
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
             {/* crop-box (仅 crop 模式) */}
             {mode === 'crop' && naturalSize && (
               <div
@@ -825,6 +1461,40 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
               ) : (
                 <>
                   <Check size={14} /> 应用裁剪
+                </>
+              )}
+            </button>
+          ) : mode === 'mask' ? (
+            <button
+              style={btnPrimary}
+              onClick={applyMask}
+              disabled={busy || !naturalSize || maskStrokes.length === 0}
+              title={maskStrokes.length === 0 ? '请先绘制遮罩区域' : ''}
+            >
+              {busy ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> 处理中…
+                </>
+              ) : (
+                <>
+                  <Check size={14} /> 应用遮罩
+                </>
+              )}
+            </button>
+          ) : mode === 'brush' ? (
+            <button
+              style={btnPrimary}
+              onClick={applyBrush}
+              disabled={busy || !naturalSize || brushStrokes.length === 0}
+              title={brushStrokes.length === 0 ? '请先作画' : ''}
+            >
+              {busy ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> 处理中…
+                </>
+              ) : (
+                <>
+                  <Check size={14} /> 应用画板
                 </>
               )}
             </button>

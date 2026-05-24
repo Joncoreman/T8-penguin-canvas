@@ -800,7 +800,7 @@ router.post('/mj/imagine', async (req, res) => {
   const body = req.body || {};
   const speedSeg = mjSpeedSeg(body.speed);
   const url = `${config.ZHENZHEN_BASE_URL}/${speedSeg}/mj/submit/imagine`;
-  // 严格对齐主项目 runMJ payload（index.html L4547~L4587 + Comfly.py midjourney_submit_imagine_task_sync）
+  // 严格对齐主项目 runMJ payload（index.html L4547~L4587）
   const payload = {
     base64Array: Array.isArray(body.base64Array) ? body.base64Array : [],
     instanceId: body.instanceId || '',
@@ -844,7 +844,7 @@ router.post('/mj/imagine', async (req, res) => {
 });
 
 // ---- GET /api/proxy/mj/task/:id?speed=fast ----
-// 轮询任务状态；URL 中 ai.comfly.chat 调为 ai.t8star.cn（与 server.py L2306 一致）
+// 轮询任务状态
 router.get('/mj/task/:id', async (req, res) => {
   const settings = loadRawSettings();
   if (!settings?.zhenzhenApiKey) return res.status(400).json({ success: false, error: '未配置贞贞工坊 API Key' });
@@ -861,7 +861,7 @@ router.get('/mj/task/:id', async (req, res) => {
         Authorization: `Bearer ${settings.zhenzhenApiKey}`,
       },
     });
-    const raw = (await r.text()).replace(/ai\.comfly\.chat/g, 'ai.t8star.cn');
+    const raw = await r.text();
     let data;
     try { data = JSON.parse(raw); } catch { return res.status(500).json({ success: false, error: '上游响应非 JSON: ' + raw.slice(0, 200) }); }
     if (!r.ok) return res.status(r.status).json({ success: false, error: data?.error || data?.description || `上游 HTTP ${r.status}` });

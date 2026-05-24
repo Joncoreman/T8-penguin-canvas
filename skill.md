@@ -5327,3 +5327,57 @@ style={{
 5. **本地 state 控制节点尺寸 比 100% 响应式更可控**: 避免 CSS 循环 + onResize 回调同步一步到位, xyflow store 中 node.width/height 与 React state 多道路一致
 
 ---
+
+## §53 图像编辑器 · 遮罩(mask) + 画板(brush) 模式扩展
+
+### 53.1 需求源
+
+双击上传素材/输出素材(仅图像类型)进入图像编辑弹窗，在已有「裁剪 / 宫格切分」两模式上叠加「遮罩」与「画板」两个新模式，参考 Infinite-Canvas 的 imageEditor 全模式交互，保证 UI 一致性、美观度、用户体验。
+
+### 53.2 未名错误避免·重点软定
+
+- 全部产物走 [`/api/files/upload-base64`](file:///e:/PenguinPravite/T8-penguin-canvas/backend/src/routes/files.js#L66) 复用，**后端零改动**
+- 笔画一律存矢量 (fraction 坐标) × 渲染仅作为 canvas 缓存 → 窗口缩放不失真、撤销恢复瘦身
+- 不侵入节点本体，UploadNode/OutputNode 现有 onProduce 回调重用
+
+### 53.3 交互设计
+
+| 模式 | tab | 快捷键 | 主要工具 | 产物 |
+|------|----:|------:|---------|------|
+| crop  | 1 | 1 | crop-box 拖动 + 4 角缩放 | 1 张 (原裁剪) |
+| mask  | 2 | 2 | 笔刷大小 2~300 + 橡皮(destination-out) + 撤销/恢复/清空 | **2 张** (原图 + 黑底白笔 mask) |
+| brush | 3 | 3 | 4 工具 free/rect/ellipse/label + 颜色 + 笔刷 2~160 + 撤销/恢复/清空 | 1 张 (原图 ⊕ 画板合成) |
+| grid  | 4 | 4 | preset/custom + gap | N 张 |
+
+全局快捷键：`Esc` 关闭、`Ctrl+Z` 撤销、`Ctrl+Shift+Z` / `Ctrl+Y` 恢复、`[` `]` 调笔刷大小(仅 mask/brush)。
+
+### 53.4 文件改动清单
+
+| 文件 | 改动 |
+|------|------|
+| [src/components/nodes/ImageEditModal.tsx](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/ImageEditModal.tsx) | EditMode 加 mask/brush；DrawStroke 矢量类型 6 种；maskStrokes/brushStrokes + 双独立撤销/恢复栈 (深度 50)；canvas overlay 按原始分辨率渲染；onDrawPointerDown/Move/Up + 跟随圈 cursor；applyMask/applyBrush 离屏合成后走 uploadDataUrl；fetchAndUpload 原图同源转存避免外链 CORS；UI: tabs+工具行+stage data-mode+footer 分支 |
+| [src/services/imageOps.ts](file:///e:/PenguinPravite/T8-penguin-canvas/src/services/imageOps.ts) | 新增 `uploadDataUrl(dataUrl, prefix)` 复用后端 base64 上传通道 |
+| [src/styles/index.css](file:///e:/PenguinPravite/T8-penguin-canvas/src/styles/index.css) | `.img-edit-stage[data-mode=...]` 下的 `.img-edit-draw` / `.img-edit-cursor` 层级与 touch-action 兑底 |
+
+### 53.5 mask 产物协议(inpaint 就绪)
+
+onProduce 十三 2 张 url、顺序为 `[originUrl, maskUrl]`，meta `{ type:'mask', strokeCount }`；下游 OutputNode 自然平际创建 2 个外挂节点。后续接 inpaint 节点时可出 portTypes 添 `mask` 端口色。
+
+### 53.6 防重构检查表
+
+- [ ] EditMode 联合类型包含 4 个值：`'crop' | 'mask' | 'brush' | 'grid'`
+- [ ] DrawStroke 6 种 kind 全在 (mask-stroke / mask-erase / brush-free / brush-rect / brush-ellipse / brush-label)
+- [ ] mask/brush 各自一栈，undo 改 redo 不交叉污染
+- [ ] applyMask 必须**同时上传原图 + mask** (避免下游外链被黑名单)
+- [ ] applyBrush 必须在一个离屏 canvas 中先 drawImage(原图) 再叠加画笔
+- [ ] cursor 圈的 width/height 按 `clientWidth/naturalWidth` 换算，保证与实际笔刷一致
+- [ ] 键盘快捷键遇到 input/textarea 输入不拦截 (`tag === 'input'` 跳过)
+
+### 53.7 经验教训
+
+1. **矢量优于位图**：存 fraction 点串者不是记 ImageData → 双主题切换/窗口缩放/撤销都不失真
+2. **canvas.width = naturalSize.w**：默认 300×150 会造成严重错位；梦 1080P 后仍随 CSS `width:100%` 自适应
+3. **遮罩黑底白笔仅在 applyMask 时产生**：overlay 在调用期间是透明的以使原图可见，走离屏 canvas 泳出黑底就是外限
+4. **crossOrigin + fetchAndUpload 双保险**：上传表外链 srcUrl 时使 canvas 被 tainted 也能走本地转存路径成功出 mask
+
+---

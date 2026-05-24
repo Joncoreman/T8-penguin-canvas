@@ -260,6 +260,21 @@ body.cut-mode .react-flow__edge .react-flow__edge-interaction {
   z-index: 2;
 }
 
+/* mask / brush 画布 overlay (由 ImageEditModal 内联 style 控制位置，这里仅安全兑底) */
+.img-edit-stage .img-edit-draw {
+  user-select: none;
+  touch-action: none;
+  z-index: 2;
+}
+.img-edit-stage[data-mode="mask"] .img-edit-draw,
+.img-edit-stage[data-mode="brush"] .img-edit-draw {
+  z-index: 3;
+}
+/* 笔刷跟随圈 (由内联 style 控制色/尺寸，CSS 仅保证层级) */
+.img-edit-stage .img-edit-cursor {
+  z-index: 4;
+}
+
 /* ===========================================
  * 节点四角同比例缩放 handle (ResizableCorners.tsx 配套)
  *

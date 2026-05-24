@@ -874,7 +874,7 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
         {isMj && (
           <div className="space-y-2 rounded border border-purple-400/30 bg-purple-500/5 p-2">
             <div className="text-[10px] text-purple-300 font-semibold tracking-wide">
-              ✨ Midjourney · Comfly 渠道(严格对齐主项目 runMJ)
+              ✨ Midjourney(严格对齐主项目 runMJ)
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div>

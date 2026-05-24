@@ -9,7 +9,7 @@ export type ProviderType = 'zhenzhen' | 'llm-direct' | 'runninghub';
 // paramKind:决定调用上游时使用哪种参数协议
 //  - 'gpt-size'    : OpenAI 兼容,size 字段为像素串(1024x1024 等),编辑端点 multipart
 //  - 'banana-ratio': nano-banana 协议,使用 aspect_ratio + image_size(1K/2K/4K) + image[]
-//  - 'mj'          : Midjourney(Comfly)协议,走专属 /api/proxy/mj/* 路由(speed_map + sref/oref)
+//  - 'mj'          : Midjourney 协议,走专属 /api/proxy/mj/* 路由(speed_map + sref/oref)
 export type ImageParamKind = 'gpt-size' | 'banana-ratio' | 'mj';
 
 export interface ImageModelDef {
@@ -106,7 +106,7 @@ export const IMAGE_MODELS: ImageModelDef[] = [
     description: '高品质 Pro 版本',
   },
   // ========================================================================
-  // Midjourney (Comfly) — 完全对齐 gpt-image-2-web/index.html runMJ L4437~L4694
+  // Midjourney — 完全对齐 gpt-image-2-web/index.html runMJ L4437~L4694
   //   * 不走 FAL 渠道
   //   * 不使用主流 size/imageSize 字段(MJ 用 ar 控制比例)
   //   * 参考图通过 --sref/--oref(uploadMJImage 后取 URL) 注入 prompt
@@ -130,7 +130,7 @@ export const IMAGE_MODELS: ImageModelDef[] = [
     defaultSize: '',
     supportsReference: true,
     maxReferenceImages: 4, // sref + oref(各 2 张)
-    description: 'Midjourney v8.1 / niji 7 等(Comfly 渠道)',
+    description: 'Midjourney v8.1 / niji 7 等',
   },
 ];
 
