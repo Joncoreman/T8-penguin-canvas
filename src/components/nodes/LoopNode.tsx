@@ -267,6 +267,58 @@ const LoopNode = (p: NodeProps) => {
     // knownOutputs: 跨轮跟踪“已被写入过的 OutputNode”, 首次发现的新 OutputNode 在 writeFreshToOutputs 中视为 cur=[] 起算
     //              (避免继承旧画布 stale directImageUrls)
     const knownOutputs = new Set<string>(subNodes.filter((n) => n.type === 'output').map((n) => n.id));
+
+    // === v1.2.9.13: EXEC 节点产物跨轮累积器 ===
+    // 原 writeFreshToOutputs 仅基于「当前 ud」收集 fresh —— 但 RH 节点在循环中始终带 __loopAccumulate,
+    // autoOutput 跳过它 → OutputNode 直到 finally 清除标记后才被新建并 upgrade pickKind='image', pickIndex=0,
+    // 此时 directImageUrls 为空 → hasAnyDirectAccumulated=false → pickKind 切割成 1 张 (用户只看到最后一轮)。
+    // 修复: 跨轮 accumulate 每个 EXEC 节点的 fresh 字段, write 时基于 accumulator,
+    // 即使 OutputNode 是循环结束后才建/升级, finally 兜底 write 也能拿到完整累积
+    // (与 v1.2.9.10 hasAnyDirectAccumulated 跳过 pickKind 切割双保险)。
+    type ExecAcc = { isFP: boolean; firsts: string[]; lasts: string[]; imgs: string[]; vids: string[]; auds: string[]; txts: string[] };
+    const execAccumulator = new Map<string, ExecAcc>();
+    const ensureAcc = (eid: string): ExecAcc => {
+      let a = execAccumulator.get(eid);
+      if (!a) { a = { isFP: false, firsts: [], lasts: [], imgs: [], vids: [], auds: [], txts: [] }; execAccumulator.set(eid, a); }
+      return a;
+    };
+    const pushUniqArr = (arr: string[], v: any) => {
+      if (typeof v !== 'string') return;
+      const s = v.trim();
+      if (!s) return;
+      if (arr.indexOf(s) === -1) arr.push(s);
+    };
+    // 从当前 RF 状态采集所有 EXEC 节点 ud 的产物字段, 累积进 execAccumulator (跨轮持续追加, dedup)。
+    // 在每轮 awaitNode 完成后 + finally 兜底各调一次。
+    const harvestFromExec = () => {
+      const cn = rf.getNodes();
+      for (const eid of execSubIds) {
+        const n = cn.find((x) => x.id === eid);
+        if (!n) continue;
+        const ud: any = n.data || {};
+        const acc = ensureAcc(eid);
+        const isFP = Object.prototype.hasOwnProperty.call(ud, 'firstFrameUrl') &&
+                     Object.prototype.hasOwnProperty.call(ud, 'lastFrameUrl');
+        if (isFP) {
+          acc.isFP = true;
+          pushUniqArr(acc.firsts, ud.firstFrameUrl);
+          pushUniqArr(acc.lasts, ud.lastFrameUrl);
+          continue;
+        }
+        pushUniqArr(acc.imgs, ud.imageUrl);
+        if (Array.isArray(ud.imageUrls)) ud.imageUrls.forEach((u: any) => pushUniqArr(acc.imgs, u));
+        if (Array.isArray(ud.urls)) ud.urls.forEach((u: any) => pushUniqArr(acc.imgs, u));
+        if (Array.isArray(ud.generatedImages)) ud.generatedImages.forEach((u: any) => pushUniqArr(acc.imgs, u));
+        pushUniqArr(acc.vids, ud.videoUrl);
+        if (Array.isArray(ud.videoUrls)) ud.videoUrls.forEach((u: any) => pushUniqArr(acc.vids, u));
+        pushUniqArr(acc.auds, ud.audioUrl);
+        pushUniqArr(acc.auds, ud.audioUrl_1);
+        if (Array.isArray(ud.audioUrls)) ud.audioUrls.forEach((u: any) => pushUniqArr(acc.auds, u));
+        if (typeof ud.outputText === 'string' && ud.outputText) pushUniqArr(acc.txts, ud.outputText);
+        if (typeof ud.reply === 'string' && ud.reply) pushUniqArr(acc.txts, ud.reply);
+        if (typeof ud.text === 'string' && ud.text) pushUniqArr(acc.txts, ud.text);
+      }
+    };
     // 进入循环前: 仅标记下游 EXEC 节点 (让 OutputNode 跳过 fresh) + 清空已知 OutputNode 的累积字段。
     //         不给 OutputNode / LoopNode 本身注入 __loopAccumulate。
     //         运行中被 autoOutput 动态创建的新 OutputNode 不需清空 (本来就空)。
@@ -313,6 +365,8 @@ const LoopNode = (p: NodeProps) => {
     // 根据当前 edges + execSubIds + 动态发现的 outputNodeIds，按 OutputNode 结集 “本轮 fresh” 写入 direct*Urls。
     // v1.2.9.9: targets 改为每次调用重新 discover (含运行中 autoOutput 动态创建的 OutputNode)。
     //           首次发现的新 OutputNode (!knownOutputs.has) 视为 cur=[] 起算, 避免继承 stale。
+    // v1.2.9.13: 改读 execAccumulator (跨轮累积记录) 代替“当前 ud” ——
+    //            防止 「最后一轮 ud.imageUrl 已被最新后 finally write 只能拿到最后 1 张」 的覆盖问题。
     const writeFreshToOutputs = () => {
       const targets = discoverOutputNodeIds();
       if (targets.size === 0) return;
@@ -327,30 +381,20 @@ const LoopNode = (p: NodeProps) => {
           const seenI = new Set<string>(); const seenV = new Set<string>(); const seenA = new Set<string>(); const seenT = new Set<string>();
           for (const e of inEdges) {
             if (!execSubIds.has(e.source)) continue;
-            const up = nds.find((n) => n.id === e.source);
-            if (!up) continue;
-            const ud: any = up.data || {};
+            const acc = execAccumulator.get(e.source);
+            if (!acc) continue;
             const handle = (e as any).sourceHandle as string | null | undefined;
-            const isFP = Object.prototype.hasOwnProperty.call(ud, 'firstFrameUrl') &&
-                         Object.prototype.hasOwnProperty.call(ud, 'lastFrameUrl');
-            if (isFP) {
-              if (handle === 'first' || handle == null) pushUniq(fImgs, seenI, ud.firstFrameUrl);
-              if (handle === 'last' || handle == null) pushUniq(fImgs, seenI, ud.lastFrameUrl);
+            // FramePair 双端口语义: 'first'/'last' 取对应字段, null/默认 双取
+            if (acc.isFP) {
+              if (handle === 'first' || handle == null) acc.firsts.forEach((u) => pushUniq(fImgs, seenI, u));
+              if (handle === 'last' || handle == null) acc.lasts.forEach((u) => pushUniq(fImgs, seenI, u));
               continue;
             }
-            // 通用字段采集 (任何 EXEC 节点 update 进以下字段均能被累积)
-            pushUniq(fImgs, seenI, ud.imageUrl);
-            if (Array.isArray(ud.imageUrls)) ud.imageUrls.forEach((u: any) => pushUniq(fImgs, seenI, u));
-            if (Array.isArray(ud.urls)) ud.urls.forEach((u: any) => pushUniq(fImgs, seenI, u));
-            if (Array.isArray(ud.generatedImages)) ud.generatedImages.forEach((u: any) => pushUniq(fImgs, seenI, u));
-            pushUniq(fVids, seenV, ud.videoUrl);
-            if (Array.isArray(ud.videoUrls)) ud.videoUrls.forEach((u: any) => pushUniq(fVids, seenV, u));
-            pushUniq(fAuds, seenA, ud.audioUrl);
-            pushUniq(fAuds, seenA, ud.audioUrl_1);
-            if (Array.isArray(ud.audioUrls)) ud.audioUrls.forEach((u: any) => pushUniq(fAuds, seenA, u));
-            if (typeof ud.outputText === 'string' && ud.outputText) pushUniq(fTxts, seenT, ud.outputText);
-            if (typeof ud.reply === 'string' && ud.reply) pushUniq(fTxts, seenT, ud.reply);
-            if (typeof ud.text === 'string' && ud.text) pushUniq(fTxts, seenT, ud.text);
+            // 通用 EXEC 节点: 跨轮累积的产物全集
+            acc.imgs.forEach((u) => pushUniq(fImgs, seenI, u));
+            acc.vids.forEach((u) => pushUniq(fVids, seenV, u));
+            acc.auds.forEach((u) => pushUniq(fAuds, seenA, u));
+            acc.txts.forEach((t) => pushUniq(fTxts, seenT, t));
           }
           if (fImgs.length === 0 && fVids.length === 0 && fAuds.length === 0 && fTxts.length === 0) return nd;
           const od: any = nd.data || {};
@@ -408,10 +452,12 @@ const LoopNode = (p: NodeProps) => {
       // === v1.2.9.8: 本轮收尾——LoopNode 主动一次性写 OutputNode.direct*Urls (原地去重 merge)
       //   时机: awaitNode 同步返回后, FramePair / Image / Video 等本轮终态已落 store, 此刻写入零 race。
       // v1.2.9.9: 去除 outputNodeIds.size>0 预判 — 动态发现机制下, 本轮刚被 autoOutput 创建的 OutputNode 也能被写入
+      // v1.2.9.13: 先 harvestFromExec 跨轮累积 ud, 再 writeFreshToOutputs 基于 accumulator 写入
       if (chainOk) {
         // 等一个微微的 setTimeout(30) 为了让可能的跨节点多 update batch (FramePair: 首帧后 success)
         // 以及 autoOutput 动态创建新 OutputNode 的 useEffect 都落 store
         await new Promise<void>((r) => setTimeout(() => r(), 30));
+        harvestFromExec();
         writeFreshToOutputs();
         await new Promise<void>((r) => setTimeout(() => r(), 20));
       }
@@ -427,6 +473,15 @@ const LoopNode = (p: NodeProps) => {
       delete next.__loopAccumulate;
       return { ...nd, data: next };
     }));
+    // === v1.2.9.13: 兜底写入 ===
+    // 场景: RH/RH钱包节点在循环中被 __loopAccumulate 跳过 autoOutput, 直到清除标记后 autoOutput 才
+        // 创建 OutputNode + upgrade pickKind='image', pickIndex=0。之前 writeFreshToOutputs 写不进去 (target 不存在)。
+    // 修复: 清除标记后等 200ms 让 autoOutput useEffect 创建出 OutputNode, 再 harvest+write 基于
+    //       跨轮 accumulator 写入 directImageUrls = 全集。OutputNode 侧 v1.2.9.10 hasAnyDirectAccumulated
+    //       检测到 directImageUrls 非空 → 跳过 pickKind 切割 → 展示全集。
+    await new Promise<void>((r) => setTimeout(() => r(), 200));
+    harvestFromExec();
+    writeFreshToOutputs();
     }
 
     // v1.2.9.3: 循环器自身是否输出最终聚合

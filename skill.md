@@ -5384,3 +5384,249 @@ onProduce 十三 2 张 url、顺序为 `[originUrl, maskUrl]`，meta `{ type:'ma
 4. **crossOrigin + fetchAndUpload 双保险**：上传表外链 srcUrl 时使 canvas 被 tainted 也能走本地转存路径成功出 mask
 
 ---
+
+## 54. 循环器（LoopNode）+ EXEC 节点完整解决方案（v1.2.9.x 系列总结 · 强制规范）
+
+> **本章是修复其他循环器相关 BUG 与制作新 EXEC 节点的唯一权威依据**。任何新增 / 改造可执行节点（image / video / audio / llm / runninghub / runninghub-wallet / 类似 setInterval 轮询节点）必须**全部通过本章四道防线检查**，否则在循环器中必然出现「失败」「只显示最后一张」「累积被覆盖」等症状。
+
+### 54.1 典型 BUG 症状全景
+
+| 症状 | 根因 | 防线 |
+|---|---|---|
+| 循环器内全部「失败」`成功 0 失败 N` | EXEC 节点 `setInterval` 异步轮询，`handleRun` 提交后立即 return → `useRunTrigger` 提前 `markDone(true)` → `LoopNode.awaitNode` 立即继续 → `extractFromNode` 读不到产物 → `result=null` → `failCount++` | 防线 ① Promise 化 startPolling |
+| 循环器内 `extractFromNode` kind 不匹配返回 null | 用户输入图像但下游是视频节点（kind='image' 但 directs[0] 是 video）→ 读不到 `imageUrl` 返回 null | 防线 ② extractFromNode kind 兜底 |
+| 「成功 N」但 OutputNode 只显示最后一张（覆盖症状） | autoOutput 给 OutputNode 升级 `pickKind='image', pickIndex=0`，循环跑完 `__loopAccumulate` 清除后 `collected.images` 顺序变成 `[fresh_lastRound, ...direct]`，pickIndex=0 把全集砍成 1 张 | 防线 ③ hasAnyDirectAccumulated 短路 |
+| OutputNode 完全空白（循环结束后才被建） | EXEC 节点带 `__loopAccumulate`，autoOutput 跳过它，OutputNode 在循环跑完 finally 清除标记后才被 autoOutput 新建 + upgrade pickKind；此时 `directImageUrls=[]` → `hasAnyDirectAccumulated=false` → pickKind 切割 → 仅显示当前 `ud.imageUrl`（最后一张） | 防线 ④ execAccumulator + finally 兜底 |
+
+### 54.2 四道防线（必须全部到位）
+
+#### 防线 ① · EXEC 节点 startPolling 必须 Promise 化
+
+**所有用 `setInterval` / `setTimeout` 异步轮询的 EXEC 节点（AudioNode / VideoNode / SeedanceNode / RunningHubNode / RH-wallet / 未来任何远端任务节点）的 `startPolling` 必须返回 `Promise<void>`**，调用方 `handleRun` / `handleGenerate` 必须 `await` 它。模板：
+
+```ts
+const startPolling = (tid: string): Promise<void> => {
+  stopPoll();
+  return new Promise<void>((resolve, reject) => {
+    pollTimer.current = window.setInterval(async () => {
+      try {
+        const r = await query(tid);
+        if (r.status === 'SUCCESS') {
+          stopPoll();
+          update({ status: 'success', urls: r.urls /* + imageUrl/videoUrl/audioUrl 按后缀分流 */ });
+          resolve();                    // ← 关键：成功才 resolve
+        } else if (r.status === 'FAILED') {
+          stopPoll();
+          update({ status: 'error', error: reason });
+          reject(new Error(reason));    // ← 关键：失败 reject
+        }
+        // RUNNING/POLLING 不 resolve、不 reject，继续 setInterval
+      } catch (e) {
+        // 单次 query 网络错误不直接 reject，下一次 tick 再试；超时才 reject
+      }
+      if (++elapsed > MAX) {
+        stopPoll();
+        reject(new Error('轮询超时'));
+      }
+    }, POLL_INT);
+  });
+};
+
+const handleRun = async () => {
+  // ... submit ...
+  await startPolling(taskId);            // ← 关键：必须 await
+};
+
+useRunTrigger(id, async () => {
+  if (status === 'submitting' || status === 'polling') return;
+  await handleRun();                     // ← 关键：必须 await
+});
+```
+
+**反例（v1.2.9.11/12 之前的 BUG 形态）**：
+
+```ts
+const startPolling = (tid: string) => {
+  pollTimer.current = window.setInterval(...);   // ← BUG: 立即 return，runFn 提前完成
+};
+
+const handleRun = async () => {
+  // submit
+  startPolling(taskId);                          // ← BUG: 不 await
+};
+```
+
+效果：`useRunTrigger` 的 `runFn` 在 `submit` 完成的瞬间就 markDone(true) → `awaitNode` 立即 resolve → `extractFromNode` 读 `imageUrl=''` → `result=null` → 整轮失败。
+
+**对比同步轮询的安全节点**（ImageNode / LLMNode）：
+
+```ts
+for (let i = 0; i < MAX; i++) {
+  const r = await query(tid);
+  if (r.status === 'SUCCESS') break;
+  await new Promise((r) => setTimeout(r, 5000));
+}
+```
+
+这种 for + await 模式天然让 `handleRun` 等到任务完成才 return，**不需要任何 Promise 改造**。
+
+#### 防线 ② · LoopNode.extractFromNode kind 不匹配兜底
+
+[`extractFromNode(node, kind)`](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/LoopNode.tsx) 在 `kind='image'` 但终点节点是 video/audio 节点时，**必须遍历所有产物字段任一非空算成功**：
+
+```ts
+function extractFromNode(node, kind) {
+  const ud = node?.data || {};
+  // 优先匹配 kind
+  if (kind === 'image' && (ud.imageUrl || ud.imageUrls?.[0] || ud.urls?.[0])) return ud.imageUrl || ud.imageUrls?.[0] || ud.urls?.[0];
+  if (kind === 'video' && ud.videoUrl) return ud.videoUrl;
+  if (kind === 'audio' && ud.audioUrl) return ud.audioUrl;
+  if (kind === 'text' && (ud.outputText || ud.reply)) return ud.outputText || ud.reply;
+  // v1.2.9.11: kind 不匹配兜底 —— 任何非空产物字段都算成功
+  if (typeof ud.videoUrl === 'string' && ud.videoUrl) return ud.videoUrl;
+  if (typeof ud.audioUrl === 'string' && ud.audioUrl) return ud.audioUrl;
+  if (typeof ud.imageUrl === 'string' && ud.imageUrl) return ud.imageUrl;
+  if (Array.isArray(ud.imageUrls) && ud.imageUrls[0]) return ud.imageUrls[0];
+  if (typeof ud.firstFrameUrl === 'string' && ud.firstFrameUrl) return ud.firstFrameUrl;
+  if (typeof ud.lastFrameUrl === 'string' && ud.lastFrameUrl) return ud.lastFrameUrl;
+  if (typeof ud.outputText === 'string' && ud.outputText) return ud.outputText;
+  if (typeof ud.reply === 'string' && ud.reply) return ud.reply;
+  return null;
+}
+```
+
+#### 防线 ③ · OutputNode hasAnyDirectAccumulated 短路 pickKind 切割
+
+[OutputNode.collected useMemo](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/OutputNode.tsx) 在 pickKind 切割之前必须做累积模式检查：
+
+```ts
+const hasAnyDirectAccumulated =
+  (Array.isArray(d.directImageUrls) && d.directImageUrls.length > 0) ||
+  (Array.isArray(d.directVideoUrls) && d.directVideoUrls.length > 0) ||
+  (Array.isArray(d.directAudioUrls) && d.directAudioUrls.length > 0) ||
+  (typeof d.directOutputText === 'string' && d.directOutputText.length > 0);
+const pickKind = hasAnyDirectAccumulated ? undefined : d.pickKind; // ← 跳过切割
+```
+
+**配套 Canvas autoOutput 跳过 `__loopAccumulate` 节点**（避免不必要 store write）：
+
+```ts
+for (const n of nodes) {
+  // ...
+  if (d.__loopAccumulate) continue; // v1.2.9.10
+}
+```
+
+#### 防线 ④ · LoopNode execAccumulator + finally 兜底（v1.2.9.13 新增）
+
+**根因**：RH/RH-wallet 等带 `__loopAccumulate` 标记的 EXEC 节点，autoOutput 在循环过程中**完全跳过**，下游 OutputNode 直到 finally 清除标记后才被 autoOutput 创建 + upgrade `pickKind='image', pickIndex=0`。此时如果 `directImageUrls` 为空，hasAnyDirectAccumulated=false，pickKind 切割只剩 1 张。
+
+[LoopNode.runSerial](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/LoopNode.tsx) 必须维护 `execAccumulator: Map<execId, ExecAcc>`，跨轮持续累积每个 EXEC 节点的 fresh 字段，且 finally 中等待 autoOutput 创建 OutputNode 后再写一次：
+
+```ts
+type ExecAcc = { isFP: boolean; firsts: string[]; lasts: string[]; imgs: string[]; vids: string[]; auds: string[]; txts: string[] };
+const execAccumulator = new Map<string, ExecAcc>();
+
+const harvestFromExec = () => {
+  for (const eid of execSubIds) {
+    const ud = rf.getNode(eid)?.data || {};
+    const acc = ensureAcc(eid);
+    if (isFramePair(ud)) { acc.isFP = true; pushUniqArr(acc.firsts, ud.firstFrameUrl); pushUniqArr(acc.lasts, ud.lastFrameUrl); continue; }
+    pushUniqArr(acc.imgs, ud.imageUrl);
+    ud.imageUrls?.forEach(u => pushUniqArr(acc.imgs, u));
+    ud.urls?.forEach(u => pushUniqArr(acc.imgs, u));
+    pushUniqArr(acc.vids, ud.videoUrl);
+    ud.videoUrls?.forEach(u => pushUniqArr(acc.vids, u));
+    pushUniqArr(acc.auds, ud.audioUrl); pushUniqArr(acc.auds, ud.audioUrl_1);
+    ud.audioUrls?.forEach(u => pushUniqArr(acc.auds, u));
+    pushUniqArr(acc.txts, ud.outputText); pushUniqArr(acc.txts, ud.reply); pushUniqArr(acc.txts, ud.text);
+  }
+};
+
+// writeFreshToOutputs 改读 accumulator 而非当前 ud：
+for (const e of inEdges) {
+  if (!execSubIds.has(e.source)) continue;
+  const acc = execAccumulator.get(e.source); if (!acc) continue;
+  if (acc.isFP) { /* 按 sourceHandle first/last 分流 */ continue; }
+  acc.imgs.forEach(u => pushUniq(fImgs, seenI, u));
+  acc.vids.forEach(u => pushUniq(fVids, seenV, u));
+  acc.auds.forEach(u => pushUniq(fAuds, seenA, u));
+  acc.txts.forEach(t => pushUniq(fTxts, seenT, t));
+}
+
+// 每轮 awaitNode 完成后：
+await setTimeout(30); harvestFromExec(); writeFreshToOutputs(); await setTimeout(20);
+
+// finally 兜底：
+} finally {
+  rf.setNodes(prev => prev.map(/* 清除 __loopAccumulate */));
+  await new Promise(r => setTimeout(r, 200));   // ← 关键：等 autoOutput useEffect 创建 OutputNode
+  harvestFromExec();
+  writeFreshToOutputs();                         // ← 把全集累积写入新建 OutputNode
+}
+```
+
+### 54.3 制作新 EXEC 节点的强制 Checklist
+
+任何新增可在循环器中执行的节点（**EXEC_TYPES** 里的成员）都必须勾选下列项目，否则在循环器中必然出现 BUG：
+
+- [ ] 节点类型已加入 [LoopNode.tsx EXEC_TYPES](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/LoopNode.tsx#L31)、[Canvas.tsx EXEC_TYPES](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/Canvas.tsx#L177)、[NodeActionBar.tsx EXEC_TYPES](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/NodeActionBar.tsx#L25)
+- [ ] 接入 [`useRunTrigger(id, async () => { await handleRun(); })`](file:///e:/PenguinPravite/T8-penguin-canvas/src/hooks/useRunTrigger.ts) **必须 await**
+- [ ] 如果是异步轮询：`startPolling` 必须返回 `Promise<void>`，SUCCESS 走 `resolve()`、FAILED/超时走 `reject(new Error(...))`，handleRun 必须 `await startPolling(...)`
+- [ ] 如果是同步轮询：直接 `for + await Promise(setTimeout)` 即可，handleRun 自然等到完成
+- [ ] 产物字段写入 `update({ imageUrl / imageUrls / urls / videoUrl / audioUrl / audioUrl_1 / outputText / reply / text })` 中至少一项；按 url 后缀（.png/.mp4/.mp3）分流到对应字段，避免视频 url 进 `imageUrl`
+- [ ] handleRun 入口加重入保护：`if (status === 'submitting' || status === 'polling') return;`
+- [ ] handleRun 开始时清空上一轮的产物字段（`urls: [], taskId: null`），防止 stale 干扰
+- [ ] 新建一个测试画布：上游 2 个素材 → 循环器 → 新节点 → （手动 / 不连）OutputNode，跑一次串联循环，验证 OutputNode 显示完整 N 张产物（不是只显示最后一张，也不是失败）
+
+### 54.4 全部 16 个 EXEC 节点循环器兼容性矩阵（最终态）
+
+| 节点类型 | 轮询方式 | 修复版本 | 状态 |
+|---|---|---|---|
+| `image` | 同步 for+await Promise | — | ✓ 一开始就正常 |
+| `edit` (multi-angle-3d/panorama-720/penguin-portrait) | 同步 | — | ✓ 一开始就正常 |
+| `llm` | 流式 await | — | ✓ 一开始就正常 |
+| `frame-pair` | 同步 | v1.2.9.10 | ✓ 修复 pickKind 切割 |
+| `audio` | setInterval → Promise | v1.2.9.11 | ✓ |
+| `video` | setInterval × 2 → Promise | v1.2.9.11 | ✓ |
+| `seedance` | setInterval → Promise | v1.2.9.11 | ✓ |
+| `runninghub` | setInterval → Promise | v1.2.9.12 | ✓ |
+| `runninghub-wallet` | 复用 RunningHubNode | v1.2.9.12 | ✓ 同一组件 |
+| `resize / upscale / grid-crop / remove-bg / combine` | 同步 imageOps | — | ✓ |
+| `frame-extractor` | 同步 | — | ✓ |
+| `upload` | 同步本地缓存 | — | ✓ |
+| **finally 兜底（覆盖最后一张）** | LoopNode execAccumulator + finally 200ms 后 write | **v1.2.9.13** | ✓ 解决「循环结束后才创建 OutputNode 只显示最后一张」 |
+
+### 54.5 v1.2.9.x 版本演进表
+
+| 版本 | 关键修复 | 解决问题 |
+|---|---|---|
+| v1.2.9.0~v1.2.9.7 | 累积机制多次试错 | 历史包袱 |
+| v1.2.9.8 | LoopNode 主动 functional setNodes 写 OutputNode | FramePair 累积 OK |
+| v1.2.9.9 | discoverOutputNodeIds 动态发现 + knownOutputs | 运行中创建的 OutputNode 也能写入 |
+| v1.2.9.10 | hasAnyDirectAccumulated 短路 + autoOutput 跳过 `__loopAccumulate` | ImageNode/LLMNode 覆盖修复 |
+| v1.2.9.11 | startPolling Promise 化 + extractFromNode kind 兜底 | AudioNode/VideoNode/SeedanceNode 失败修复 |
+| v1.2.9.12 | RunningHubNode startPolling Promise 化 | RH/RH-wallet 失败修复 |
+| **v1.2.9.13** | **execAccumulator 跨轮累积 + finally 兜底 writeback** | **RH/RH-wallet 循环结束后才建 OutputNode 覆盖修复（全部 16 节点完美兼容）** |
+
+### 54.6 防止再回归的代码注释锚点
+
+四道防线在源码中有显眼注释锚点，未来任何重构必须保留：
+
+- `v1.2.9.10`：[OutputNode.tsx#L264-L277 hasAnyDirectAccumulated 累积模式短路](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/OutputNode.tsx)
+- `v1.2.9.10`：[Canvas.tsx#L1915-L1919 autoOutput 跳过 `__loopAccumulate`](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/Canvas.tsx)
+- `v1.2.9.11`：[LoopNode.tsx extractFromNode kind 兜底](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/LoopNode.tsx)
+- `v1.2.9.11`：[AudioNode/VideoNode/SeedanceNode startPolling 改 Promise](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/AudioNode.tsx)
+- `v1.2.9.12`：[RunningHubNode.tsx#L389-L468 startPolling 改 Promise](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/RunningHubNode.tsx)
+- `v1.2.9.13`：[LoopNode.tsx execAccumulator + harvestFromExec + finally 200ms writeback](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/LoopNode.tsx)
+
+### 54.7 经验教训（一句话总结）
+
+1. **Promise 化是异步轮询节点的入场券**：不返回 Promise / 不 await 就一定 race。
+2. **`__loopAccumulate` 标记会让 autoOutput 跳过节点**：意味着循环结束前 OutputNode 可能根本不存在；finally 兜底必不可少。
+3. **`hasAnyDirectAccumulated` 是覆盖症状的最后一道墙**：即使 autoOutput 给 OutputNode 升级了 pickKind，只要 directImageUrls 非空就跳过切割。
+4. **跨轮 accumulator 而非当前 ud**：跑到第 N 轮时 ud 只剩最后一轮值，靠 ud 写 OutputNode 永远只能拿到最后一张。
+5. **execAccumulator 同时支持 FramePair `isFP` 双图分流**：sourceHandle='first'/'last' 各取 firsts/lasts 数组。
+6. **finally 中 setTimeout(200) 不是黑魔法**：是给 autoOutput useEffect 一个 commit 周期把新 OutputNode 落 store。
+
+---
