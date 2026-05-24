@@ -9,6 +9,9 @@ import ErrorBoundary from './components/ErrorBoundary';
 import * as api from './services/api';
 import type { NodeType } from './types/canvas';
 
+// vite.config 注入的编译期常量（与 package.json 同步），勿硬编码 v1.x.x
+declare const __APP_VERSION__: string;
+
 /**
  * T8-penguin-canvas 应用根组件 (Phase 1)
  * 布局: [侧边栏(画布管理 + 节点列表)] [画布主体] + 头部状态栏
@@ -220,7 +223,7 @@ function App() {
                   }`
             }
           >
-            v1.1.0
+            v{__APP_VERSION__}
           </span>
           {/* 后端状态 */}
           {isPixel ? (
