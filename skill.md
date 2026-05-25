@@ -6213,3 +6213,94 @@ router.post('/save-to-disk', async (req, res) => {
 **内部保持不变**：`type: 'rh-tools'` / `data/rh-tool-categories.json` / `data/rh-tool-apps.json` / 后端路由 `/api/settings/rh-tool-*` 均不变，以保证数据与老画布兼容。
 
 ---
+
+## v1.2.10.5 · 节点落点防重叠（阿基米德螺线避让 + 整组平移 + 兜底）
+
+### v1.2.10.5.A 问题与决策
+
+**症状**：从 Sidebar 拖入 / 右键添加 / 双击 OutputNode 编辑产物 / 输出素材自动建 OutputNode / UploadNode autoSpawn output / LoopNode 克隆链 —— **6 处入口**生成新节点时常常与现有节点重合。旧版仅 `±20px` jitter 抖动，9 宫格批量产物时重叠概率几近 100%。
+
+**用户决策（Q1~Q4 拍板）**：
+
+| Q | 选项 | 决策 |
+|---|---|---|
+| Q1 节点最小间距 | 16/24/**32**/40 px | **32 px** |
+| Q2 螺线方向 | A 右→下→左→上 / B 上→右→下→左 / C 全向 8 邻 | **A** 符合阅读习惯 |
+| Q3 批量布局策略 | A 整组平移 / B 个体散开 / C 自适应 | **A** 整组平移保持 9 宫格相对位置完整 |
+| Q4 兜底策略 | A 最右兜底 / B 视口外 / C toast+飞镜 | **A+C** 最右落点 + logBus.warn + setCenter 飞镜 |
+
+### v1.2.10.5.B 核心工具 [src/utils/nodePlacement.ts](file:///e:/PenguinPravite/T8-penguin-canvas/src/utils/nodePlacement.ts)（新建 323 行）
+
+常量：
+```ts
+export const PLACEMENT_GAP = 32;       // 节点之间最小间距
+export const PLACEMENT_STEP = 80;      // 螺线步长
+export const PLACEMENT_MAX_TRIES = 64; // 螺线最大尝试次数（约 5 圈）
+```
+
+`NODE_DEFAULT_SIZE` 字典覆盖 24 个节点类型默认 w/h，`rectOf(node)` 三层兜底读尺寸：`measured > width/height > NODE_DEFAULT_SIZE 字典`。
+
+核心函数：
+
+| 函数 | 职责 |
+|---|---|
+| `rectsIntersect(a,b,gap)` | 矩形相交判定（含 padding） |
+| `spiralOffsets(step, maxTries)` | 阿基米德方形螺线 generator（右→下→左→上 leg 递增） |
+| `resolveSingleSpawn(desired, existing, opts)` | 单节点避让 |
+| `resolveBatchSpawn(desiredRects, existing, opts)` | 整组避让 → 返回公共偏移 `{dx, dy}` |
+| `fallbackRightmost(existing, defaultPos, onFallback)` | 找现有节点最右 + GAP*4 + `logBus.warn` + 上层 `onFallback` 回调 |
+| `placeSingleNode(baseX, baseY, type, nodes, excludeIds?, onFallback?)` | 单节点一站式封装 |
+| `placeBatchNodes(desiredRects, nodes, excludeIds?, onFallback?)` | 批量一站式封装 → `{dx, dy}` |
+
+**算法**：阿基米德方形螺线 leg 长度 1,1,2,2,3,3,4,4...（右1 下1 左2 上2 右3 下3 ...），每步前进 PLACEMENT_STEP=80 px；每个候选位置都做 `rectsIntersect` 全量碰撞检测，第一个无碰撞位置即返回。
+
+**整组平移**：先用所有 `desiredRects` 算包围盒（bbox），把 bbox 视为单一矩形跑同样的螺线避让，找到的偏移 `dx/dy` 同时加到所有节点 → 保持相对布局完整。
+
+**兜底**：64 步内仍无解 → `fallbackRightmost` 找现有节点最右 + `GAP*4`，调 `logBus.warn("[placement] 无可避让位置, 已落到最右兜底点")`，并通过 `onFallback({x,y})` 回调让上层 `useReactFlow().setCenter()` 飞镜让用户立即看到。
+
+### v1.2.10.5.C 6 处入口接入清单
+
+| # | 入口 | 文件 | 接入点 | 调用 |
+|---|---|---|---|---|
+| 1 | Sidebar 拖入 / 右键快捷添加 | [Canvas.tsx](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/Canvas.tsx) addNode | 单节点 | `placeSingleNode + onFallback setCenter 飞镜` |
+| 2 | autoOutput FramePair（首尾帧对） | Canvas.tsx | 批量 | `placeBatchNodes` |
+| 3 | autoOutput Suno 双轨 | Canvas.tsx | 批量 | `placeBatchNodes` |
+| 4 | autoOutput 通用 N 输出（图/视/音） | Canvas.tsx | 批量 | `placeBatchNodes` |
+| 5 | OutputNode 双击编辑 → 3 列宫格 | [OutputNode.tsx](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/OutputNode.tsx) handleProduce | 批量 | `placeBatchNodes` |
+| 6 | UploadNode 多产物 → 3 列宫格 | [UploadNode.tsx](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/UploadNode.tsx) handleProduce | 批量 | `placeBatchNodes` |
+| 7 | UploadNode autoSpawn output | UploadNode.tsx | 单节点 | `placeSingleNode` |
+| 8 | LoopNode 克隆链 N 节点 | [LoopNode.tsx](file:///e:/PenguinPravite/T8-penguin-canvas/src/components/nodes/LoopNode.tsx) | 批量 + `excludeIds=subNodeIds` 排除源 | `placeBatchNodes` |
+
+**LoopNode 特别处理**：克隆链场景源节点（subNodeIds）不能参与碰撞检测，否则克隆体永远会被源挤走 → `placeBatchNodes(desiredRects, nodes, excludeIds: subNodeIds)`。
+
+### v1.2.10.5.D 反重构检查表
+
+后续重构涉及任何节点写入入口时必查：
+
+- [ ] `setNodes` / `addNodes` / `setNodes(nds => [...nds, newNode])` 之前是否过 `placeSingleNode` / `placeBatchNodes` resolver
+- [ ] 单节点入口形参是否齐全：`baseX, baseY, type, nodes, excludeIds?, onFallback?`
+- [ ] 批量入口形参：`desiredRects[], nodes, excludeIds?, onFallback?` → `{dx, dy}`
+- [ ] 批量场景所有节点 `position.x/y` 是否都加了 `+dx / +dy`（不能漏任何一个）
+- [ ] `onFallback` 是否调 `useReactFlow().setCenter` 让用户能立刻看到兜底位置
+- [ ] LoopNode 等克隆类入口 `excludeIds` 是否已传
+- [ ] tsc EXIT=0
+
+### v1.2.10.5.E 经验教训
+
+1. **永远不要做 random jitter 抖动**：±20px 在批量 9 宫格时基本无效，必须用确定性算法（螺线/网格扫描）才能保证收敛。
+2. **整组 vs 个体 必须一开始就决策**：批量产物属于一组语义整体（9 张图、双轨双歌、首尾帧对），整组平移保留相对布局比每个个体随机散开体验好得多。
+3. **excludeIds 是克隆场景刚需**：LoopNode 克隆链场景，源节点必须从碰撞检测中剔除，否则克隆体会被源永远挤走没法落到原位附近。
+4. **resolver 收口而不是节点内自治**：所有写入入口在 `setNodes` 前过一次 resolver，节点本身不感知防重叠，复用性最高。
+5. **兜底必须可见**：64 步螺线无解极少见但必须可见 —— 无声落到屏幕外用户会以为节点没生成；`logBus.warn` + `setCenter` 飞镜组合保证用户始终能找到新节点。
+
+### v1.2.10.5.F 关键文件清单
+
+```text
+src/utils/nodePlacement.ts                      新增 323 行（核心工具）
+src/components/Canvas.tsx                       4 处接入（addNode + 3 段 autoOutput）
+src/components/nodes/OutputNode.tsx             handleProduce 整组避让
+src/components/nodes/UploadNode.tsx             handleProduce 整组 + autoSpawn 单节点
+src/components/nodes/LoopNode.tsx               克隆链整组 + excludeIds=subNodeIds
+```
+
+---
