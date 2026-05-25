@@ -1,6 +1,7 @@
 // 三套 API Key 设置路由
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 const config = require('../config');
 
 const router = express.Router();
@@ -23,6 +24,8 @@ const DEFAULT_SETTINGS = {
   grokApiKey: '',
   seedanceApiKey: '',
   sunoApiKey: '',
+  // v1.2.10.2: 全局生成素材自动保存到本地的路径(可用户自定义)
+  fileSavePath: config.DEFAULT_LOCAL_SAVE_DIR,
   // 其他偏好
   preferences: {
     theme: 'dark',
@@ -60,6 +63,22 @@ function saveSettings(settings) {
   fs.writeFileSync(config.SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
 }
 
+// v1.2.10.2: 启动时确保「文件自动保存路径」存在(不存在则 mkdir -p)
+function ensureFileSavePath() {
+  try {
+    const s = loadSettings();
+    const p = (s.fileSavePath || config.DEFAULT_LOCAL_SAVE_DIR || '').trim();
+    if (!p) return;
+    if (!fs.existsSync(p)) {
+      fs.mkdirSync(p, { recursive: true });
+      console.log(`[settings] 创建文件自动保存路径: ${p}`);
+    }
+  } catch (e) {
+    console.warn('[settings] 创建 fileSavePath 失败(忽略):', e?.message || e);
+  }
+}
+ensureFileSavePath();
+
 // GET /api/settings — 获取全部设置(脱敏 Key 仅返回最后4位)
 router.get('/', (_req, res) => {
   const settings = loadSettings();
@@ -92,6 +111,18 @@ router.post('/', (req, res) => {
     llmBaseUrl: config.ZHENZHEN_BASE_URL,
   };
   saveSettings(merged);
+  // v1.2.10.2: 保存后重新确保「文件自动保存路径」存在
+  if (typeof incoming.fileSavePath === 'string' && incoming.fileSavePath.trim()) {
+    try {
+      const p = incoming.fileSavePath.trim();
+      if (!fs.existsSync(p)) {
+        fs.mkdirSync(p, { recursive: true });
+        console.log(`[settings] 创建文件自动保存路径: ${p}`);
+      }
+    } catch (e) {
+      console.warn('[settings] mkdir fileSavePath 失败:', e?.message || e);
+    }
+  }
   res.json({ success: true });
 });
 

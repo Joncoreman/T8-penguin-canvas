@@ -52,6 +52,11 @@ const config = {
   // 贞贞工坊 / LLM 独立 Key 强制走 https://ai.t8star.org
   ZHENZHEN_BASE_URL: 'https://ai.t8star.org',
   RH_BASE_URL: 'https://www.runninghub.cn',
+
+  // v1.2.10.2: 全局生成素材自动保存到本地的默认路径
+  //   用户可在「API 设置 → 文件自动保存路径」覆盖。
+  //   不存在时启动会自动创建; 写入失败仅 console.warn, 不阻断业务。
+  DEFAULT_LOCAL_SAVE_DIR: 'D:\\zhenzhen',
 };
 
 // 提前创建打包后的数据目录(避免首次启动报错)

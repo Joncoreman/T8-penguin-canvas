@@ -92,4 +92,92 @@ router.post('/upload-base64', express.json({ limit: '20mb' }), (req, res) => {
   }
 });
 
+// v1.2.10.2: 全局生成素材自动保存到本地路径
+// POST /api/files/save-to-disk
+//   body: { url: string, filename?: string, kind?: 'image'|'video'|'audio' }
+//   url 支持:
+//     - /files/output/xxx       → 从 OUTPUT_DIR 复制
+//     - /files/input/xxx        → 从 INPUT_DIR 复制
+//     - http(s)://...           → fetch 拉取后写入
+//   读取当前 settings.fileSavePath, 不存在则 mkdir -p。
+//   冲突防护: 同名文件已存在 → 跳过并返回 exist:true(不覆盖)。
+router.post('/save-to-disk', express.json({ limit: '2mb' }), async (req, res) => {
+  try {
+    const { url, filename } = req.body || {};
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ success: false, error: '缺少 url' });
+    }
+    // 读取 settings
+    let savePath = config.DEFAULT_LOCAL_SAVE_DIR;
+    try {
+      if (fs.existsSync(config.SETTINGS_FILE)) {
+        const s = JSON.parse(fs.readFileSync(config.SETTINGS_FILE, 'utf-8'));
+        if (typeof s?.fileSavePath === 'string' && s.fileSavePath.trim()) {
+          savePath = s.fileSavePath.trim();
+        }
+      }
+    } catch { /* ignore */ }
+    if (!savePath) {
+      return res.status(400).json({ success: false, error: '未配置 fileSavePath' });
+    }
+    if (!fs.existsSync(savePath)) {
+      fs.mkdirSync(savePath, { recursive: true });
+    }
+
+    // 推断目标文件名
+    const inferName = () => {
+      if (filename && typeof filename === 'string') return filename.replace(/[\\\/:*?"<>|]/g, '_');
+      try {
+        const u = url.startsWith('http') ? new URL(url) : new URL(url, 'http://x');
+        const base = path.basename(u.pathname || '') || `out_${Date.now()}`;
+        return base.replace(/[\\\/:*?"<>|]/g, '_');
+      } catch {
+        return `out_${Date.now()}`;
+      }
+    };
+    const target = path.join(savePath, inferName());
+
+    // 已存在不覆盖 (防重复保存/面板多实例并发)
+    if (fs.existsSync(target)) {
+      return res.json({ success: true, data: { path: target, exist: true } });
+    }
+
+    // 本地 /files/output/* 或 /files/input/* → 直接 copyFile
+    const localCopy = (srcAbs) => {
+      if (!fs.existsSync(srcAbs)) {
+        return res.status(404).json({ success: false, error: `源文件不存在: ${srcAbs}` });
+      }
+      fs.copyFileSync(srcAbs, target);
+      return res.json({ success: true, data: { path: target, exist: false, source: 'copy' } });
+    };
+    if (url.startsWith('/files/output/')) {
+      const rel = decodeURIComponent(url.replace('/files/output/', ''));
+      return localCopy(path.join(config.OUTPUT_DIR, rel));
+    }
+    if (url.startsWith('/files/input/')) {
+      const rel = decodeURIComponent(url.replace('/files/input/', ''));
+      return localCopy(path.join(config.INPUT_DIR, rel));
+    }
+
+    // 远端 http(s) → fetch 拉取
+    if (/^https?:\/\//i.test(url)) {
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          return res.status(502).json({ success: false, error: `拉取远端资源失败: HTTP ${resp.status}` });
+        }
+        const ab = await resp.arrayBuffer();
+        fs.writeFileSync(target, Buffer.from(ab));
+        return res.json({ success: true, data: { path: target, exist: false, source: 'fetch' } });
+      } catch (e) {
+        return res.status(502).json({ success: false, error: '拉取远端资源出错: ' + (e?.message || e) });
+      }
+    }
+
+    return res.status(400).json({ success: false, error: '不支持的 url 协议' });
+  } catch (e) {
+    return res.status(500).json({ success: false, error: e?.message || String(e) });
+  }
+});
+
 module.exports = router;
