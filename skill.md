@@ -1,7 +1,9 @@
 # T8-penguin-canvas · skill.md
 
 > 项目能力 / 接口 / 文件用途速查手册。
-> 版本：v1.2.10.12 ｜ 仓库：<https://github.com/T8mars/T8-penguin-canvas>
+> 版本：v1.2.10.13 ｜ 仓库：<https://github.com/T8mars/T8-penguin-canvas>
+>
+> v1.2.10.13 增量：Electron 用户分发包增加充值密钥安全闸；`_post_build.cjs` 会拦截源码非空 `RECHARGE_DEFAULT_ENC`，以及 `data/recharge.private.json`、非空 `AGENT_HMAC_KEY / DULUPAY_KEY`、遗留 `RECHARGE_DEFAULT_ENC` 密文进入 resources。给用户充值的包不得携带 agent HMAC，正式方案必须让 VPS 持有密钥并提供无需客户端 HMAC 的公开充值接口。
 >
 > v1.2.10.12 增量：恢复本地开发充值配置入口；GitHub 仍保持 `RECHARGE_DEFAULT_ENC` 为空，本地通过忽略文件 `data/recharge.private.json` 或 `RECHARGE_*` 环境变量注入私有 agent 配置。
 >
@@ -645,7 +647,8 @@ npm run dist
 打包前必做：
 1. 确认 5 个文件版本号同步 (package.json / vite.config.ts / vite.config.js / electron/main.cjs / features.json)
 2. `npm run type-check` 无报错
-3. 详细 SOP 见 §47.6
+3. 用户分发包不得包含 `data/recharge.private.json`、非空 `AGENT_HMAC_KEY / DULUPAY_KEY`、`RECHARGE_DEFAULT_ENC` 可逆密文；`_post_build.cjs` 会强制检查
+4. 详细 SOP 见 §47.6
 
 或 Windows 双击 `start-dev.bat`。
 
@@ -1844,13 +1847,57 @@ nodes/
 ### 21.5 Git 工作流
 
 - 主分支：`main`
-- 推送命令：`git add -A && git commit -m "..." && git push origin main`
+- 推送命令：优先显式 `git add <path...>`，只有确认整个 worktree 都属于本次变更且通过安全扫描后才允许 `git add -A`
 - 恢复到远程最新：`git fetch origin main && git reset --hard origin/main`
 - 禁止强制推送 `--force`
-- **GitHub 推送前必须做密钥清理**：公开仓库里的 `backend/src/routes/recharge.js::RECHARGE_DEFAULT_ENC` 必须保持空字符串，不能提交任何真实 `AGENT_HMAC_KEY`、`DULUPAY_KEY`、支付平台密钥、代理签名密钥或可逆加密后的同等内容。
-- 私有充值配置只允许通过本地忽略文件 `data/recharge.private.json` 或环境变量注入：`RECHARGE_AGENT_BASE_URL`、`RECHARGE_AGENT_HMAC_KEY`、`RECHARGE_WEBSITE_URL`、`RECHARGE_DULUPAY_KEY`；这些变量值不得写入 `skill.md` / `features.json` / 源码 / 构建产物。
-- 推送前必须确认 `.gitignore` 覆盖本地数据与产物：`data/`、`backend/data/`、`input/`、`output/`、`thumbnails/`、`build/`、`dist/`、`dist_electron/`、`.env*` 不得进入 staged diff。
-- 推送前用 `rg -n "AGENT_HMAC_KEY|DULUPAY_KEY|RECHARGE_DEFAULT_ENC|secret|token|password" backend/src src electron features.json skill.md package.json .gitignore` 做一次人工复核；只允许出现空配置、变量名、文档警示，不允许出现真实值。
+
+### 21.5.1 GitHub 推送安全规范（强制）
+
+> **MUST**：每次执行 `git push` 前必须逐条执行本节。任何一条不满足，立刻停止推送，先修复。
+
+**充值密钥边界**：
+- 公开仓库里的 `backend/src/routes/recharge.js::RECHARGE_DEFAULT_ENC` 必须保持空字符串：`const RECHARGE_DEFAULT_ENC = '';`
+- 严禁把真实 `AGENT_HMAC_KEY`、`DULUPAY_KEY`、支付平台密钥、代理签名密钥、admin token、可逆加密后的同等内容写入源码、`skill.md`、`features.json`、提交信息、截图、日志或构建产物。
+- 本地开发密钥只允许放在被 Git 忽略的 `data/recharge.private.json`，或通过环境变量注入：`RECHARGE_AGENT_BASE_URL`、`RECHARGE_AGENT_HMAC_KEY`、`RECHARGE_WEBSITE_URL`、`RECHARGE_DULUPAY_KEY`。
+- `data/recharge.private.json` 可以存在于本机，但永远不能被 stage / commit / push；推送前必须确认它被忽略。
+
+**Electron 用户分发包密钥边界**：
+- 发给用户充值的 Electron 包绝不能内置 `AGENT_HMAC_KEY`。即使放进 `.t8c`、asar、NSIS 安装包、环境变量默认值或可逆密文，用户拿到包后仍可逆向提取。
+- 当前 `data/recharge.private.json` 只允许用于本地开发/内测机器；不得随安装包、压缩包、更新包、资源目录或用户数据模板分发。
+- 若要做正式用户充值包，安全架构必须改为：VPS/agent 持有 HMAC、支付平台密钥和转账权限；桌面端只调用无需客户端 HMAC 的公开下单/查单接口，并由 VPS 在支付成功后完成转账。
+- `_post_build.cjs` 必须保留充值密钥安全闸：发现源码 `RECHARGE_DEFAULT_ENC` 非空，或 packaged `resources` 中有 `recharge.private.json`、非空 `AGENT_HMAC_KEY / DULUPAY_KEY`、`RECHARGE_DEFAULT_ENC` 可逆密文时，打包后校验直接失败。
+
+**推送前必跑检查**：
+```powershell
+git status --short --branch
+git status --short --ignored
+git check-ignore -v data/recharge.private.json
+rg -n "AGENT_HMAC_KEY|DULUPAY_KEY|RECHARGE_DEFAULT_ENC|secret|token|password|admin[_-]?token" backend/src src electron features.json skill.md package.json .gitignore
+git diff --stat
+git diff --cached --name-only
+```
+
+**扫描结果判定**：
+- `git check-ignore -v data/recharge.private.json` 必须命中 `.gitignore`；若未命中，停止推送。
+- `git status --short --ignored` 中 `data/recharge.private.json` 只能作为 ignored 文件出现，不能出现在 `A/M/??` 的待提交列表里。
+- `rg` 只允许命中变量名、空配置和安全说明；若出现真实值、长 token、可逆密文、URL+密钥组合，停止推送。
+- `git diff --cached --name-only` 不得包含 `data/`、`backend/data/`、`input/`、`output/`、`thumbnails/`、`build/`、`dist/`、`dist_electron/`、`.env*`、`*.log`。
+- 如果 `backend/src/` 有改动，正式打包前必须重新 `npm run encrypt`；但 `build/backend-enc` 只用于本地打包验证，不推 GitHub。
+
+**允许提交的内容**：
+- 读取私有配置的代码、`.gitignore` 规则、安全文档、空配置占位。
+- `data/recharge.private.json` 的路径说明和字段名说明。
+
+**禁止提交的内容**：
+- `data/recharge.private.json` 文件本身。
+- 任何真实 HMAC / 支付回调密钥 / VPS agent 管理密钥。
+- 从本地私有配置复制出来的 JSON、日志、调试输出、终端截图。
+- `build/`、`dist/`、`dist_electron/`、本地输入输出素材、数据库和订单记录。
+
+**本地密钥恢复原则**：
+- 如果本地充值再次显示“支付服务未配置”，只能恢复 `data/recharge.private.json` 或设置 `RECHARGE_*` 环境变量。
+- 不得为了恢复本地可用性把密钥写回 `RECHARGE_DEFAULT_ENC`、源码常量、文档或 tracked JSON。
+- 若任何真实密钥曾经进入 GitHub、公开日志、压缩包或聊天截图，必须立即轮换。
 
 ### 21.6 开发环境注意事项
 
@@ -5003,7 +5050,7 @@ if (config.IS_PACKAGED && config.FRONTEND_DIST && fs.existsSync(config.FRONTEND_
 
 ### 47.6 标准化打包 SOP（**下次打包必照做**）
 
-#### 步骤 0 · 打包前必检 checklist（7 项）
+#### 步骤 0 · 打包前必检 checklist（9 项）
 
 - [ ] **package.json 版本号已 bump**（`version` 字段决定 `T8-PenguinCanvas-Setup-${version}.exe`）
 - [ ] **electron/main.cjs 三处版本号已同步**：① `BrowserWindow.title` ② log 窗口 HTML `<span>v...</span>` ③ `ipcMain.handle('t8pc:get-info')` 返回 `version` —— 否则窗口标题与安装包不一致，用户疑惑
@@ -5011,6 +5058,7 @@ if (config.IS_PACKAGED && config.FRONTEND_DIST && fs.existsSync(config.FRONTEND_
 - [ ] **端口约定以后端 18766 为准，前端 dev = 11422**（Electron 打包后主窗口 `loadURL('http://127.0.0.1:18766/')` 由 Express 静态托管 dist/，**不依赖 Vite dev port**）。若后端端口变更，需同步改：`backend/src/config.js` `BACKEND_PORT` 默认值 + `vite.config.ts/js` 三个 proxy target（/api,/files,/output） + `electron/main.cjs` `backendPort`；前端 dev port 变更只需改 `vite.config.ts/js` `server.port` 一处
 - [ ] **backend/src/{config.js,server.js} 改动后必须重新 `npm run encrypt`**（否则 .t8c 还是旧字节码）
 - [ ] **bytenode 已 npm install**（`dependencies` 中 `bytenode: ^1.5.7`，`postinstall` 跑 `electron-builder install-app-deps`）
+- [ ] **用户分发包充值密钥边界**：不得把 `data/recharge.private.json`、非空 `AGENT_HMAC_KEY / DULUPAY_KEY`、`RECHARGE_DEFAULT_ENC` 可逆密文打进 `dist_electron`；正式用户充值包必须走 VPS 公开下单/查单接口，不能让桌面端持有全局 HMAC
 - [ ] **dist_electron / build / *.tsbuildinfo / electron/*.js / _temp_* 已在 .gitignore**（永不上传到仓库）
 - [ ] **当前用户**明确说了「打包」/「build」/「dist」/「发版」 —— 否则**禁止执行**任何 `npm run dist*`
 
@@ -6839,3 +6887,20 @@ const baseY = srcY + srcH / 2 - groupH / 2;
 - 可以提交读取私有文件的代码
 - 不能提交 `data/recharge.private.json` 本身
 - 推送前 `git status --short --ignored` 中该文件只能出现在 `!! data/recharge.private.json`
+- 每次 GitHub 推送必须严格执行 `21.5.1 GitHub 推送安全规范（强制）`，不得跳过密钥扫描和 ignored 文件确认
+
+---
+
+### v1.2.10.13 · Electron 用户包充值密钥安全闸
+
+**用户要求**：打包 Electron 给用户充值使用，同时确认充值 agent HMAC 如何处理才安全。
+
+**安全结论**：
+- `AGENT_HMAC_KEY` 属于全局代理签名密钥，不能打进发给用户的 Electron 包；`.t8c`、asar、NSIS 安装包、环境变量默认值或 `RECHARGE_DEFAULT_ENC` 可逆密文都不能作为安全边界。
+- 本地 `data/recharge.private.json` 只用于开发/内测机器，不随安装包、压缩包或更新包分发。
+- 正式用户充值包的安全架构必须是 VPS 持有 HMAC/支付密钥/转账权限，桌面端只调用无需客户端 HMAC 的公开下单/查单接口。
+
+**代码落地**：
+- `electron/_post_build.cjs` 新增充值密钥安全闸：发现源码非空 `RECHARGE_DEFAULT_ENC`、`resources/data/recharge.private.json`、非空 `AGENT_HMAC_KEY / DULUPAY_KEY` 或遗留 `RECHARGE_DEFAULT_ENC` 可逆密文时直接失败。
+- `features.json` 打包 checklist 加入用户分发包充值密钥边界。
+- 版本同步为 display `1.2.10.13`，package semver `1.2.1013`。
