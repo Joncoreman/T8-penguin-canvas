@@ -856,10 +856,9 @@ html[data-theme-visual="op"] .t8-group-box__handle {
   min-height: 28px;
 }
 
-.llm-chat-split-button {
+.llm-chat-action-button {
   position: absolute;
   top: 4px;
-  right: 4px;
   width: 23px;
   min-width: 23px;
   height: 23px;
@@ -873,8 +872,16 @@ html[data-theme-visual="op"] .t8-group-box__handle {
   cursor: pointer;
 }
 
-.llm-chat-split-button:hover,
-.llm-chat-split-button:focus-visible {
+.llm-chat-action-button--single {
+  right: 31px;
+}
+
+.llm-chat-action-button--smart {
+  right: 4px;
+}
+
+.llm-chat-action-button:hover,
+.llm-chat-action-button:focus-visible {
   opacity: 1;
   outline: none;
   background: var(--t8-accent, #38bdf8);

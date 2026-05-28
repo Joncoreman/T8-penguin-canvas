@@ -1251,7 +1251,8 @@
         "index.css 统一主题水印层级合同：.t8-canvas-shell::before/::after 只能作为 pointer-events:none 的背景层，ReactFlow 节点、边、浮层必须在其上方；Naruto / EVA 主题水印不再覆盖画板图片或普通节点。",
         "EVA 深色模式 NERV 背景水印提高不透明度并取消混合导致的过暗效果，让深色画布也能看出主题标识，同时保持节点内容可读。",
         "全局右键 / 框选 / 快速添加 / 拖线候选菜单与选中节点 RUN/关闭浮动条纳入主题合同，统一使用 t8-context-menu / t8-node-action-bar，修复 OP、RH、火影、EVA 等主题下菜单不可读或绿色按钮残留。",
-        "LLM/Vision 助手回复右上角新增智能打散入口，可按宫格 / 镜头 / 分镜 / 场景 / 序号结构拆成独立文本节点；批量选择节点右键新增批量下载，可跳过无素材节点并收集 image/video/audio 与素材集媒体项。",
+        "LLM/Vision 助手回复右上角新增双打散入口：文档图标会把完整回复生成一个文本节点，剪刀图标保留原智能打散，可按宫格 / 镜头 / 分镜 / 场景 / 序号结构拆成多个独立文本节点；批量选择节点右键新增批量下载，可跳过无素材节点并收集 image/video/audio 与素材集媒体项。",
+        "编辑图片弹窗的宫格切分默认从 2×2 调整为 3×3，并在预设宫格与自定义切线两种模式中给 gap 去缝间距补充滑杆；数字框与滑杆实时互相同步，方便用户快速感知缝隙大小。",
         "公开版本同步到 1.6.1：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 与 docs/theme-design-guide.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub。"
       ]
     }

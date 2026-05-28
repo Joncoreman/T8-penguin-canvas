@@ -185,8 +185,8 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
   const [mode, setMode] = useState<EditMode>('crop');
   const [gridMode, setGridMode] = useState<GridSubMode>('preset');
   const [crop, setCrop] = useState<CropBox>({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
-  const [rows, setRows] = useState(2);
-  const [cols, setCols] = useState(2);
+  const [rows, setRows] = useState(3);
+  const [cols, setCols] = useState(3);
   const [gap, setGap] = useState(0);
   const [orient, setOrient] = useState<'h' | 'v'>('h');
   const [customLines, setCustomLines] = useState<Line[]>([]);
@@ -253,6 +253,10 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
     startPt: Pt;
     pending: DrawStroke | null;
   } | null>(null);
+
+  const setGridGap = useCallback((value: number) => {
+    setGap(clamp(Math.round(Number.isFinite(value) ? value : 0), 0, 240));
+  }, []);
 
   // ---- 撤销/恢复辅助 (mask/brush 各自一栈) ----
   const pushHistory = useCallback(
@@ -1593,10 +1597,23 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
                 min={0}
                 max={240}
                 value={gap}
-                onChange={(e) => setGap(clamp(Number(e.target.value) || 0, 0, 240))}
+                onChange={(e) => setGridGap(Number(e.target.value))}
                 style={inputStyle}
               />
               <span style={{ color: subText }}>px</span>
+              <input
+                type="range"
+                min={0}
+                max={240}
+                step={1}
+                value={gap}
+                onChange={(e) => setGridGap(Number(e.target.value))}
+                title="拖动调整 gap 去缝间距"
+                style={{
+                  width: 180,
+                  accentColor: isPixel ? '#C43E7B' : '#db2777',
+                }}
+              />
               <div
                 style={{
                   width: 1,
@@ -1630,10 +1647,23 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
                 min={0}
                 max={240}
                 value={gap}
-                onChange={(e) => setGap(clamp(Number(e.target.value) || 0, 0, 240))}
+                onChange={(e) => setGridGap(Number(e.target.value))}
                 style={inputStyle}
               />
               <span style={{ color: subText }}>px</span>
+              <input
+                type="range"
+                min={0}
+                max={240}
+                step={1}
+                value={gap}
+                onChange={(e) => setGridGap(Number(e.target.value))}
+                title="拖动调整 gap 去缝间距"
+                style={{
+                  width: 160,
+                  accentColor: isPixel ? '#C43E7B' : '#db2777',
+                }}
+              />
               <span style={{ color: subText, marginLeft: 8 }}>共 {customLines.length} 条</span>
               <div style={{ flex: 1 }} />
               <button style={btnBase} onClick={undoLine} disabled={!history.length}>

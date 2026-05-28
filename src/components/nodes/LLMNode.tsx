@@ -3,6 +3,7 @@ import { Handle, Position, useReactFlow, type Node, type NodeProps } from '@xyfl
 import {
   AlertCircle,
   Brain,
+  FileText,
   Image as ImageIcon,
   Loader2,
   Plus,
@@ -406,8 +407,9 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
     }
   };
 
-  const scatterAssistantText = useCallback((text: string) => {
-    const segments = splitAssistantReplyForScatter(text);
+  const scatterAssistantText = useCallback((text: string, mode: 'smart' | 'single' = 'smart') => {
+    const normalized = String(text || '').trim();
+    const segments = mode === 'single' ? (normalized ? [normalized] : []) : splitAssistantReplyForScatter(text);
     if (segments.length === 0) return;
     const current = getNode(id);
     const size = defaultSizeOf('text');
@@ -438,7 +440,10 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
       },
     }));
     addNodes(textNodes);
-    logBus.success(`已打散 ${segments.length} 段助手回复`, src);
+    logBus.success(
+      mode === 'single' ? '已生成 1 个完整助手回复文本节点' : `已智能打散 ${segments.length} 段助手回复`,
+      src,
+    );
   }, [addNodes, getNode, getNodes, id, src]);
 
   // 接入运行总线
@@ -764,27 +769,46 @@ const LLMNode = ({ id, data, selected }: NodeProps) => {
             <div
               onDoubleClick={() => handleDoubleClickMsg(i)}
               className={`llm-chat-message relative whitespace-pre-wrap text-white/80 bg-white/[0.03] rounded p-1.5 ${
-                t.role === 'assistant' ? 'cursor-pointer hover:bg-white/[0.06] transition-colors pr-8' : ''
+                t.role === 'assistant' ? 'cursor-pointer hover:bg-white/[0.06] transition-colors pr-14' : ''
               }`}
             >
               {t.role === 'assistant' && t.text.trim() && (
-                <button
-                  type="button"
-                  className="llm-chat-split-button t8-mini-icon-button nodrag nopan"
-                  title="打散为文本节点"
-                  aria-label="打散助手回复为文本节点"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    scatterAssistantText(t.text);
-                  }}
-                  onDoubleClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                >
-                  <Scissors size={13} />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="llm-chat-action-button llm-chat-action-button--single t8-mini-icon-button nodrag nopan"
+                    title="完整生成一个文本节点"
+                    aria-label="完整生成一个助手回复文本节点"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      scatterAssistantText(t.text, 'single');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                  >
+                    <FileText size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    className="llm-chat-action-button llm-chat-action-button--smart t8-mini-icon-button nodrag nopan"
+                    title="智能打散为多个文本节点"
+                    aria-label="智能打散助手回复为多个文本节点"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      scatterAssistantText(t.text, 'smart');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                  >
+                    <Scissors size={13} />
+                  </button>
+                </>
               )}
               {t.text || '[空]'}
             </div>
