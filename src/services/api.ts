@@ -289,7 +289,8 @@ export function importRHToolsBackup(payload: RHToolsBackup, mode: 'replace' | 'm
 }
 
 // ========== 资源库 (v1.3.4) ==========
-export type ResourceKind = 'image' | 'video' | 'audio' | 'set';
+export type ResourceKind = 'image' | 'video' | 'audio' | 'set' | 'pose';
+export type ResourceMediaKind = 'image' | 'video' | 'audio';
 export type ResourceMaterialSetKind = 'text' | 'image' | 'video' | 'audio';
 
 export interface ResourceCategory {
@@ -353,7 +354,17 @@ export interface AddResourceSetPayload {
 
 export interface AddResourcePayload {
   url: string;
-  kind: ResourceKind;
+  kind: ResourceMediaKind;
+  categoryId?: string;
+  title?: string;
+  tags?: string[];
+  sourceNodeId?: string;
+  sourceCanvasId?: string;
+  favorite?: boolean;
+}
+
+export interface AddResourcePosePayload {
+  poseBackup: Record<string, any>;
   categoryId?: string;
   title?: string;
   tags?: string[];
@@ -411,6 +422,13 @@ export function addResourceItem(payload: AddResourcePayload) {
 
 export function addResourceSet(payload: AddResourceSetPayload) {
   return safeRequest<ResourceItem & { duplicate?: boolean }>(`${BASE}/resources/sets/add`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function addResourcePose(payload: AddResourcePosePayload) {
+  return safeRequest<ResourceItem & { duplicate?: boolean }>(`${BASE}/resources/poses/add`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });

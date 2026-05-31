@@ -3,7 +3,7 @@ import { FolderPlus, Library, Plus, X } from 'lucide-react';
 import { useThemeStore } from '../stores/theme';
 import { useCanvasStore } from '../stores/canvas';
 import * as api from '../services/api';
-import type { ResourceCategory, ResourceKind, ResourceMaterialSetKind } from '../services/api';
+import type { ResourceCategory, ResourceKind, ResourceMaterialSetKind, ResourceMediaKind } from '../services/api';
 
 interface MenuState {
   x: number;
@@ -17,7 +17,7 @@ interface MenuState {
   materialSetItems?: NonNullable<Parameters<typeof api.addResourceSet>[0]['materialSetItems']>;
 }
 
-function isResourceKind(value: string | null): value is ResourceKind {
+function isResourceKind(value: string | null): value is ResourceMediaKind {
   return value === 'image' || value === 'video' || value === 'audio';
 }
 
@@ -132,7 +132,7 @@ export default function MaterialContextMenu() {
         })
       : await api.addResourceItem({
           url: menu.url || '',
-          kind: menu.kind,
+          kind: menu.kind as ResourceMediaKind,
           categoryId,
           title: menu.title,
           sourceNodeId: menu.sourceNodeId,

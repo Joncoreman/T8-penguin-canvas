@@ -10,6 +10,7 @@ import {
   ImagePlus,
   Layers,
   Move,
+  PackagePlus,
   PersonStanding,
   Play,
   RotateCcw,
@@ -23,6 +24,9 @@ import {
 import { useRunTrigger } from '../../hooks/useRunTrigger';
 import { useUpdateNodeData } from './useUpdateNodeData';
 import { PORT_COLOR } from '../../config/portTypes';
+import * as api from '../../services/api';
+import { useCanvasStore } from '../../stores/canvas';
+import { logBus } from '../../stores/logs';
 import { uploadDataUrl, uploadFileBlob } from '../../services/imageOps';
 import { placeSingleNode } from '../../utils/nodePlacement';
 import { useUpstreamMaterials } from './useUpstreamMaterials';
@@ -82,6 +86,9 @@ type PoseBackup = {
   points: PosePoints;
   people?: PosePoints[];
   handControls?: HandControls;
+  canvasRatioId?: PoseCanvasRatioId;
+  canvasCustomWidth?: number;
+  canvasCustomHeight?: number;
   prompt?: string;
   name?: string;
   createdAt?: number;
@@ -94,9 +101,22 @@ type PoseFavorite = PoseBackup & {
 type PoseBatchMode = 'next' | 'random' | 'current';
 type PoseRenderMode = 'lineart' | 'openpose' | 'coco';
 type PoseDragMode = 'joint' | 'body';
+type PoseCanvasRatioId = 'default' | '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | '3:2' | '2:3' | 'custom';
+type PoseCanvasBounds = {
+  id: PoseCanvasRatioId;
+  width: number;
+  height: number;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  ratio: number;
+};
 type PoseDragState =
   | { mode: 'joint'; key: JointKey }
-  | { mode: 'body'; start: PosePoint; origin: PosePoints };
+  | { mode: 'body'; start: PosePoint; origin: PosePoints; bounds: PoseCanvasBounds }
+  | { mode: 'scale'; center: PosePoint; startDistance: number; origin: PosePoints; bounds: PoseCanvasBounds }
+  | { mode: 'rotate'; center: PosePoint; startAngle: number; origin: PosePoints; bounds: PoseCanvasBounds };
 
 const LEGACY_VIEW_W = 420;
 const VIEW_W = 620;
@@ -104,6 +124,20 @@ const VIEW_H = 520;
 const VIEW_X_OFFSET = (VIEW_W - LEGACY_VIEW_W) / 2;
 const POSE_OUTPUT_W = 1240;
 const POSE_OUTPUT_H = 1040;
+const POSE_CANVAS_PANEL_W = 676;
+const POSE_CANVAS_PANEL_H = 560;
+const POSE_CANVAS_PADDING = 8;
+const POSE_CANVAS_FRAME_PADDING = 18;
+const DEFAULT_CANVAS_BOUNDS: PoseCanvasBounds = {
+  id: 'default',
+  width: VIEW_W,
+  height: VIEW_H,
+  minX: 0,
+  minY: 0,
+  maxX: VIEW_W,
+  maxY: VIEW_H,
+  ratio: VIEW_W / VIEW_H,
+};
 const POSE_SCHEMA = 't8-pose-master';
 const POSE_LIBRARY_SCHEMA = 't8-pose-master-library';
 const KEYPOINT_SCHEMA = 't8-pose-master-keypoints';
@@ -1309,6 +1343,18 @@ const POSE_RENDER_MODES: Array<{ id: PoseRenderMode; zh: string; en: string }> =
   { id: 'coco', zh: 'COCO图', en: 'COCO' },
 ];
 
+const POSE_CANVAS_RATIOS: Array<{ id: PoseCanvasRatioId; label: string; width: number; height: number }> = [
+  { id: 'default', label: '默认', width: VIEW_W, height: VIEW_H },
+  { id: '1:1', label: '1:1', width: 1, height: 1 },
+  { id: '4:3', label: '4:3', width: 4, height: 3 },
+  { id: '3:4', label: '3:4', width: 3, height: 4 },
+  { id: '16:9', label: '16:9', width: 16, height: 9 },
+  { id: '9:16', label: '9:16', width: 9, height: 16 },
+  { id: '3:2', label: '3:2', width: 3, height: 2 },
+  { id: '2:3', label: '2:3', width: 2, height: 3 },
+  { id: 'custom', label: '自定义', width: VIEW_W, height: VIEW_H },
+];
+
 function isPosePoint(value: unknown): value is PosePoint {
   return (
     typeof value === 'object' &&
@@ -1320,6 +1366,110 @@ function isPosePoint(value: unknown): value is PosePoint {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function safeCanvasRatioId(value: unknown): PoseCanvasRatioId {
+  const id = typeof value === 'string' ? value : '';
+  return POSE_CANVAS_RATIOS.some((item) => item.id === id) ? (id as PoseCanvasRatioId) : 'default';
+}
+
+function safeCanvasRatioDimension(value: unknown, fallback: number): number {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) ? clamp(n, 1, 9999) : fallback;
+}
+
+function poseCanvasBoundsFor(ratioId: PoseCanvasRatioId, customWidth = VIEW_W, customHeight = VIEW_H): PoseCanvasBounds {
+  const option = POSE_CANVAS_RATIOS.find((item) => item.id === ratioId) || POSE_CANVAS_RATIOS[0];
+  const sourceWidth = ratioId === 'custom' ? safeCanvasRatioDimension(customWidth, VIEW_W) : option.width;
+  const sourceHeight = ratioId === 'custom' ? safeCanvasRatioDimension(customHeight, VIEW_H) : option.height;
+  const ratio = clamp(sourceWidth / Math.max(sourceHeight, 1), 0.2, 5);
+  const baseRatio = VIEW_W / VIEW_H;
+  const width = ratio >= baseRatio ? VIEW_H * ratio : VIEW_W;
+  const height = ratio >= baseRatio ? VIEW_H : VIEW_W / ratio;
+  const minX = (VIEW_W - width) / 2;
+  const minY = (VIEW_H - height) / 2;
+  return {
+    id: ratioId,
+    width,
+    height,
+    minX,
+    minY,
+    maxX: minX + width,
+    maxY: minY + height,
+    ratio,
+  };
+}
+
+function poseOutputSizeFor(bounds: PoseCanvasBounds) {
+  if (bounds.ratio >= 1) {
+    return { width: POSE_OUTPUT_W, height: Math.max(1, Math.round(POSE_OUTPUT_W / bounds.ratio)) };
+  }
+  return { width: Math.max(1, Math.round(POSE_OUTPUT_W * bounds.ratio)), height: POSE_OUTPUT_W };
+}
+
+function poseCanvasPreviewSizeFor(bounds: PoseCanvasBounds) {
+  const panelRatio = POSE_CANVAS_PANEL_W / POSE_CANVAS_PANEL_H;
+  if (bounds.ratio >= panelRatio) {
+    return {
+      width: POSE_CANVAS_PANEL_W,
+      height: Math.max(1, POSE_CANVAS_PANEL_W / bounds.ratio),
+    };
+  }
+  return {
+    width: Math.max(1, POSE_CANVAS_PANEL_H * bounds.ratio),
+    height: POSE_CANVAS_PANEL_H,
+  };
+}
+
+function clampPointToBounds(point: PosePoint, bounds: PoseCanvasBounds, padding = POSE_CANVAS_PADDING): PosePoint {
+  return {
+    x: clamp(point.x, bounds.minX + padding, bounds.maxX - padding),
+    y: clamp(point.y, bounds.minY + padding, bounds.maxY - padding),
+  };
+}
+
+function poseBounds(points: PosePoints) {
+  const all = Object.values(points);
+  const minX = Math.min(...all.map((point) => point.x));
+  const maxX = Math.max(...all.map((point) => point.x));
+  const minY = Math.min(...all.map((point) => point.y));
+  const maxY = Math.max(...all.map((point) => point.y));
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+    center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2 },
+  };
+}
+
+function poseTransformFrameFor(box: ReturnType<typeof poseBounds>, bounds: PoseCanvasBounds) {
+  const minX = clamp(box.minX - 18, bounds.minX + 6, bounds.maxX - 46);
+  const minY = clamp(box.minY - 18, bounds.minY + 6, bounds.maxY - 46);
+  const maxX = clamp(box.maxX + 18, minX + 40, bounds.maxX - 6);
+  const maxY = clamp(box.maxY + 18, minY + 40, bounds.maxY - 6);
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+    center: {
+      x: clamp((minX + maxX) / 2, bounds.minX + 14, bounds.maxX - 14),
+      y: clamp((minY + maxY) / 2, bounds.minY + 14, bounds.maxY - 14),
+    },
+    rotate: {
+      x: clamp((minX + maxX) / 2, bounds.minX + 14, bounds.maxX - 14),
+      y: clamp(minY - 34, bounds.minY + 14, bounds.maxY - 14),
+    },
+    scale: {
+      x: clamp(maxX + 14, bounds.minX + 14, bounds.maxX - 14),
+      y: clamp(maxY + 14, bounds.minY + 14, bounds.maxY - 14),
+    },
+  };
 }
 
 function safeIntensityId(value: unknown): string {
@@ -1377,7 +1527,12 @@ function buildHandPrompt(handControls: HandControls, language: Lang): string {
   return `${sideText('left')}${language === 'zh' ? '；' : '; '}${sideText('right')}`;
 }
 
-function constrainFootPoint(key: JointKey, point: PosePoint, points: PosePoints): PosePoint {
+function constrainFootPoint(
+  key: JointKey,
+  point: PosePoint,
+  points: PosePoints,
+  bounds: PoseCanvasBounds = DEFAULT_CANVAS_BOUNDS,
+): PosePoint {
   if (key !== 'lFoot' && key !== 'rFoot') return point;
   const ankleKey: JointKey = key === 'lFoot' ? 'lAnkle' : 'rAnkle';
   const kneeKey: JointKey = key === 'lFoot' ? 'lKnee' : 'rKnee';
@@ -1387,39 +1542,86 @@ function constrainFootPoint(key: JointKey, point: PosePoint, points: PosePoints)
   const fallbackDir = unit(knee, ankle);
   const dir = rawDistance < 1 ? fallbackDir : unit(ankle, point);
   const nextDistance = clamp(rawDistance, FOOT_MIN_DISTANCE, FOOT_MAX_DISTANCE);
-  return {
-    x: clamp(ankle.x + dir.x * nextDistance, 8, VIEW_W - 8),
-    y: clamp(ankle.y + dir.y * nextDistance, 8, VIEW_H - 8),
-  };
+  return clampPointToBounds({
+    x: ankle.x + dir.x * nextDistance,
+    y: ankle.y + dir.y * nextDistance,
+  }, bounds);
 }
 
-function constrainFootPoints(points: PosePoints): PosePoints {
+function constrainFootPoints(points: PosePoints, bounds: PoseCanvasBounds = DEFAULT_CANVAS_BOUNDS): PosePoints {
   const next = clonePoints(points);
-  next.lFoot = constrainFootPoint('lFoot', next.lFoot, next);
-  next.rFoot = constrainFootPoint('rFoot', next.rFoot, next);
+  next.lFoot = constrainFootPoint('lFoot', next.lFoot, next, bounds);
+  next.rFoot = constrainFootPoint('rFoot', next.rFoot, next, bounds);
   return next;
 }
 
-function shiftPosePoints(points: PosePoints, dx: number, dy = 0): PosePoints {
+function shiftPosePoints(points: PosePoints, dx: number, dy = 0, bounds: PoseCanvasBounds = DEFAULT_CANVAS_BOUNDS): PosePoints {
+  const next = clonePoints(points);
+  for (const key of Object.keys(next) as JointKey[]) {
+    next[key] = clampPointToBounds({ x: next[key].x + dx, y: next[key].y + dy }, bounds);
+  }
+  return constrainFootPoints(next, bounds);
+}
+
+function translatePosePoints(points: PosePoints, dx: number, dy: number, bounds: PoseCanvasBounds = DEFAULT_CANVAS_BOUNDS): PosePoints {
+  const box = poseBounds(points);
+  const safeDx = clamp(dx, bounds.minX + POSE_CANVAS_PADDING - box.minX, bounds.maxX - POSE_CANVAS_PADDING - box.maxX);
+  const safeDy = clamp(dy, bounds.minY + POSE_CANVAS_PADDING - box.minY, bounds.maxY - POSE_CANVAS_PADDING - box.maxY);
+  return shiftPosePoints(points, safeDx, safeDy, bounds);
+}
+
+function fitPosePointsToBounds(points: PosePoints, bounds: PoseCanvasBounds = DEFAULT_CANVAS_BOUNDS): PosePoints {
+  return translatePosePoints(points, 0, 0, bounds);
+}
+
+function maxScaleWithinBounds(points: PosePoints, center: PosePoint, bounds: PoseCanvasBounds): number {
+  let maxScale = 2.5;
+  for (const point of Object.values(points)) {
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    if (dx > 0.01) maxScale = Math.min(maxScale, (bounds.maxX - POSE_CANVAS_PADDING - center.x) / dx);
+    if (dx < -0.01) maxScale = Math.min(maxScale, (bounds.minX + POSE_CANVAS_PADDING - center.x) / dx);
+    if (dy > 0.01) maxScale = Math.min(maxScale, (bounds.maxY - POSE_CANVAS_PADDING - center.y) / dy);
+    if (dy < -0.01) maxScale = Math.min(maxScale, (bounds.minY + POSE_CANVAS_PADDING - center.y) / dy);
+  }
+  return Math.max(0.35, maxScale);
+}
+
+function scalePosePoints(
+  points: PosePoints,
+  center: PosePoint,
+  factor: number,
+  bounds: PoseCanvasBounds = DEFAULT_CANVAS_BOUNDS,
+): PosePoints {
+  const safeFactor = clamp(factor, 0.35, maxScaleWithinBounds(points, center, bounds));
   const next = clonePoints(points);
   for (const key of Object.keys(next) as JointKey[]) {
     next[key] = {
-      x: clamp(next[key].x + dx, 8, VIEW_W - 8),
-      y: clamp(next[key].y + dy, 8, VIEW_H - 8),
+      x: center.x + (points[key].x - center.x) * safeFactor,
+      y: center.y + (points[key].y - center.y) * safeFactor,
     };
   }
-  return constrainFootPoints(next);
+  return fitPosePointsToBounds(constrainFootPoints(next, bounds), bounds);
 }
 
-function translatePosePoints(points: PosePoints, dx: number, dy: number): PosePoints {
-  const all = Object.values(points);
-  const minX = Math.min(...all.map((point) => point.x));
-  const maxX = Math.max(...all.map((point) => point.x));
-  const minY = Math.min(...all.map((point) => point.y));
-  const maxY = Math.max(...all.map((point) => point.y));
-  const safeDx = clamp(dx, 8 - minX, VIEW_W - 8 - maxX);
-  const safeDy = clamp(dy, 8 - minY, VIEW_H - 8 - maxY);
-  return shiftPosePoints(points, safeDx, safeDy);
+function rotatePosePoints(
+  points: PosePoints,
+  center: PosePoint,
+  radians: number,
+  bounds: PoseCanvasBounds = DEFAULT_CANVAS_BOUNDS,
+): PosePoints {
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const next = clonePoints(points);
+  for (const key of Object.keys(next) as JointKey[]) {
+    const dx = points[key].x - center.x;
+    const dy = points[key].y - center.y;
+    next[key] = {
+      x: center.x + dx * cos - dy * sin,
+      y: center.y + dx * sin + dy * cos,
+    };
+  }
+  return fitPosePointsToBounds(constrainFootPoints(next, bounds), bounds);
 }
 
 function normalizePoints(value: unknown): PosePoints {
@@ -1488,9 +1690,9 @@ function interpolatePoints(a: PosePoints, b: PosePoints, t: number): PosePoints 
   return constrainFootPoints(out);
 }
 
-function mirrorPoints(points: PosePoints): PosePoints {
+function mirrorPoints(points: PosePoints, bounds: PoseCanvasBounds = DEFAULT_CANVAS_BOUNDS): PosePoints {
   const next = clonePoints(points);
-  const mirror = (point: PosePoint): PosePoint => ({ x: VIEW_W - point.x, y: point.y });
+  const mirror = (point: PosePoint): PosePoint => ({ x: bounds.minX + bounds.maxX - point.x, y: point.y });
   const swapped = new Set<JointKey>();
   for (const [left, right] of MIRROR_PAIRS) {
     next[left] = mirror(points[right]);
@@ -1501,7 +1703,7 @@ function mirrorPoints(points: PosePoints): PosePoints {
   for (const key of Object.keys(points) as JointKey[]) {
     if (!swapped.has(key)) next[key] = mirror(points[key]);
   }
-  return next;
+  return constrainFootPoints(next, bounds);
 }
 
 function buildPosePrompt(args: {
@@ -1545,12 +1747,20 @@ function poseMetadata(
   language: Lang,
   custom: string,
   prompt: string,
-  extras?: { people?: PosePoints[]; handControls?: HandControls },
+  extras?: { people?: PosePoints[]; handControls?: HandControls; canvas?: PoseCanvasBounds },
 ) {
   return {
     schema: POSE_SCHEMA,
-    version: 3,
+    version: 4,
     pointVersion: POSE_POINT_VERSION,
+    canvas: extras?.canvas
+      ? {
+          ratioId: extras.canvas.id,
+          width: Math.round(extras.canvas.width),
+          height: Math.round(extras.canvas.height),
+          ratio: Number(extras.canvas.ratio.toFixed(4)),
+        }
+      : undefined,
     presetId,
     viewId,
     shotId,
@@ -1577,10 +1787,13 @@ function makePoseBackup(args: {
   name?: string;
   people?: PosePoints[];
   handControls?: HandControls;
+  canvasRatioId?: PoseCanvasRatioId;
+  canvasCustomWidth?: number;
+  canvasCustomHeight?: number;
 }): PoseBackup {
   return {
     schema: POSE_SCHEMA,
-    version: 3,
+    version: 4,
     pointVersion: POSE_POINT_VERSION,
     hasPeople: args.hasPeople !== false,
     presetId: args.presetId,
@@ -1592,6 +1805,9 @@ function makePoseBackup(args: {
     points: clonePoints(args.points),
     people: args.people && args.people.length !== 1 ? args.people.map(clonePoints).slice(0, MAX_POSE_PEOPLE) : undefined,
     handControls: safeHandControls(args.handControls),
+    canvasRatioId: safeCanvasRatioId(args.canvasRatioId),
+    canvasCustomWidth: safeCanvasRatioDimension(args.canvasCustomWidth, VIEW_W),
+    canvasCustomHeight: safeCanvasRatioDimension(args.canvasCustomHeight, VIEW_H),
     prompt: args.prompt,
     name: args.name,
     createdAt: Date.now(),
@@ -1616,6 +1832,9 @@ function normalizePoseBackup(value: unknown): PoseBackup | null {
     points: loadPosePoints(raw.points, raw.pointVersion ?? raw.version),
     people: loadPosePeople(raw.people, raw.pointVersion ?? raw.version),
     handControls: safeHandControls(raw.handControls),
+    canvasRatioId: safeCanvasRatioId(raw.canvasRatioId),
+    canvasCustomWidth: safeCanvasRatioDimension(raw.canvasCustomWidth, VIEW_W),
+    canvasCustomHeight: safeCanvasRatioDimension(raw.canvasCustomHeight, VIEW_H),
     prompt: typeof raw.prompt === 'string' ? raw.prompt : '',
     name: typeof raw.name === 'string' ? raw.name : '',
     createdAt: Number(raw.createdAt) || Date.now(),
@@ -1698,31 +1917,44 @@ function segmentContour(a: PosePoint, b: PosePoint, startWidth: number, endWidth
   return `${contour}${center}${crossLines}`;
 }
 
+function handDirectionBasis(wrist: PosePoint, elbow: PosePoint, direction: HandDirection): { forward: PosePoint; spread: PosePoint; arm: PosePoint } {
+  const arm = unit(elbow, wrist);
+  const side = normal(elbow, wrist);
+  let forward = arm;
+  if (direction === 'side') forward = side.x < 0 ? side : { x: -side.x, y: -side.y };
+  if (direction === 'up') forward = { x: 0, y: -1 };
+  if (direction === 'down') forward = { x: 0, y: 1 };
+  return {
+    forward,
+    spread: { x: -forward.y, y: forward.x },
+    arm,
+  };
+}
+
 function handMarkup(wrist: PosePoint, elbow: PosePoint, control?: HandSideControl): string {
-  const dir = unit(elbow, wrist);
-  const n = normal(elbow, wrist);
-  const palm = { x: wrist.x + dir.x * 11, y: wrist.y + dir.y * 11 };
-  const angle = angleDeg(elbow, wrist);
   const shape = control?.shape || 'open';
   const direction = control?.direction || 'front';
+  const { forward, spread, arm } = handDirectionBasis(wrist, elbow, direction);
+  const palm = { x: wrist.x + arm.x * 6 + forward.x * 8, y: wrist.y + arm.y * 6 + forward.y * 8 };
+  const angle = (Math.atan2(forward.y, forward.x) * 180) / Math.PI;
   const palmFill = direction === 'front' ? '#f8fafc' : direction === 'side' ? '#dbeafe' : direction === 'up' ? '#ecfccb' : '#fee2e2';
   const fingers = shape === 'fist'
-    ? `<circle cx="${fmt(palm.x + dir.x * 9)}" cy="${fmt(palm.y + dir.y * 9)}" r="8" fill="${palmFill}" fill-opacity="0.2" stroke="#5f6670" stroke-width="1.8"/>`
+    ? `<circle cx="${fmt(palm.x + forward.x * 9)}" cy="${fmt(palm.y + forward.y * 9)}" r="8" fill="${palmFill}" fill-opacity="0.2" stroke="#5f6670" stroke-width="1.8"/>`
     : shape === 'point'
       ? [-1, 1]
           .map((slot) => {
-            const base = offset(palm, n, slot * 4.2);
-            const tip = { x: base.x + dir.x * 15 + n.x * slot * 0.8, y: base.y + dir.y * 15 + n.y * slot * 0.8 };
+            const base = offset(palm, spread, slot * 4.2);
+            const tip = { x: base.x + forward.x * 15 + spread.x * slot * 0.8, y: base.y + forward.y * 15 + spread.y * slot * 0.8 };
             return `<line x1="${fmt(base.x)}" y1="${fmt(base.y)}" x2="${fmt(tip.x)}" y2="${fmt(tip.y)}" stroke="#5f6670" stroke-width="1.5" stroke-linecap="round"/>`;
           })
           .join('') +
-        `<line x1="${fmt(palm.x)}" y1="${fmt(palm.y)}" x2="${fmt(palm.x + dir.x * 25)}" y2="${fmt(palm.y + dir.y * 25)}" stroke="#5f6670" stroke-width="2.2" stroke-linecap="round"/>`
+        `<line x1="${fmt(palm.x)}" y1="${fmt(palm.y)}" x2="${fmt(palm.x + forward.x * 25)}" y2="${fmt(palm.y + forward.y * 25)}" stroke="#5f6670" stroke-width="2.2" stroke-linecap="round"/>`
       : [-2, -1, 0, 1, 2]
           .map((slot, index) => {
-            const base = offset(palm, n, slot * 3.1);
+            const base = offset(palm, spread, slot * 3.1);
             const tip = {
-              x: base.x + dir.x * (15 + (index % 2) * 2) + n.x * slot * 1.5,
-              y: base.y + dir.y * (15 + (index % 2) * 2) + n.y * slot * 1.5,
+              x: base.x + forward.x * (15 + (index % 2) * 2) + spread.x * slot * 1.5,
+              y: base.y + forward.y * (15 + (index % 2) * 2) + spread.y * slot * 1.5,
             };
             return `<line x1="${fmt(base.x)}" y1="${fmt(base.y)}" x2="${fmt(tip.x)}" y2="${fmt(tip.y)}" stroke="#5f6670" stroke-width="1.5" stroke-linecap="round"/>`;
           })
@@ -1906,12 +2138,14 @@ function poseSvg(
     people?: PosePoints[];
     handControls?: HandControls;
     mode?: PoseRenderMode;
+    canvas?: PoseCanvasBounds;
   },
 ): string {
   const controls = options?.controls ?? false;
   const width = options?.width ?? VIEW_W;
   const height = options?.height ?? VIEW_H;
   const mode = options?.mode || 'lineart';
+  const canvas = options?.canvas || DEFAULT_CANVAS_BOUNDS;
   const people = options?.people !== undefined ? options.people : [points];
   const peopleMarkup = people
     .map((person, index) => `<g opacity="${index === 0 ? 1 : 0.54}">${poseRenderMarkup(person, { mode, controls: controls && index === 0, handControls: options?.handControls })}</g>`)
@@ -1919,14 +2153,14 @@ function poseSvg(
   const bg = mode === 'openpose' ? '#05070b' : '#ffffff';
   const gridStroke = mode === 'openpose' ? '#334155' : '#e5e7eb';
   return `
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${VIEW_W} ${VIEW_H}">
-  <rect width="${VIEW_W}" height="${VIEW_H}" fill="${bg}"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${fmt(canvas.minX)} ${fmt(canvas.minY)} ${fmt(canvas.width)} ${fmt(canvas.height)}">
+  <rect x="${fmt(canvas.minX)}" y="${fmt(canvas.minY)}" width="${fmt(canvas.width)}" height="${fmt(canvas.height)}" fill="${bg}"/>
   <defs>
     <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
       <path d="M24 0H0V24" fill="none" stroke="${gridStroke}" stroke-width="1"/>
     </pattern>
   </defs>
-  <rect width="${VIEW_W}" height="${VIEW_H}" fill="url(#grid)" opacity="${mode === 'openpose' ? 0.36 : 0.45}"/>
+  <rect x="${fmt(canvas.minX)}" y="${fmt(canvas.minY)}" width="${fmt(canvas.width)}" height="${fmt(canvas.height)}" fill="url(#grid)" opacity="${mode === 'openpose' ? 0.36 : 0.45}"/>
   ${peopleMarkup}
 </svg>`.trim();
 }
@@ -1967,11 +2201,27 @@ let poseLandmarkerPromise: Promise<PoseLandmarker> | null = null;
 
 function loadHtmlImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.crossOrigin = 'anonymous';
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('图片载入失败，无法识别姿态'));
-    image.src = src;
+    let settled = false;
+    const start = (withCrossOrigin: boolean) => {
+      const image = new Image();
+      if (withCrossOrigin) image.crossOrigin = 'anonymous';
+      image.onload = () => {
+        if (settled) return;
+        settled = true;
+        resolve(image);
+      };
+      image.onerror = () => {
+        if (settled) return;
+        if (withCrossOrigin) {
+          start(false);
+          return;
+        }
+        settled = true;
+        reject(new Error('图片载入失败，无法识别姿态'));
+      };
+      image.src = src;
+    };
+    start(true);
   });
 }
 
@@ -2001,8 +2251,36 @@ function averagePoint(a: PosePoint, b: PosePoint): PosePoint {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
+function averageAvailablePoints(points: Array<PosePoint | null>): PosePoint | null {
+  const valid = points.filter((point): point is PosePoint => !!point);
+  if (valid.length === 0) return null;
+  return {
+    x: valid.reduce((sum, point) => sum + point.x, 0) / valid.length,
+    y: valid.reduce((sum, point) => sum + point.y, 0) / valid.length,
+  };
+}
+
+function attachHeadToNeck(rawHead: PosePoint, neck: PosePoint, pelvis: PosePoint, lShoulder: PosePoint, rShoulder: PosePoint): PosePoint {
+  const neckDistance = distance(neck, rawHead);
+  const shoulderWidth = distance(lShoulder, rShoulder);
+  const torsoLength = distance(neck, pelvis);
+  const maxHeadDistance = clamp(Math.max(shoulderWidth * 0.9, torsoLength * 0.34), 30, 92);
+  if (neckDistance <= maxHeadDistance) return rawHead;
+  const dir = unit(neck, rawHead);
+  return {
+    x: neck.x + dir.x * maxHeadDistance,
+    y: neck.y + dir.y * maxHeadDistance,
+  };
+}
+
 function mediaPipeLandmarksToPosePoints(landmarks: any[]): PosePoints | null {
-  const head = mediaPipePoint(landmarks, 0);
+  const rawHead = averageAvailablePoints([
+    mediaPipePoint(landmarks, 0),
+    mediaPipePoint(landmarks, 2),
+    mediaPipePoint(landmarks, 5),
+    mediaPipePoint(landmarks, 7),
+    mediaPipePoint(landmarks, 8),
+  ]);
   const lShoulder = mediaPipePoint(landmarks, 11);
   const rShoulder = mediaPipePoint(landmarks, 12);
   const lElbow = mediaPipePoint(landmarks, 13);
@@ -2017,10 +2295,11 @@ function mediaPipeLandmarksToPosePoints(landmarks: any[]): PosePoints | null {
   const rAnkle = mediaPipePoint(landmarks, 28);
   const lFoot = mediaPipePoint(landmarks, 31) || lAnkle;
   const rFoot = mediaPipePoint(landmarks, 32) || rAnkle;
-  if (!head || !lShoulder || !rShoulder || !lHip || !rHip) return null;
+  if (!rawHead || !lShoulder || !rShoulder || !lHip || !rHip) return null;
   const neck = averagePoint(lShoulder, rShoulder);
   const pelvis = averagePoint(lHip, rHip);
   const chest = at(neck, pelvis, 0.42);
+  const head = attachHeadToNeck(rawHead, neck, pelvis, lShoulder, rShoulder);
   return constrainFootPoints({
     head,
     neck,
@@ -2098,15 +2377,27 @@ function openPoseKeypointsFor(points: PosePoints): number[] {
   return list.flatMap((point) => [Math.round(point.x), Math.round(point.y), 1]);
 }
 
-function buildKeypointsPayload(format: 'openpose' | 'coco', people: PosePoints[], source: string) {
+function pointsRelativeToCanvas(points: PosePoints, canvas: PoseCanvasBounds): PosePoints {
+  const next = clonePoints(points);
+  for (const key of Object.keys(next) as JointKey[]) {
+    next[key] = {
+      x: points[key].x - canvas.minX,
+      y: points[key].y - canvas.minY,
+    };
+  }
+  return next;
+}
+
+function buildKeypointsPayload(format: 'openpose' | 'coco', people: PosePoints[], source: string, canvas = DEFAULT_CANVAS_BOUNDS) {
+  const relativePeople = people.map((person) => pointsRelativeToCanvas(person, canvas));
   if (format === 'openpose') {
     return {
       schema: KEYPOINT_SCHEMA,
       format,
       version: 1,
       source,
-      canvas: { width: VIEW_W, height: VIEW_H },
-      people: people.map((person) => ({
+      canvas: { width: Math.round(canvas.width), height: Math.round(canvas.height), ratio: Number(canvas.ratio.toFixed(4)) },
+      people: relativePeople.map((person) => ({
         pose_keypoints_2d: openPoseKeypointsFor(person),
         face_keypoints_2d: [],
         hand_left_keypoints_2d: [],
@@ -2119,8 +2410,8 @@ function buildKeypointsPayload(format: 'openpose' | 'coco', people: PosePoints[]
     format,
     version: 1,
     source,
-    canvas: { width: VIEW_W, height: VIEW_H },
-    annotations: people.map((person, index) => ({
+    canvas: { width: Math.round(canvas.width), height: Math.round(canvas.height), ratio: Number(canvas.ratio.toFixed(4)) },
+    annotations: relativePeople.map((person, index) => ({
       id: index + 1,
       category_id: 1,
       keypoints: posePointKeypoints(person, COCO_JOINTS),
@@ -2133,6 +2424,7 @@ const PoseMasterNode = (props: NodeProps) => {
   const { id, selected } = props;
   const data = (props.data || {}) as Record<string, any>;
   const rf = useReactFlow();
+  const activeId = useCanvasStore((s) => s.activeId);
   const updateNodeData = useUpdateNodeData(id);
   const upstream = useUpstreamMaterials(id);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -2153,6 +2445,9 @@ const PoseMasterNode = (props: NodeProps) => {
   const [activePersonIndex, setActivePersonIndex] = useState<number>(() => clamp(Number(data.poseActivePersonIndex) || 0, 0, MAX_POSE_PEOPLE - 1));
   const [dragMode, setDragMode] = useState<PoseDragMode>(() => (data.poseDragMode === 'body' ? 'body' : 'joint'));
   const [renderMode, setRenderMode] = useState<PoseRenderMode>(() => safeRenderMode(data.poseRenderMode));
+  const [canvasRatioId, setCanvasRatioId] = useState<PoseCanvasRatioId>(() => safeCanvasRatioId(data.poseCanvasRatioId));
+  const [canvasCustomWidth, setCanvasCustomWidth] = useState<number>(() => safeCanvasRatioDimension(data.poseCanvasCustomWidth, VIEW_W));
+  const [canvasCustomHeight, setCanvasCustomHeight] = useState<number>(() => safeCanvasRatioDimension(data.poseCanvasCustomHeight, VIEW_H));
   const [presetId, setPresetId] = useState<string>(() => String(data.posePresetId || 'standing'));
   const [viewId, setViewId] = useState<string>(() => String(data.poseViewId || 'front'));
   const [shotId, setShotId] = useState<string>(() => String(data.poseShotId || 'full-body'));
@@ -2161,6 +2456,7 @@ const PoseMasterNode = (props: NodeProps) => {
   const [custom, setCustom] = useState<string>(() => String(data.poseCustomText || ''));
   const [handControls, setHandControls] = useState<HandControls>(() => safeHandControls(data.poseHandControls || data.handControls));
   const [recognitionImageUrl, setRecognitionImageUrl] = useState<string>(() => String(data.poseRecognitionImageUrl || ''));
+  const [suppressedReferenceUrl, setSuppressedReferenceUrl] = useState<string>(() => String(data.poseSuppressedReferenceUrl || ''));
   const [keyframeA, setKeyframeA] = useState<PoseBackup | null>(() => normalizePoseBackup(data.poseKeyframeA) || null);
   const [keyframeB, setKeyframeB] = useState<PoseBackup | null>(() => normalizePoseBackup(data.poseKeyframeB) || null);
   const [keyframeCount, setKeyframeCount] = useState<number>(() => clamp(Math.round(Number(data.poseKeyframeCount)) || 6, 2, 24));
@@ -2168,15 +2464,29 @@ const PoseMasterNode = (props: NodeProps) => {
   const [batchCount, setBatchCount] = useState<number>(() => safeBatchCount(data.poseBatchCount));
   const [batchMode, setBatchMode] = useState<PoseBatchMode>(() => safeBatchMode(data.poseBatchMode));
   const [status, setStatus] = useState<string>('');
+  const [recognitionBusy, setRecognitionBusy] = useState(false);
 
   const upstreamTexts = useMemo(
     () => upstream.texts.map((item) => item.url).filter(Boolean).slice(0, 8),
     [upstream.texts],
   );
-  const referenceImage = recognitionImageUrl || upstream.images[0]?.url || '';
+  const upstreamImageUrl = upstream.images[0]?.url || '';
+  const incomingReferenceImage = recognitionImageUrl || upstreamImageUrl;
+  const referenceImage = incomingReferenceImage && incomingReferenceImage !== suppressedReferenceUrl ? incomingReferenceImage : '';
   const posePeople = useMemo(() => (hasPeople ? [points, ...extraPeople].slice(0, MAX_POSE_PEOPLE) : []), [hasPeople, points, extraPeople]);
+  const hasClearableContent = posePeople.length > 0 || !!incomingReferenceImage;
   const safeActivePersonIndex = posePeople.length > 0 ? clamp(activePersonIndex, 0, posePeople.length - 1) : 0;
   const activePoints = posePeople[safeActivePersonIndex] || points;
+  const poseCanvas = useMemo(
+    () => poseCanvasBoundsFor(canvasRatioId, canvasCustomWidth, canvasCustomHeight),
+    [canvasRatioId, canvasCustomWidth, canvasCustomHeight],
+  );
+  const canvasPreviewSize = useMemo(() => poseCanvasPreviewSizeFor(poseCanvas), [poseCanvas]);
+  const activePoseBox = useMemo(() => (posePeople.length > 0 ? poseBounds(activePoints) : null), [activePoints, posePeople.length]);
+  const activeTransformFrame = useMemo(
+    () => (activePoseBox ? poseTransformFrameFor(activePoseBox, poseCanvas) : null),
+    [activePoseBox, poseCanvas],
+  );
   const renderModeLabel = POSE_RENDER_MODES.find((item) => item.id === renderMode)?.zh || '线稿图';
 
   const poseOnlyPrompt = useMemo(
@@ -2190,8 +2500,8 @@ const PoseMasterNode = (props: NodeProps) => {
   );
 
   const metadata = useMemo(
-    () => poseMetadata(points, presetId, viewId, shotId, intensityId, language, custom, prompt, { people: posePeople, handControls }),
-    [points, posePeople, handControls, presetId, viewId, shotId, intensityId, language, custom, prompt],
+    () => poseMetadata(points, presetId, viewId, shotId, intensityId, language, custom, prompt, { people: posePeople, handControls, canvas: poseCanvas }),
+    [points, posePeople, handControls, poseCanvas, presetId, viewId, shotId, intensityId, language, custom, prompt],
   );
 
   useEffect(() => {
@@ -2203,6 +2513,10 @@ const PoseMasterNode = (props: NodeProps) => {
       posePresetId: presetId,
       poseDragMode: dragMode,
       poseRenderMode: renderMode,
+      poseCanvasRatioId: canvasRatioId,
+      poseCanvasCustomWidth: canvasCustomWidth,
+      poseCanvasCustomHeight: canvasCustomHeight,
+      poseCanvasRatio: poseCanvas.ratio,
       poseViewId: viewId,
       poseShotId: shotId,
       poseIntensityId: intensityId,
@@ -2215,6 +2529,7 @@ const PoseMasterNode = (props: NodeProps) => {
       poseActivePersonIndex: safeActivePersonIndex,
       poseHandControls: handControls,
       poseRecognitionImageUrl: recognitionImageUrl,
+      poseSuppressedReferenceUrl: suppressedReferenceUrl,
       poseKeyframeA: keyframeA,
       poseKeyframeB: keyframeB,
       poseKeyframeCount: keyframeCount,
@@ -2225,7 +2540,7 @@ const PoseMasterNode = (props: NodeProps) => {
       outputText: prompt,
       metadata,
     });
-  }, [points, hasPeople, posePeople, safeActivePersonIndex, dragMode, renderMode, handControls, recognitionImageUrl, keyframeA, keyframeB, keyframeCount, presetId, viewId, shotId, intensityId, language, custom, favorites, batchCount, batchMode, upstreamTexts.length, prompt, metadata, updateNodeData]);
+  }, [points, hasPeople, posePeople, safeActivePersonIndex, dragMode, renderMode, canvasRatioId, canvasCustomWidth, canvasCustomHeight, poseCanvas.ratio, handControls, recognitionImageUrl, suppressedReferenceUrl, keyframeA, keyframeB, keyframeCount, presetId, viewId, shotId, intensityId, language, custom, favorites, batchCount, batchMode, upstreamTexts.length, prompt, metadata, updateNodeData]);
 
   const setActivePosePoints = (updater: PosePoints | ((prev: PosePoints) => PosePoints)) => {
     const nextFor = (prev: PosePoints) => (typeof updater === 'function' ? (updater as (prev: PosePoints) => PosePoints)(prev) : updater);
@@ -2238,16 +2553,28 @@ const PoseMasterNode = (props: NodeProps) => {
     );
   };
 
-  const toSvgPoint = (event: React.PointerEvent<SVGSVGElement>): PosePoint | null => {
+  const fitAllPeopleToCanvas = (bounds: PoseCanvasBounds) => {
+    setPoints((prev) => fitPosePointsToBounds(prev, bounds));
+    setExtraPeople((prev) => prev.map((person) => fitPosePointsToBounds(person, bounds)));
+  };
+
+  const applyCanvasRatio = (nextId: PoseCanvasRatioId, nextWidth: unknown = canvasCustomWidth, nextHeight: unknown = canvasCustomHeight) => {
+    const safeWidth = safeCanvasRatioDimension(nextWidth, VIEW_W);
+    const safeHeight = safeCanvasRatioDimension(nextHeight, VIEW_H);
+    setCanvasRatioId(nextId);
+    setCanvasCustomWidth(safeWidth);
+    setCanvasCustomHeight(safeHeight);
+    fitAllPeopleToCanvas(poseCanvasBoundsFor(nextId, safeWidth, safeHeight));
+  };
+
+  const toSvgPoint = (event: React.PointerEvent<SVGElement>): PosePoint | null => {
     const svg = svgRef.current;
     if (!svg) return null;
     const rect = svg.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * VIEW_W;
-    const y = ((event.clientY - rect.top) / rect.height) * VIEW_H;
-    return {
-      x: Math.max(8, Math.min(VIEW_W - 8, x)),
-      y: Math.max(8, Math.min(VIEW_H - 8, y)),
-    };
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    const x = poseCanvas.minX + ((event.clientX - rect.left) / rect.width) * poseCanvas.width;
+    const y = poseCanvas.minY + ((event.clientY - rect.top) / rect.height) * poseCanvas.height;
+    return clampPointToBounds({ x, y }, poseCanvas);
   };
 
   const handlePointerDown = (event: React.PointerEvent<SVGCircleElement>, key: JointKey) => {
@@ -2263,7 +2590,33 @@ const PoseMasterNode = (props: NodeProps) => {
     const point = toSvgPoint(event);
     if (!point) return;
     event.preventDefault();
-    draggingRef.current = { mode: 'body', start: point, origin: clonePoints(activePoints) };
+    draggingRef.current = { mode: 'body', start: point, origin: clonePoints(activePoints), bounds: poseCanvas };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handleTransformPointerDown = (event: React.PointerEvent<SVGCircleElement>, mode: 'scale' | 'rotate') => {
+    if (dragMode !== 'body' || posePeople.length === 0 || !activePoseBox) return;
+    const point = toSvgPoint(event);
+    if (!point) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const center = activePoseBox.center;
+    draggingRef.current =
+      mode === 'scale'
+        ? {
+            mode,
+            center,
+            startDistance: Math.max(1, distance(center, point)),
+            origin: clonePoints(activePoints),
+            bounds: poseCanvas,
+          }
+        : {
+            mode,
+            center,
+            startAngle: Math.atan2(point.y - center.y, point.x - center.x),
+            origin: clonePoints(activePoints),
+            bounds: poseCanvas,
+          };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -2273,14 +2626,23 @@ const PoseMasterNode = (props: NodeProps) => {
     const point = toSvgPoint(event);
     if (!point) return;
     if (drag.mode === 'body') {
-      setActivePosePoints(translatePosePoints(drag.origin, point.x - drag.start.x, point.y - drag.start.y));
+      setActivePosePoints(translatePosePoints(drag.origin, point.x - drag.start.x, point.y - drag.start.y, drag.bounds));
+      return;
+    }
+    if (drag.mode === 'scale') {
+      setActivePosePoints(scalePosePoints(drag.origin, drag.center, Math.max(1, distance(drag.center, point)) / drag.startDistance, drag.bounds));
+      return;
+    }
+    if (drag.mode === 'rotate') {
+      const nextAngle = Math.atan2(point.y - drag.center.y, point.x - drag.center.x);
+      setActivePosePoints(rotatePosePoints(drag.origin, drag.center, nextAngle - drag.startAngle, drag.bounds));
       return;
     }
     const key = drag.key;
     setActivePosePoints((prev) => {
-      const next = { ...prev, [key]: constrainFootPoint(key, point, prev) };
-      if (key === 'lAnkle') next.lFoot = constrainFootPoint('lFoot', next.lFoot, next);
-      if (key === 'rAnkle') next.rFoot = constrainFootPoint('rFoot', next.rFoot, next);
+      const next = { ...prev, [key]: constrainFootPoint(key, point, prev, poseCanvas) };
+      if (key === 'lAnkle') next.lFoot = constrainFootPoint('lFoot', next.lFoot, next, poseCanvas);
+      if (key === 'rAnkle') next.rFoot = constrainFootPoint('rFoot', next.rFoot, next, poseCanvas);
       return next;
     });
   };
@@ -2293,7 +2655,7 @@ const PoseMasterNode = (props: NodeProps) => {
     const preset = POSE_PRESETS.find((item) => item.id === nextPresetId) || POSE_PRESETS[0];
     setPresetId(preset.id);
     setHasPeople(true);
-    setActivePosePoints(clonePoints(preset.points));
+    setActivePosePoints(fitPosePointsToBounds(clonePoints(preset.points), poseCanvas));
   };
 
   const currentBackup = (name?: string) =>
@@ -2310,13 +2672,24 @@ const PoseMasterNode = (props: NodeProps) => {
       custom,
       prompt,
       name,
+      canvasRatioId,
+      canvasCustomWidth,
+      canvasCustomHeight,
     });
 
   const applyBackup = (backup: PoseBackup) => {
+    const nextCanvasRatioId = safeCanvasRatioId(backup.canvasRatioId);
+    const nextCanvasCustomWidth = safeCanvasRatioDimension(backup.canvasCustomWidth, VIEW_W);
+    const nextCanvasCustomHeight = safeCanvasRatioDimension(backup.canvasCustomHeight, VIEW_H);
+    const nextCanvas = poseCanvasBoundsFor(nextCanvasRatioId, nextCanvasCustomWidth, nextCanvasCustomHeight);
     const people = backup.hasPeople === false ? [] : backup.people && backup.people.length > 0 ? backup.people.map(clonePoints) : [clonePoints(backup.points)];
-    setHasPeople(people.length > 0);
-    setPoints(people[0] || clonePoints(backup.points));
-    setExtraPeople(people.slice(1, MAX_POSE_PEOPLE));
+    const fittedPeople = people.map((person) => fitPosePointsToBounds(person, nextCanvas));
+    setCanvasRatioId(nextCanvasRatioId);
+    setCanvasCustomWidth(nextCanvasCustomWidth);
+    setCanvasCustomHeight(nextCanvasCustomHeight);
+    setHasPeople(fittedPeople.length > 0);
+    setPoints(fittedPeople[0] || fitPosePointsToBounds(clonePoints(backup.points), nextCanvas));
+    setExtraPeople(fittedPeople.slice(1, MAX_POSE_PEOPLE));
     setActivePersonIndex(0);
     setHandControls(safeHandControls(backup.handControls));
     setPresetId(backup.presetId || 'standing');
@@ -2339,6 +2712,42 @@ const PoseMasterNode = (props: NodeProps) => {
     };
     setFavorites((prev) => [fav, ...prev.filter((item) => item.name !== fav.name)].slice(0, MAX_POSE_FAVORITES));
     setStatus('已收藏当前姿势');
+  };
+
+  const handleSaveToResourceLibrary = async () => {
+    const preset = POSE_PRESETS.find((item) => item.id === presetId);
+    const shot = SHOT_OPTIONS.find((item) => item.id === shotId);
+    const name = `${preset?.label || '姿势'} · ${shot?.zh || '姿势大师'}`.slice(0, 80);
+    try {
+      let categoryId = 'pose_uncategorized';
+      const cats = await api.getResourceCategories('pose');
+      if (cats.success) {
+        const existing = cats.data.find((cat) => cat.name === '常用姿势' || cat.name === '姿势大师');
+        if (existing) categoryId = existing.id;
+        else {
+          const created = await api.addResourceCategory('pose', '常用姿势');
+          if (created.success) categoryId = created.data.id;
+        }
+      }
+      const saved = await api.addResourcePose({
+        poseBackup: currentBackup(name),
+        categoryId,
+        title: `${name} · 姿势配置`,
+        tags: ['pose-master', '姿势大师', '姿态'],
+        sourceNodeId: id,
+        sourceCanvasId: activeId || '',
+        favorite: true,
+      });
+      if (!saved.success) throw new Error(saved.error || '保存资源库失败');
+      window.dispatchEvent(new CustomEvent('penguin:resources-changed'));
+      const message = (saved as any).duplicate ? '资源库已有相同姿势配置' : '已保存到资源库姿势分类';
+      setStatus(message);
+      logBus.success(message, '姿势大师');
+    } catch (e: any) {
+      const message = e?.message || '保存到资源库失败';
+      setStatus(message);
+      logBus.warn(message, '姿势大师');
+    }
   };
 
   const removeFavorite = (favId: string) => {
@@ -2370,13 +2779,20 @@ const PoseMasterNode = (props: NodeProps) => {
 
   const renderPoseOutput = async (snapshot: PoseBackup, mode: PoseRenderMode = renderMode) => {
     const snapshotPrompt = buildPromptForSnapshot(snapshot);
-    const snapshotPeople = snapshot.hasPeople === false
+    const snapshotCanvas = poseCanvasBoundsFor(
+      safeCanvasRatioId(snapshot.canvasRatioId || canvasRatioId),
+      safeCanvasRatioDimension(snapshot.canvasCustomWidth ?? canvasCustomWidth, VIEW_W),
+      safeCanvasRatioDimension(snapshot.canvasCustomHeight ?? canvasCustomHeight, VIEW_H),
+    );
+    const outputSize = poseOutputSizeFor(snapshotCanvas);
+    const snapshotPeople = (snapshot.hasPeople === false
       ? []
       : snapshot.people && snapshot.people.length > 0
         ? snapshot.people
-        : [snapshot.points];
+        : [snapshot.points]).map((person) => fitPosePointsToBounds(person, snapshotCanvas));
+    const snapshotPoints = snapshotPeople[0] || fitPosePointsToBounds(snapshot.points, snapshotCanvas);
     const snapshotMetadata = poseMetadata(
-      snapshot.points,
+      snapshotPoints,
       snapshot.presetId,
       snapshot.viewId,
       snapshot.shotId,
@@ -2387,17 +2803,19 @@ const PoseMasterNode = (props: NodeProps) => {
       {
         people: snapshotPeople,
         handControls: snapshot.handControls || handControls,
+        canvas: snapshotCanvas,
       },
     );
-    const svg = poseSvg(snapshot.points, {
+    const svg = poseSvg(snapshotPoints, {
       controls: false,
-      width: POSE_OUTPUT_W,
-      height: POSE_OUTPUT_H,
+      width: outputSize.width,
+      height: outputSize.height,
       people: snapshotPeople,
       handControls: snapshot.handControls || handControls,
       mode,
+      canvas: snapshotCanvas,
     });
-    const pngDataUrl = await svgToPngDataUrl(svg, POSE_OUTPUT_W, POSE_OUTPUT_H);
+    const pngDataUrl = await svgToPngDataUrl(svg, outputSize.width, outputSize.height);
     const imageUrl = await uploadDataUrl(pngDataUrl, 'pose-master');
     return { imageUrl, prompt: snapshotPrompt, metadata: snapshotMetadata };
   };
@@ -2556,6 +2974,9 @@ const PoseMasterNode = (props: NodeProps) => {
         intensityId,
         language,
         custom,
+        canvasRatioId,
+        canvasCustomWidth,
+        canvasCustomHeight,
         name: `${preset.label} ${index + 1}`,
       });
     });
@@ -2589,7 +3010,7 @@ const PoseMasterNode = (props: NodeProps) => {
       return;
     }
     if (posePeople.length === 0) {
-      setPoints(shiftPosePoints(DEFAULT_POINTS, VIEW_X_OFFSET));
+      setPoints(shiftPosePoints(DEFAULT_POINTS, VIEW_X_OFFSET, 0, poseCanvas));
       setExtraPeople([]);
       setHasPeople(true);
       setActivePersonIndex(0);
@@ -2597,14 +3018,8 @@ const PoseMasterNode = (props: NodeProps) => {
       return;
     }
     setExtraPeople((prev) => {
-      const shifted = clonePoints(activePoints);
       const offset = 24 * (prev.length + 1);
-      for (const key of Object.keys(shifted) as JointKey[]) {
-        shifted[key] = {
-          x: clamp(shifted[key].x + offset, 8, VIEW_W - 8),
-          y: shifted[key].y,
-        };
-      }
+      const shifted = shiftPosePoints(activePoints, offset, 0, poseCanvas);
       return [...prev, shifted].slice(0, MAX_POSE_PEOPLE - 1);
     });
     setActivePersonIndex(posePeople.length);
@@ -2620,7 +3035,7 @@ const PoseMasterNode = (props: NodeProps) => {
       setStatus(`最多支持 ${MAX_POSE_PEOPLE} 人姿态`);
       return;
     }
-    setExtraPeople((prev) => [...prev, clonePoints(activePoints)].slice(0, MAX_POSE_PEOPLE - 1));
+    setExtraPeople((prev) => [...prev, shiftPosePoints(activePoints, 24 * (prev.length + 1), 0, poseCanvas)].slice(0, MAX_POSE_PEOPLE - 1));
     setActivePersonIndex(posePeople.length);
     setStatus('已复制当前人物姿态');
   };
@@ -2649,31 +3064,70 @@ const PoseMasterNode = (props: NodeProps) => {
     setHasPeople(false);
     setExtraPeople([]);
     setActivePersonIndex(0);
-    setStatus('已清空姿态画布，可重新添加人物');
+    setRecognitionImageUrl('');
+    if (upstreamImageUrl || recognitionImageUrl) {
+      setSuppressedReferenceUrl(upstreamImageUrl || recognitionImageUrl);
+      setStatus('已清空姿态画布和当前参考背景；重新识别上游或导入图片可恢复背景');
+    } else {
+      setSuppressedReferenceUrl('');
+      setStatus('已清空姿态画布，可重新添加人物');
+    }
   };
 
   const exportKeypoints = (format: 'openpose' | 'coco') => {
-    downloadJson(`t8-pose-master-${format}-${Date.now()}.json`, buildKeypointsPayload(format, posePeople, id));
+    downloadJson(`t8-pose-master-${format}-${Date.now()}.json`, buildKeypointsPayload(format, posePeople, id, poseCanvas));
     setStatus(`已导出 ${format === 'openpose' ? 'OpenPose' : 'COCO'} keypoints JSON`);
+  };
+
+  const applyDetectedPosePeople = (people: PosePoints[], sourceLabel: string) => {
+    const fittedPeople = people.slice(0, MAX_POSE_PEOPLE).map((person) => fitPosePointsToBounds(person, poseCanvas));
+    setHasPeople(true);
+    setPoints(clonePoints(fittedPeople[0]));
+    setExtraPeople(fittedPeople.slice(1).map(clonePoints));
+    setActivePersonIndex(0);
+    setStatus(`已从${sourceLabel}识别 ${fittedPeople.length} 人，可切换线稿 / OpenPose / COCO 预览或运行输出`);
+  };
+
+  const recognizePoseFromImageUrl = async (imageUrl: string, sourceLabel: string, options?: { rememberReference?: boolean }) => {
+    if (!imageUrl) {
+      setStatus('请先把图片连到左侧 image 输入，或导入本地图片');
+      return;
+    }
+    setRecognitionBusy(true);
+    setStatus(`正在识别${sourceLabel}姿态...`);
+    setSuppressedReferenceUrl('');
+    updateNodeData({ isRunning: true, runError: '' });
+    try {
+      if (options?.rememberReference || sourceLabel === '上游图') setRecognitionImageUrl(imageUrl);
+      logBus.info(`开始识别${sourceLabel}姿态`, '姿势大师');
+      const people = await detectPosePeopleFromImage(imageUrl);
+      if (people.length === 0) {
+        const message = `未从${sourceLabel}识别到人物姿态，已保留参考图；可先切回线稿图作为淡底参考手动调整`;
+        setStatus(message);
+        logBus.warn(message, '姿势大师');
+        updateNodeData({ isRunning: false, runError: message });
+        return;
+      }
+      applyDetectedPosePeople(people, sourceLabel);
+      logBus.success(`已从${sourceLabel}识别 ${people.length} 人姿态`, '姿势大师');
+      updateNodeData({ isRunning: false, runError: '' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '姿态识别失败';
+      setStatus(message);
+      logBus.warn(message, '姿势大师');
+      updateNodeData({ isRunning: false, runError: message });
+    } finally {
+      setRecognitionBusy(false);
+    }
   };
 
   const handleImportPoseImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    setStatus('正在识别人物姿态...');
-    updateNodeData({ isRunning: true, runError: '' });
     try {
       const imageUrl = await uploadFileBlob(file, `pose-reference-${Date.now()}-${file.name || 'image.png'}`);
-      setRecognitionImageUrl(imageUrl);
-      const people = await detectPosePeopleFromImage(imageUrl);
-      if (people.length === 0) throw new Error('未识别到人物姿态，可先作为淡底参考手动调整');
-      setHasPeople(true);
-      setPoints(clonePoints(people[0]));
-      setExtraPeople(people.slice(1, MAX_POSE_PEOPLE).map(clonePoints));
-      setActivePersonIndex(0);
-      setStatus(`已识别 ${people.length} 人，可继续拖动微调`);
-      updateNodeData({ isRunning: false, runError: '' });
+      await recognizePoseFromImageUrl(imageUrl, '本地图', { rememberReference: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : '姿态识别失败';
       setStatus(message);
@@ -2711,6 +3165,9 @@ const PoseMasterNode = (props: NodeProps) => {
         intensityId,
         language,
         custom: custom ? `${custom} keyframe ${index + 1}/${count}` : `keyframe ${index + 1}/${count}`,
+        canvasRatioId,
+        canvasCustomWidth,
+        canvasCustomHeight,
         name: `关键帧 ${index + 1}`,
       });
     });
@@ -2820,18 +3277,64 @@ const PoseMasterNode = (props: NodeProps) => {
 
       <div className="grid grid-cols-[720px_1fr] gap-3 p-4">
         <section className="t8-card p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="text-sm font-semibold">姿态线稿</div>
-            <div className="text-xs text-[var(--t8-text-muted)]">
-              {dragMode === 'body' ? '抓取模式：拖动画布移动整个人物' : '骨骼模式：拖动关节点调整'}
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold">姿态线稿</div>
+              <div className="text-[11px] text-[var(--t8-text-muted)]">
+                {dragMode === 'body' ? '抓取：移动 / 等比缩放 / 旋转' : '骨骼：拖动关节点调整'}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-1.5 text-[11px] text-[var(--t8-text-muted)]">
+              <span className="font-semibold">画布</span>
+              <select
+                className="t8-input nodrag nopan h-8 w-24 px-2 text-xs"
+                value={canvasRatioId}
+                onChange={(event) => applyCanvasRatio(safeCanvasRatioId(event.target.value))}
+              >
+                {POSE_CANVAS_RATIOS.map((ratio) => (
+                  <option key={ratio.id} value={ratio.id}>
+                    {ratio.label}
+                  </option>
+                ))}
+              </select>
+              {canvasRatioId === 'custom' ? (
+                <>
+                  <input
+                    className="t8-input nodrag nopan h-8 w-14 px-1 text-center text-xs tabular-nums"
+                    type="number"
+                    min={1}
+                    max={9999}
+                    value={canvasCustomWidth}
+                    onChange={(event) => applyCanvasRatio('custom', event.target.value, canvasCustomHeight)}
+                  />
+                  <span>:</span>
+                  <input
+                    className="t8-input nodrag nopan h-8 w-14 px-1 text-center text-xs tabular-nums"
+                    type="number"
+                    min={1}
+                    max={9999}
+                    value={canvasCustomHeight}
+                    onChange={(event) => applyCanvasRatio('custom', canvasCustomWidth, event.target.value)}
+                  />
+                </>
+              ) : null}
             </div>
           </div>
-          <div className="rounded-[var(--t8-radius)] border border-[var(--t8-border)] bg-white p-2">
+          <div
+            className="flex items-center justify-center overflow-hidden rounded-[var(--t8-radius)] border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] p-2 transition-[height]"
+            style={{ height: `${canvasPreviewSize.height + POSE_CANVAS_FRAME_PADDING}px` }}
+          >
             <svg
               ref={svgRef}
-              className="nodrag nopan block w-full select-none"
-              style={{ aspectRatio: `${VIEW_W} / ${VIEW_H}` }}
-              viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+              className="nodrag nopan block select-none rounded-[calc(var(--t8-radius)-2px)] border border-[var(--t8-border)] shadow-sm"
+              style={{
+                aspectRatio: `${poseCanvas.width} / ${poseCanvas.height}`,
+                width: `${canvasPreviewSize.width}px`,
+                height: `${canvasPreviewSize.height}px`,
+                maxWidth: '100%',
+                maxHeight: '100%',
+              }}
+              viewBox={`${poseCanvas.minX} ${poseCanvas.minY} ${poseCanvas.width} ${poseCanvas.height}`}
               onPointerDown={handlePoseCanvasPointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={stopDragging}
@@ -2842,15 +3345,15 @@ const PoseMasterNode = (props: NodeProps) => {
                   <path d="M24 0H0V24" fill="none" stroke={renderMode === 'openpose' ? '#334155' : '#e5e7eb'} strokeWidth="1" />
                 </pattern>
               </defs>
-              <rect width={VIEW_W} height={VIEW_H} fill={renderMode === 'openpose' ? '#05070b' : '#fff'} />
-              <rect width={VIEW_W} height={VIEW_H} fill={`url(#pose-grid-${id})`} opacity={renderMode === 'openpose' ? 0.36 : 0.45} />
+              <rect x={poseCanvas.minX} y={poseCanvas.minY} width={poseCanvas.width} height={poseCanvas.height} fill={renderMode === 'openpose' ? '#05070b' : '#fff'} />
+              <rect x={poseCanvas.minX} y={poseCanvas.minY} width={poseCanvas.width} height={poseCanvas.height} fill={`url(#pose-grid-${id})`} opacity={renderMode === 'openpose' ? 0.36 : 0.45} />
               {renderMode === 'lineart' && referenceImage ? (
                 <image
                   href={referenceImage}
-                  x={28}
-                  y={16}
-                  width={VIEW_W - 56}
-                  height={VIEW_H - 32}
+                  x={poseCanvas.minX + 28}
+                  y={poseCanvas.minY + 16}
+                  width={Math.max(1, poseCanvas.width - 56)}
+                  height={Math.max(1, poseCanvas.height - 32)}
                   preserveAspectRatio="xMidYMid meet"
                   opacity={0.18}
                 />
@@ -2888,11 +3391,85 @@ const PoseMasterNode = (props: NodeProps) => {
                   />
                 </g>
               )) : null}
+              {dragMode === 'body' && activeTransformFrame ? (
+                <g>
+                  <rect
+                    x={activeTransformFrame.minX}
+                    y={activeTransformFrame.minY}
+                    width={activeTransformFrame.width}
+                    height={activeTransformFrame.height}
+                    rx={8}
+                    fill="none"
+                    stroke="#22d3ee"
+                    strokeDasharray="8 6"
+                    strokeWidth={2}
+                    opacity={0.86}
+                    pointerEvents="none"
+                  />
+                  <line
+                    x1={activeTransformFrame.center.x}
+                    y1={activeTransformFrame.minY}
+                    x2={activeTransformFrame.rotate.x}
+                    y2={activeTransformFrame.rotate.y}
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    opacity={0.8}
+                    pointerEvents="none"
+                  />
+                  <circle
+                    className="cursor-grab active:cursor-grabbing"
+                    cx={activeTransformFrame.rotate.x}
+                    cy={activeTransformFrame.rotate.y}
+                    r={14}
+                    fill="#111827"
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    onPointerDown={(event) => handleTransformPointerDown(event, 'rotate')}
+                  />
+                  <text
+                    x={activeTransformFrame.rotate.x}
+                    y={activeTransformFrame.rotate.y + 4}
+                    textAnchor="middle"
+                    fontSize="12"
+                    fontWeight="700"
+                    fill="#fff"
+                    pointerEvents="none"
+                  >
+                    R
+                  </text>
+                  <circle
+                    className="cursor-nwse-resize"
+                    cx={activeTransformFrame.scale.x}
+                    cy={activeTransformFrame.scale.y}
+                    r={14}
+                    fill="#111827"
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    onPointerDown={(event) => handleTransformPointerDown(event, 'scale')}
+                  />
+                  <text
+                    x={activeTransformFrame.scale.x}
+                    y={activeTransformFrame.scale.y + 4}
+                    textAnchor="middle"
+                    fontSize="12"
+                    fontWeight="700"
+                    fill="#fff"
+                    pointerEvents="none"
+                  >
+                    S
+                  </text>
+                </g>
+              ) : null}
             </svg>
           </div>
           <div className="mt-2 rounded-[var(--t8-radius)] border border-dashed border-[var(--t8-border)] px-3 py-2 text-xs text-[var(--t8-text-muted)]">
             联动素材：文本 {upstreamTexts.length} · 参考图 {upstream.images.length}
-            {referenceImage ? '（已作为淡底参考，不写入导出图）' : ''}
+            {referenceImage
+              ? '（可作为淡底参考；左侧 image 可点识别上游）'
+              : incomingReferenceImage
+                ? '（当前参考背景已清空；点识别上游可重新显示）'
+                : ''}
           </div>
           <div className="mt-3 grid grid-cols-3 gap-2">
             {POSE_RENDER_MODES.map((mode) => (
@@ -2911,7 +3488,7 @@ const PoseMasterNode = (props: NodeProps) => {
             <button
               type="button"
               className="t8-btn nodrag nopan"
-              onClick={() => setActivePosePoints((prev) => mirrorPoints(prev))}
+              onClick={() => setActivePosePoints((prev) => mirrorPoints(prev, poseCanvas))}
               disabled={posePeople.length === 0}
             >
               镜像
@@ -2928,17 +3505,26 @@ const PoseMasterNode = (props: NodeProps) => {
             <button
               type="button"
               className="t8-btn nodrag nopan"
+              onClick={() => void recognizePoseFromImageUrl(upstreamImageUrl, '上游图')}
+              disabled={!upstreamImageUrl || recognitionBusy}
+              title="使用左侧 image 输入的第一张图片识别姿态，识别后可切换线稿 / OpenPose / COCO 预览并运行输出"
+            >
+              <ImagePlus size={14} /> {recognitionBusy ? '识别中' : '识别上游'}
+            </button>
+            <button
+              type="button"
+              className="t8-btn nodrag nopan"
               onClick={() => imageInputRef.current?.click()}
               title="导入人物图并用 MediaPipe Pose 识别姿态"
             >
-              <ImagePlus size={14} /> 识别图
+              <ImagePlus size={14} /> 本地识别
             </button>
             <button
               type="button"
               className="t8-btn nodrag nopan"
               onClick={clearPeople}
-              disabled={posePeople.length === 0}
-              title="清空姿态画布上的所有人物"
+              disabled={!hasClearableContent}
+              title="清空姿态画布上的人物和当前参考背景"
             >
               <Trash2 size={14} /> 清空
             </button>
@@ -2983,7 +3569,20 @@ const PoseMasterNode = (props: NodeProps) => {
             >
               <Layers size={14} /> 导出库
             </button>
+            <button
+              type="button"
+              className="t8-btn nodrag nopan"
+              onClick={() => void handleSaveToResourceLibrary()}
+              title="把当前姿势大师配置保存到资源库的姿势分类"
+            >
+              <PackagePlus size={14} /> 存资源库
+            </button>
           </div>
+          {status ? (
+            <div className="mt-2 rounded-[var(--t8-radius)] border border-[var(--t8-border)] bg-[var(--t8-input-bg)] px-3 py-2 text-xs text-[var(--t8-text)]" role="status">
+              {status}
+            </div>
+          ) : null}
           <div className="mt-2 text-[11px] leading-relaxed text-[var(--t8-text-muted)]">
             线稿 / OpenPose / COCO 会直接切换上方预览，运行输出图也跟随当前模式；JSON 按钮只导出 keypoints 数据。
           </div>
@@ -3020,7 +3619,7 @@ const PoseMasterNode = (props: NodeProps) => {
               <button type="button" className="t8-mini-icon-button nodrag nopan" title="删除当前人物" onClick={removePerson}>
                 <UserMinus size={15} />
               </button>
-              <button type="button" className="t8-mini-icon-button nodrag nopan" title="清空所有人物" onClick={clearPeople} disabled={posePeople.length === 0}>
+              <button type="button" className="t8-mini-icon-button nodrag nopan" title="清空人物和当前参考背景" onClick={clearPeople} disabled={!hasClearableContent}>
                 <Trash2 size={15} />
               </button>
             </div>
@@ -3217,7 +3816,7 @@ const PoseMasterNode = (props: NodeProps) => {
             <label className="text-xs font-semibold text-[var(--t8-text-muted)]">
               数量
               <input
-                className="t8-input nodrag nopan mt-1 w-full"
+                className="t8-input nodrag nopan mt-1 w-full text-center tabular-nums"
                 type="number"
                 min={1}
                 max={8}
@@ -3244,7 +3843,7 @@ const PoseMasterNode = (props: NodeProps) => {
             <label className="text-xs font-semibold text-[var(--t8-text-muted)]">
               帧数
               <input
-                className="t8-input nodrag nopan mt-1 w-full"
+                className="t8-input nodrag nopan mt-1 w-full text-center tabular-nums"
                 type="number"
                 min={2}
                 max={24}

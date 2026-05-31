@@ -11,7 +11,7 @@ const config = require('../config');
 
 const router = express.Router();
 
-const KINDS = new Set(['image', 'video', 'audio', 'set']);
+const KINDS = new Set(['image', 'video', 'audio', 'set', 'pose']);
 const MATERIAL_SET_KINDS = new Set(['text', 'image', 'video', 'audio']);
 const DB_FILE = 'resource_library.json';
 const THUMB_DIR = '_thumbs';
@@ -23,6 +23,7 @@ const DEFAULT_CATEGORY_NAMES = {
   video: ['未分类', '镜头', '动作', '成片'],
   audio: ['未分类', '音乐', '人声', '音效'],
   set: ['未分类', '图像集', '视频集', '音频集', '文本集'],
+  pose: ['未分类', '常用姿势', '动作参考', '分镜姿势'],
 };
 
 const MIME_BY_EXT = {
@@ -45,6 +46,7 @@ const MIME_BY_EXT = {
   m4a: 'audio/mp4',
   flac: 'audio/flac',
   aac: 'audio/aac',
+  json: 'application/json',
 };
 
 function now() {
@@ -117,6 +119,23 @@ function normalizeSetItems(rawItems, fallbackKind) {
     })
     .filter(Boolean)
     .slice(0, 500);
+}
+
+function normalizePoseBackupForResource(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('缺少姿势大师配置');
+  }
+  const raw = JSON.parse(JSON.stringify(value));
+  if (raw.schema !== 't8-pose-master') {
+    throw new Error('不是有效的姿势大师配置');
+  }
+  raw.schema = 't8-pose-master';
+  raw.version = Number(raw.version) || 1;
+  raw.pointVersion = Number(raw.pointVersion) || 1;
+  raw.name = safeText(raw.name, '');
+  raw.prompt = typeof raw.prompt === 'string' ? raw.prompt.slice(0, 20_000) : '';
+  raw.createdAt = Number(raw.createdAt) || now();
+  return raw;
 }
 
 function extFromMime(mime) {
@@ -577,7 +596,9 @@ router.post('/items/add', express.json({ limit: '4mb' }), async (req, res) => {
     const src = await readSource(url, root, db);
     const ext = normalizeExt(path.extname(src.originalName)) || extFromMime(src.mime) || 'bin';
     const kind = normalizeKind(req.body?.kind) || kindFromExt(ext) || kindFromExt(extFromMime(src.mime));
-    if (!kind) return res.status(400).json({ success: false, error: '资源类型仅支持图像 / 视频 / 音频' });
+    if (!kind || !['image', 'video', 'audio'].includes(kind)) {
+      return res.status(400).json({ success: false, error: '资源类型仅支持图像 / 视频 / 音频' });
+    }
     const sha256 = crypto.createHash('sha256').update(src.buffer).digest('hex');
     const existing = db.items.find((item) => item.kind === kind && item.sha256 === sha256);
     const requestedCat = safeText(req.body?.categoryId);
@@ -760,6 +781,66 @@ router.post('/sets/add', express.json({ limit: '8mb' }), async (req, res) => {
       sourceCanvasId: safeText(req.body?.sourceCanvasId),
       materialSetKind,
       materialSetItems,
+      createdAt: now(),
+      updatedAt: now(),
+      lastUsedAt: 0,
+    };
+    db.items.push(item);
+    writeDb(root, db);
+    res.json({ success: true, duplicate: false, data: decorateItem(item) });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e?.message || String(e) });
+  }
+});
+
+router.post('/poses/add', express.json({ limit: '3mb' }), async (req, res) => {
+  try {
+    const poseBackup = normalizePoseBackupForResource(req.body?.poseBackup);
+    const { root, db } = readDb();
+    const safeTitle = safeText(req.body?.title, poseBackup.name || '姿势大师配置');
+    const manifest = {
+      schema: 't8-pose-master-resource',
+      version: 1,
+      title: safeTitle,
+      poseBackup,
+      exportedAt: new Date().toISOString(),
+    };
+    const buffer = Buffer.from(JSON.stringify(manifest, null, 2), 'utf-8');
+    const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+    const requestedCat = safeText(req.body?.categoryId);
+    const categoryOk = db.categories.some((c) => c.id === requestedCat && c.kind === 'pose');
+    const existing = db.items.find((item) => item.kind === 'pose' && item.sha256 === sha256);
+    if (existing) {
+      if (categoryOk) existing.categoryId = requestedCat;
+      existing.updatedAt = now();
+      existing.lastUsedAt = now();
+      writeDb(root, db);
+      return res.json({ success: true, duplicate: true, data: decorateItem(existing) });
+    }
+
+    const id = genId('respose');
+    const fileRel = path.join('pose', `${id}.pose.json`).replace(/\\/g, '/');
+    const target = assertInside(root, path.join(root, fileRel));
+    fs.writeFileSync(target, buffer);
+
+    const item = {
+      id,
+      kind: 'pose',
+      categoryId: categoryOk ? requestedCat : 'pose_uncategorized',
+      title: safeTitle,
+      originalName: `${safeFilename(safeTitle, 'pose-master')}.pose.json`,
+      fileRel,
+      thumbRel: '',
+      mime: 'application/json',
+      size: buffer.length,
+      sha256,
+      tags: Array.isArray(req.body?.tags) ? req.body.tags.map((t) => safeText(t)).filter(Boolean).slice(0, 20) : [],
+      favorite: !!req.body?.favorite,
+      sourceUrl: '',
+      sourceNodeId: safeText(req.body?.sourceNodeId),
+      sourceCanvasId: safeText(req.body?.sourceCanvasId),
+      materialSetKind: '',
+      materialSetItems: [],
       createdAt: now(),
       updatedAt: now(),
       lastUsedAt: 0,

@@ -8,6 +8,7 @@ import {
   Music,
   PackageOpen,
   Pencil,
+  PersonStanding,
   Plus,
   Search,
   Send,
@@ -27,12 +28,13 @@ const KIND_META: Record<ResourceKind, { label: string; icon: typeof ImageIcon; a
   video: { label: '视频', icon: Video, accent: '#fb7185' },
   audio: { label: '音频', icon: Music, accent: '#a78bfa' },
   set: { label: '素材集', icon: PackageOpen, accent: '#2dd4bf' },
+  pose: { label: '姿势', icon: PersonStanding, accent: '#fb923c' },
 };
 
 interface ResourceLibraryDrawerProps {
   open: boolean;
   onClose: () => void;
-  onInsertMaterial: (item: ResourceItem) => void;
+  onInsertMaterial: (item: ResourceItem) => void | Promise<void>;
 }
 
 function formatSize(size: number) {
@@ -163,9 +165,13 @@ export default function ResourceLibraryDrawer({ open, onClose, onInsertMaterial 
   };
 
   const insertItem = async (item: ResourceItem) => {
-    onInsertMaterial(item);
-    await api.updateResourceItem(item.id, { touch: true });
-    setMsg('已插入画布');
+    try {
+      await onInsertMaterial(item);
+      await api.updateResourceItem(item.id, { touch: true });
+      setMsg(item.kind === 'pose' ? '已恢复为姿势大师节点' : '已插入画布');
+    } catch (e: any) {
+      setMsg(e?.message || '插入失败');
+    }
   };
 
   const sendItem = async (item: ResourceItem) => {
@@ -359,7 +365,7 @@ export default function ResourceLibraryDrawer({ open, onClose, onInsertMaterial 
               <article
                 key={item.id}
                 className={`resource-card overflow-hidden transition-transform ${isPixel ? 'border-2 border-[var(--px-ink)] bg-[var(--px-surface)] shadow-[3px_3px_0_var(--px-ink)]' : isDark ? 'rounded-lg border border-white/10 bg-white/[0.04]' : 'rounded-lg border border-black/10 bg-black/[0.03]'}`}
-                {...(item.kind === 'set'
+                {...(item.kind === 'set' || item.kind === 'pose'
                   ? {}
                   : {
                       'data-drag-source': true,
@@ -368,7 +374,7 @@ export default function ResourceLibraryDrawer({ open, onClose, onInsertMaterial 
                       'data-drag-preview': item.thumbUrl || item.fileUrl,
                       'data-drag-node-id': 'resource-library',
                     })}
-                title={item.kind === 'set' ? '点击插入整个素材集' : 'Ctrl+拖拽到节点'}
+                title={item.kind === 'set' ? '点击插入整个素材集' : item.kind === 'pose' ? '点击恢复为姿势大师节点' : 'Ctrl+拖拽到节点'}
               >
                 <div className="relative h-28 overflow-hidden bg-black/80">
                   {item.kind === 'image' && (
@@ -440,6 +446,17 @@ export default function ResourceLibraryDrawer({ open, onClose, onInsertMaterial 
                       </div>
                     </div>
                   )}
+                  {item.kind === 'pose' && (
+                    <div
+                      className="resource-media flex h-full w-full flex-col items-center justify-center gap-1.5 p-3 text-center transition-transform duration-200"
+                      style={{ background: 'linear-gradient(135deg, rgba(251,146,60,.92), rgba(45,212,191,.78), rgba(15,23,42,.92))' }}
+                    >
+                      <PersonStanding size={36} className="text-white drop-shadow" />
+                      <div className="rounded-full bg-black/45 px-2 py-0.5 text-[10px] font-semibold text-white">
+                        PoseMaster
+                      </div>
+                    </div>
+                  )}
                   <button
                     onClick={() => updateItem(item, { favorite: !item.favorite })}
                     className="t8-mini-icon-button absolute top-1.5 right-1.5 h-7 w-7 rounded-full bg-black/55 text-amber-300 flex items-center justify-center"
@@ -453,6 +470,8 @@ export default function ResourceLibraryDrawer({ open, onClose, onInsertMaterial 
                   <div className={`text-[10px] truncate ${subtle}`}>
                     {item.kind === 'set'
                       ? `${materialSetLabel(item.materialSetKind)} · ${item.materialSetItems?.length || 0} 项`
+                      : item.kind === 'pose'
+                        ? '姿势大师配置 · 可恢复节点'
                       : formatSize(item.size) || item.mime || item.kind}
                   </div>
                   {item.kind === 'audio' && <audio src={item.fileUrl} controls className="w-full h-8" />}

@@ -1744,7 +1744,7 @@ function CanvasInner({ onAddNodeRef }: CanvasInnerProps) {
       if (items.length === 0) continue;
       if (kind !== 'text' && items.length === 1 && items[0].url) {
         const result = await api.addResourceItem({
-          kind: kind as api.ResourceKind,
+          kind: kind as api.ResourceMediaKind,
           url: items[0].url,
           title: items[0].name || `${PORT_LABEL[kind]}素材`,
           tags: ['跨画布发送'],

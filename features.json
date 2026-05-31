@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
   "version": "1.7.6",
-  "lastUpdated": "2026-05-31-v1.7.6-yyh-hidden-music",
+  "lastUpdated": "2026-05-31-v1.7.6-pose-resource-and-sd2-fixes",
   "packaging": {
     "description": "Electron NSIS 桌面端打包链路(v1.2.1 起标准化, 严禁未明确指令主动打包)。完整产物拓扑: app.asar(electron/{main,loader,preload}.cjs + node_modules) + app.asar.unpacked(node_modules/sharp + @img) + resources/backend-enc/*.t8c(extraResources, asar 外) + resources/frontend(extraResources, asar 外)。前端版本号由 vite define 注入 __APP_VERSION__、Sidebar 左下角自动同步。",
     "scripts": {
@@ -1526,6 +1526,50 @@
         "defaultTemplates 的 YYH 模板声明 hiddenTitle / hiddenUrl / hiddenVolume，肖像大师隐藏模式触发 yyhPortraitIds 后 ThemeMusicToggle 会自动切换隐藏音乐并解除静音。",
         "electron/_post_build.cjs 增加 yyh-hidden-tonight-*.mp3 前端资源校验，确保正式打包时不会漏带该隐藏音乐。",
         "公开版本同步到 1.7.6：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub。"
+      ]
+    },
+    "phase104": {
+      "label": "姿势大师画布比例与抓取变换 (v1.7.6)",
+      "status": "complete",
+      "items": [
+        "姿势大师左侧画布新增比例控制：支持默认、1:1、4:3、3:4、16:9、9:16、3:2、2:3 和自定义宽高比；画布采用动态 viewBox 并在固定预览区内完整适配显示，避免纵向比例被裁切。",
+        "姿势大师节点数据新增 poseCanvasRatioId、poseCanvasCustomWidth、poseCanvasCustomHeight 和 poseCanvasRatio，当前姿势 JSON、姿势库、关键帧、批量输出、运行 PNG、metadata 与 OpenPose/COCO keypoints 导出都会携带或应用对应画布尺寸。",
+        "抓取模式升级为整个人物变换工具：拖动画布移动人物，S 手柄等比缩放，R 手柄旋转；移动、缩放和旋转都会限制在当前画布边界内，适合多人构图和长画幅姿势调整。",
+        "右侧批量数量与关键帧帧数输入框改为居中数字显示，修复数值贴边导致的视觉不齐。",
+        "验证：npm run build 通过；浏览器实测 9:16、自定义 2:3、S 等比缩放、R 旋转和数量 / 帧数居中样式生效。"
+      ]
+    },
+    "phase105": {
+      "label": "姿势大师比例显示与上游识别热修 (v1.7.6)",
+      "status": "complete",
+      "items": [
+        "修复姿势大师切换 16:9 等比例时外层白色固定容器造成的“画布大小没变”错觉：预览承载区高度现在跟随实际画布比例变化，并用主题面板底色区分画布本体与留白区域。",
+        "MediaPipe 识别结果新增头颈连接约束：头部点会基于鼻子、眼睛、耳朵均值估计，并限制与脖子的最大距离，减少侧躺或构图复杂图片中头和身体完全分离的问题。",
+        "姿势大师新增“识别上游”按钮：左侧 image 输入连接图片后，可直接用第一张上游图识别姿态；识别后继续支持线稿图 / OpenPose图 / COCO图预览和运行输出，本地图片入口改为“本地识别”以区分来源。",
+        "上游图像载入增加跨域兜底：优先 anonymous，失败后自动尝试普通图片载入，提高资源库、上传素材和部分外部图像的识别成功率。"
+      ]
+    },
+    "phase106": {
+      "label": "姿势大师资源库、手部控制与清空背景热修 (v1.7.6)",
+      "status": "complete",
+      "items": [
+        "资源库新增 pose 类型和默认分类：未分类、常用姿势、动作参考、分镜姿势；后端新增 POST /api/resources/poses/add，以 JSON 保存 t8-pose-master 配置。",
+        "姿势大师节点新增“存资源库”入口，会保存当前人物 / 多人物、手部控制、画布比例、自定义 prompt、metadata、来源节点和画布信息；重复姿势配置会走 sha256 去重。",
+        "资源库抽屉新增姿势卡片视觉，点击插入时会恢复为新的姿势大师节点；App 插入逻辑能读取 t8-pose-master-resource 或裸 t8-pose-master 配置并恢复节点数据。",
+        "ResourceKind 扩展为 image / video / audio / set / pose，同时新增 ResourceMediaKind 限定普通媒体保存仍只接受 image / video / audio，避免 pose 被当成可拖拽媒体素材。",
+        "修复清空姿势大师时传入背景无法清空的问题：清空会写入 poseSuppressedReferenceUrl 隐藏当前上游背景但保留连线，用户重新点击“识别上游”即可恢复背景并重新识别。",
+        "修复左右手手型和掌心方向下拉无效：poseHandControls 现在同步进入 prompt、线稿手部绘制、运行输出、收藏、资源库保存和资源库恢复。"
+      ]
+    },
+    "phase107": {
+      "label": "SD2.0 上游音频/视频提交格式热修 (v1.7.6)",
+      "status": "complete",
+      "items": [
+        "修复 SD2.0 节点连接上传音频或视频后提交失败的问题：后端不再把 /files/input、/files/output 或资源库本地 URL 直接作为 reference_audio / reference_video 发送给 Seedance。",
+        "backend/src/routes/proxy.js 的 uploadRefToZhenzhen 升级为图片 / 视频 / 音频统一素材上传入口：本地 URL、资源库 URL、远端 URL 与 dataURL 都会先上传到贞贞 /v1/files，再把返回 URL 写入 Seedance content[]。",
+        "参考 gpt-image-2-web 的 runSeedance 实现补齐 reference_video / reference_audio 上传链路，避免上游返回 Invalid audio/video format；asset-xxx 保持直接透传兼容。",
+        "纯图片生成路径保持原行为，仍复用同一上传函数换取 image_url；新增 mock 路由验证确保最终 Seedance payload 不再包含本地 /files/input/ URL。",
+        "验证：node --check backend/src/routes/proxy.js、npm run build 通过；开发后端已重启到新逻辑。"
       ]
     }
   },

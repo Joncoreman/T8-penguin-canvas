@@ -91,6 +91,55 @@ function portraitResourceToNodeData(item: ResourceItem): Record<string, any> | n
   }
 }
 
+function poseBackupToNodeData(value: unknown): Record<string, any> | null {
+  const raw = value && typeof value === 'object' ? (value as Record<string, any>) : null;
+  const backup = raw?.schema === 't8-pose-master-resource' ? raw.poseBackup : raw;
+  if (!backup || typeof backup !== 'object' || (backup as any).schema !== 't8-pose-master') return null;
+  const pose = backup as Record<string, any>;
+  const people = Array.isArray(pose.people)
+    ? pose.people
+    : pose.hasPeople === false
+      ? []
+      : pose.points
+        ? [pose.points]
+        : [];
+  const prompt = typeof pose.prompt === 'string' ? pose.prompt : '';
+  return {
+    kind: 'pose-master',
+    posePoints: pose.points,
+    posePointVersion: Number(pose.pointVersion) || 4,
+    poseHasPeople: pose.hasPeople !== false,
+    posePeople: people,
+    poseActivePersonIndex: 0,
+    poseHandControls: pose.handControls,
+    posePresetId: typeof pose.presetId === 'string' ? pose.presetId : 'standing',
+    poseViewId: typeof pose.viewId === 'string' ? pose.viewId : 'front',
+    poseShotId: typeof pose.shotId === 'string' ? pose.shotId : 'full-body',
+    poseIntensityId: typeof pose.intensityId === 'string' ? pose.intensityId : 'natural',
+    poseLanguage: pose.language === 'zh' ? 'zh' : 'en',
+    poseCustomText: typeof pose.custom === 'string' ? pose.custom : '',
+    poseCanvasRatioId: typeof pose.canvasRatioId === 'string' ? pose.canvasRatioId : 'default',
+    poseCanvasCustomWidth: Number(pose.canvasCustomWidth) || 620,
+    poseCanvasCustomHeight: Number(pose.canvasCustomHeight) || 520,
+    prompt,
+    text: prompt,
+    outputText: prompt,
+    posePrompt: prompt,
+    metadata: {
+      schema: 't8-pose-master',
+      resourceRestoredAt: Date.now(),
+      sourceName: typeof pose.name === 'string' ? pose.name : '',
+    },
+  };
+}
+
+async function poseResourceToNodeData(item: ResourceItem): Promise<Record<string, any> | null> {
+  if (item.kind !== 'pose' || !item.fileUrl) return null;
+  const res = await fetch(item.fileUrl);
+  if (!res.ok) throw new Error(`读取姿势资源失败: HTTP ${res.status}`);
+  return poseBackupToNodeData(await res.json());
+}
+
 /**
  * T8-penguin-canvas 应用根组件 (Phase 1)
  * 布局: [侧边栏(画布管理 + 节点列表)] [画布主体] + 头部状态栏
@@ -352,10 +401,17 @@ function App() {
     addNodeRef.current?.(type);
   };
 
-  const handleInsertResource = (item: ResourceItem) => {
+  const handleInsertResource = async (item: ResourceItem) => {
     const portraitData = portraitResourceToNodeData(item);
     if (portraitData) {
       addNodeRef.current?.('portrait-master', { data: portraitData });
+      void api.updateResourceItem(item.id, { touch: true });
+      return;
+    }
+    if (item.kind === 'pose') {
+      const poseData = await poseResourceToNodeData(item);
+      if (!poseData) throw new Error('姿势资源格式无效');
+      addNodeRef.current?.('pose-master', { data: poseData });
       void api.updateResourceItem(item.id, { touch: true });
       return;
     }
