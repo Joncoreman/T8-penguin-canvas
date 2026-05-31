@@ -182,6 +182,7 @@ function main() {
   checkFile(path.join(RES, 'backend-enc', 'routes', 'canvas.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'settings.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'proxy.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'routes', 'externalProviders.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'files.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'imageOps.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'recharge.t8c'));
@@ -190,6 +191,12 @@ function main() {
   checkFile(path.join(RES, 'backend-enc', 'routes', 'eagle.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'providers', 'registry.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'providers', 'mediaResolver.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'providers', 'adapters.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'providers', 'openaiCompatible.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'providers', 'modelscope.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'providers', 'volcengine.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'providers', 'comfyui.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'providers', 'jimengCli.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'utils', 'duckPayload.t8c'));
 
   console.log('\n[2] 前端 dist:');

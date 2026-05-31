@@ -535,3 +535,5 @@ router.post('/rh-tools/import', (req, res) => {
 });
 
 module.exports = router;
+module.exports.loadSettings = loadSettings;
+module.exports.saveSettings = saveSettings;

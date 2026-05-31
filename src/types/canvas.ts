@@ -80,6 +80,54 @@ export interface NodeMeta {
 }
 
 // 画布节点数据(xyflow Node.data)
+export type AdvancedProviderProtocol =
+  | 'openai-compatible'
+  | 'modelscope'
+  | 'volcengine'
+  | 'comfyui'
+  | 'jimeng-cli';
+
+export interface AdvancedProviderConfig {
+  id: string;
+  label: string;
+  protocol: AdvancedProviderProtocol;
+  baseUrl?: string;
+  enabled?: boolean;
+  apiKey?: string;
+  hasApiKey?: boolean;
+  imageModels?: string[];
+  videoModels?: string[];
+  chatModels?: string[];
+  defaults?: Record<string, any>;
+  volcengineConfig?: {
+    project?: string;
+    region?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    hasAccessKeyId?: boolean;
+    hasSecretAccessKey?: boolean;
+  };
+  comfyuiConfig?: {
+    instances?: string[];
+    workflows?: Array<{ id: string; name: string }>;
+  };
+  jimengConfig?: {
+    executablePath?: string;
+    useWsl?: boolean;
+    wslDistro?: string;
+    pollSeconds?: number;
+  };
+}
+
+export interface AdvancedProviderSummary {
+  enabledCount: number;
+  configuredKeyCount: number;
+  comfyuiConfigured: boolean;
+  jimengConfigured: boolean;
+}
+
+export type CanvasProviderSource = 'zhenzhen' | AdvancedProviderProtocol;
+
 export interface CanvasNodeData {
   label?: string;
   prompt?: string;
@@ -87,6 +135,10 @@ export interface CanvasNodeData {
   videoUrl?: string;
   audioUrl?: string;
   model?: string;
+  providerSource?: CanvasProviderSource;
+  providerId?: string;
+  providerModel?: string;
+  providerParams?: Record<string, any>;
   status?: 'idle' | 'generating' | 'success' | 'error';
   error?: string;
   // 通用扩展字段
@@ -137,6 +189,8 @@ export interface ApiSettings {
   themeTemplatePath?: string;
   // 本地 Eagle API 地址(默认 http://127.0.0.1:41595)
   eagleApiBase?: string;
+  advancedProviders?: AdvancedProviderConfig[];
+  advancedProviderSummary?: AdvancedProviderSummary;
   preferences?: {
     theme?: 'dark' | 'light';
     language?: string;

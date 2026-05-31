@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "1.8.1",
-  "lastUpdated": "2026-06-01-v1.8.1-advanced-provider-foundation-electron",
+  "version": "1.8.2",
+  "lastUpdated": "2026-06-01-v1.8.2-advanced-provider-settings-ui-electron",
   "packaging": {
     "description": "Electron NSIS 桌面端打包链路(v1.2.1 起标准化, 严禁未明确指令主动打包)。完整产物拓扑: app.asar(electron/{main,loader,preload}.cjs + node_modules) + app.asar.unpacked(node_modules/sharp + @img) + resources/backend-enc/*.t8c(extraResources, asar 外) + resources/frontend(extraResources, asar 外)。前端版本号由 vite define 注入 __APP_VERSION__、Sidebar 左下角自动同步。",
     "scripts": {
@@ -16,15 +16,15 @@
       "T8PC_FRONTEND_DIST": "打包模式 = path.join(process.resourcesPath, 'frontend'); 开发模式 = <project>/dist",
       "T8PC_RES": "打包模式 = process.resourcesPath; 开发模式 = <project>"
     },
-    "version": "1.8.1",
-    "semverVersion": "1.8.1",
-    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.8.1：落地扩展 API 平台 Phase A/B 后端地基，新增 advancedProviders 配置注册表、脱敏保存、设置路由迁移与统一 media resolver。默认主流程仍保持贞贞工坊 / RunningHub / LLM 独立 Key 不变，完整平台调用继续按 roadmap 后续推进。",
-    "installer": "已按 npm run dist 打包 Electron；最终安装包为 dist_electron/T8-PenguinCanvas-Setup-1.8.1.exe (NSIS, 129.24 MB)，并通过 win-unpacked 10 秒启动冒烟。",
+    "version": "1.8.2",
+    "semverVersion": "1.8.2",
+    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.8.2：扩展 API 平台 Phase A/B 继续推进，API 设置页已出现默认折叠的「扩展 API 平台【高级/可选】」入口，前端类型/store/设置备份支持 advancedProviders，后端新增 provider adapter 骨架与 /api/proxy/external/test-provider 测试端点。默认主流程仍保持贞贞工坊 / RunningHub / LLM 独立 Key 不变，真实图像/视频/LLM 平台生成调用继续按 roadmap Phase C-F 推进。",
+    "installer": "已按 npm run dist 打包 Electron；最终安装包为 dist_electron/T8-PenguinCanvas-Setup-1.8.2.exe (NSIS, 129.25 MB)，并通过 win-unpacked 10 秒启动冒烟。",
     "checklist": [
       "运行 npm run encrypt 前确认已 npm install bytenode 且使用 Electron 内置 Node",
       "backend/src/ 任何文件修改后必须重新 npm run encrypt 再打包",
       "main.cjs 的窗口标题 / log 窗口 / IPC version 三处版本号，以及 backend/src/config.js APP_VERSION 必须与 package.json 同步",
-      "_post_build.cjs 验证 14 个 .t8c 必存在: server/config + routes/{canvas,settings,proxy,files,imageOps,recharge,resources,themes,eagle} + providers/{registry,mediaResolver} + utils/duckPayload",
+      "_post_build.cjs 验证 21 个 .t8c 必存在: server/config + routes/{canvas,settings,proxy,externalProviders,files,imageOps,recharge,resources,themes,eagle} + providers/{registry,mediaResolver,adapters,openaiCompatible,modelscope,volcengine,comfyui,jimengCli} + utils/duckPayload",
       "_post_build.cjs 验证 resources/frontend/index.html + assets/ 必存在",
       "_post_build.cjs 必须让 src/assets/theme-music/*.mp3 经 Vite 输出到 resources/frontend/assets，主题音乐默认静音且随前端资源一起打包",
       "_post_build.cjs 自动清除任何意外混入的 resources/{app,backend}/src 明文目录",
@@ -1654,7 +1654,7 @@
     },
     "phase113": {
       "label": "扩展 API 平台后端地基 (v1.8.1)",
-      "status": "in-progress",
+      "status": "complete",
       "items": [
         "新增 backend/src/providers/registry.js，集中维护 openai-compatible / modelscope / volcengine / comfyui / jimeng-cli 的默认卡片、协议枚举、配置归一化、非法 URL/ID/模型过滤、密钥保留与脱敏摘要。",
         "settings 路由接入 advancedProviders：旧设置会迁移出默认禁用平台卡片，GET 返回脱敏 advancedProviders 与 advancedProviderSummary，/raw 保留内部明文，POST 遇到空值或 masked key 时保留原密钥。",
@@ -1662,6 +1662,19 @@
         "electron/_post_build.cjs 新增 providers/registry.t8c 与 providers/mediaResolver.t8c 打包校验，backend/src/providers 新增文件后必须随 encrypt 进入 resources/backend-enc/providers。",
         "新增 tests/advancedProviders.test.ts、tests/advancedProviderSettingsRoute.test.ts、tests/mediaResolver.test.ts，锁定扩展平台配置脱敏、保存迁移和媒体引用解析。",
         "公开版本同步到 1.8.1：package.json、package-lock.json、vite.config.ts、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub；本次按规范打包 Electron。"
+      ]
+    },
+    "phase114": {
+      "label": "扩展 API 平台设置页与测试端点 (v1.8.2)",
+      "status": "complete",
+      "items": [
+        "API 设置页新增默认折叠的「扩展 API 平台【高级/可选】」真实 UI，折叠态显示启用平台数量、已配置 Key 数量、ComfyUI/即梦 CLI 可用状态，并明确未配置不影响主流程。",
+        "展开态按平台切换 OpenAI 兼容、ModelScope、火山引擎、本地 ComfyUI、即梦 CLI 表单，支持启用开关、Base URL、API Key/Token、模型列表、火山 Project/Region/AK/SK、ComfyUI 实例列表、即梦 CLI 路径/WSL 信息和测试连接按钮。",
+        "前端新增 src/utils/advancedProviders.ts，统一模型列表文本解析、折叠态摘要和 masked key 状态判断；ApiSettings 导入/导出设置会保留 advancedProviders。",
+        "后端新增 backend/src/providers/adapters.js 以及 openaiCompatible/modelscope/volcengine/comfyui/jimengCli adapter 骨架；server.js 挂载 POST /api/proxy/external/test-provider，测试连接返回脱敏 provider，不泄漏明文密钥。",
+        "electron/_post_build.cjs 同步校验 routes/externalProviders.t8c 与所有 provider adapter .t8c，防止新增后端文件未加密进入打包产物。",
+        "公开版本同步到 1.8.2：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub；本次按规范打包 Electron。",
+        "验证：node --test tests/*.test.ts 通过 41/41；node --check 覆盖新增 provider adapter、externalProviders 路由、server/settings；npm run build 与 npm run dist 通过；浏览器冒烟确认设置页可见并展开扩展平台区且 console error 为空；win-unpacked 10 秒启动冒烟通过。"
       ]
     }
   },
@@ -2299,8 +2312,8 @@
     },
     "advancedProviders": {
       "label": "扩展 API 平台【高级/可选】",
-      "status": "backend-foundation",
-      "since": "v1.8.0-roadmap / v1.8.1-backend-foundation",
+      "status": "settings-ui-and-test-endpoint",
+      "since": "v1.8.0-roadmap / v1.8.1-backend-foundation / v1.8.2-settings-ui",
       "placement": "API 设置页中位于「分类独立 API Key【可选】」之后、文件自动保存路径之前，默认折叠；未配置时不影响主流程。",
       "principles": [
         "默认不改变贞贞工坊 / RunningHub / LLM 独立 Key 与分类 Key fallback 链路。",
@@ -2319,11 +2332,19 @@
       "backend": [
         "backend/src/providers/registry.js（已接入 settings 路由，负责默认平台、配置清洗、密钥保留、脱敏展示和摘要统计）",
         "backend/src/providers/mediaResolver.js（已实现 T8 本地/资源库/远程/dataURL/本地路径的统一解析）",
-        "backend/src/providers/openaiCompatible.js",
-        "backend/src/providers/modelscope.js",
-        "backend/src/providers/volcengine.js",
-        "backend/src/providers/comfyui.js",
-        "backend/src/providers/jimengCli.js"
+        "backend/src/providers/adapters.js（按 protocol 分发测试/后续调用）",
+        "backend/src/providers/openaiCompatible.js（Base URL + /models 测试骨架）",
+        "backend/src/providers/modelscope.js（复用 OpenAI 兼容测试骨架，真实异步图像任务后续接入）",
+        "backend/src/providers/volcengine.js（复用 OpenAI 兼容测试骨架，真实 Ark/Seedream/Seedance 后续接入）",
+        "backend/src/providers/comfyui.js（限制 localhost/127.0.0.1，测试 /queue）",
+        "backend/src/providers/jimengCli.js（检测 dreamina/即梦 CLI 可执行路径，不执行生成）",
+        "backend/src/routes/externalProviders.js（POST /api/proxy/external/test-provider，返回脱敏 provider）"
+      ],
+      "frontend": [
+        "src/components/ApiSettings.tsx（扩展平台折叠区、平台表单、测试连接、设置导入导出）",
+        "src/utils/advancedProviders.ts（模型列表文本解析、摘要统计、masked key 状态判断）",
+        "src/services/api.ts::testAdvancedProvider（调用 /api/proxy/external/test-provider）",
+        "src/types/canvas.ts（AdvancedProviderConfig / CanvasNodeData providerSource 字段）"
       ],
       "plannedPhases": [
         "Phase A: 设置与数据模型、折叠 UI、脱敏与校验测试。",
@@ -2421,7 +2442,8 @@
         "POST /api/proxy/runninghub/submit — RH 工作流提交（v1.2.9.16 起统一读 settings.rhApiKey，不再使用 useWallet/wallet=1 分路）",
         "GET /api/proxy/runninghub/query?taskId — RH 任务轮询（转存）",
         "GET /api/proxy/runninghub/app-info?webappId — RH 应用信息",
-        "POST /api/proxy/runninghub/upload-asset — RH 上传资源（路径白名单含 /files/output/ · /output/ · /files/input/ · /input/ 4 种前缀）"
+        "POST /api/proxy/runninghub/upload-asset — RH 上传资源（路径白名单含 /files/output/ · /output/ · /files/input/ · /input/ 4 种前缀）",
+        "POST /api/proxy/external/test-provider — v1.8.2 扩展 API 平台测试端点，可用 providerId 或临时 provider 配置测试 OpenAI兼容/ModelScope/火山/ComfyUI/即梦 CLI，响应只返回脱敏 provider"
       ],
       "recharge": [
         "GET /api/recharge/config — 充值代理配置状态(不返回密钥)",

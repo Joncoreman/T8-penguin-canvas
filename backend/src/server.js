@@ -61,10 +61,12 @@ const rechargeRouter = require('./routes/recharge');
 const resourcesRouter = require('./routes/resources');
 const themesRouter = require('./routes/themes');
 const eagleRouter = require('./routes/eagle');
+const externalProvidersRouter = require('./routes/externalProviders');
 
 app.use('/api/canvas', canvasRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/proxy', proxyRouter);
+app.use('/api/proxy/external', externalProvidersRouter);
 app.use('/api/files', filesRouter);
 app.use('/api/image', imageOpsRouter);
 app.use('/api/recharge', rechargeRouter.apiRouter);

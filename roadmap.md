@@ -180,18 +180,21 @@
 
 #### Phase A：设置与数据模型
 
+- 状态：已在 v1.8.1/v1.8.2 落地。
 - 扩展 `ApiSettings` 类型、zustand 默认值、后端 settings 默认值、脱敏与导入/导出。
-- API 设置页新增默认折叠的扩展平台入口，先做保存、显示、测试连接占位。
+- API 设置页新增默认折叠的扩展平台入口，折叠态摘要和展开态平台表单已接入。
 - 增加配置校验测试：非法 URL、非法 provider id、Key 脱敏、旧设置迁移。
 
 #### Phase B：Adapter 骨架与媒体解析
 
+- 状态：已在 v1.8.1/v1.8.2 落地基础版，后续真实调用会继续扩展同一 adapter。
 - 新增 providers 目录和统一返回类型。
 - 实现 media resolver，覆盖 `/files/*`、`/api/resources/*`、dataURL、远程 URL、本地临时文件、视频抽帧。
-- 新增 provider test endpoint，可测试 Key/Base URL/ComfyUI/即梦 CLI 状态。
+- 新增 `POST /api/proxy/external/test-provider`，可测试 Key/Base URL/ComfyUI/即梦 CLI 状态，响应不泄漏明文密钥。
 
 #### Phase C：OpenAI 兼容与 ModelScope
 
+- 状态：下一阶段开发重点，尚未接入图像/LLM 节点真实生成调用。
 - 先接入图像与 LLM，视频只保留配置和模型列表。
 - 图像节点增加高级 provider 选择；默认不显示，只有已启用 provider 时出现。
 - ModelScope 实现异步提交、轮询、错误归一化和自动保存。

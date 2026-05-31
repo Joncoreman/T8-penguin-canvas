@@ -37,6 +37,13 @@ const DEFAULT: ApiSettings = {
   resourceLibraryPath: '',
   themeTemplatePath: '',
   eagleApiBase: '',
+  advancedProviders: [],
+  advancedProviderSummary: {
+    enabledCount: 0,
+    configuredKeyCount: 0,
+    comfyuiConfigured: false,
+    jimengConfigured: false,
+  },
   preferences: { theme: 'dark', language: 'zh-CN' },
 };
 

@@ -2,7 +2,7 @@
  * T8-penguin-canvas 后端 API 封装
  * 所有请求走 Vite proxy → http://127.0.0.1:18766
  */
-import type { ApiSettings, CanvasData, CanvasListItem } from '../types/canvas';
+import type { AdvancedProviderConfig, ApiSettings, CanvasData, CanvasListItem } from '../types/canvas';
 import type { ThemeTemplate } from '../theme/types';
 import type { MediaKind } from '../utils/mediaCollection';
 
@@ -109,6 +109,49 @@ export async function updateSettings(patch: Partial<ApiSettings>): Promise<void>
     method: 'POST',
     body: JSON.stringify(patch),
   });
+}
+
+export interface AdvancedProviderTestResult {
+  ok: boolean;
+  code: string;
+  providerId: string;
+  protocol: string;
+  message?: string;
+  error?: string;
+  provider?: AdvancedProviderConfig;
+}
+
+export async function testAdvancedProvider(payload: {
+  providerId?: string;
+  provider?: AdvancedProviderConfig;
+  dryRun?: boolean;
+}): Promise<AdvancedProviderTestResult> {
+  const res = await request<{
+    success: boolean;
+    code?: string;
+    error?: string;
+    data?: AdvancedProviderTestResult;
+  }>(`${BASE}/proxy/external/test-provider`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  if (!res.success && res.data) return res.data;
+  if (!res.success) {
+    return {
+      ok: false,
+      code: res.code || 'provider_test_failed',
+      providerId: payload.providerId || payload.provider?.id || '',
+      protocol: payload.provider?.protocol || '',
+      error: res.error || '测试失败',
+    };
+  }
+  return res.data || {
+    ok: false,
+    code: 'empty_response',
+    providerId: payload.providerId || payload.provider?.id || '',
+    protocol: payload.provider?.protocol || '',
+    error: '测试接口没有返回结果',
+  };
 }
 
 // ========== 文件自动保存到本地路径 (v1.2.10.2) ==========
