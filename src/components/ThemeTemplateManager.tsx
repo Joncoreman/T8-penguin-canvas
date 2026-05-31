@@ -19,6 +19,7 @@ import {
   narutoThemeMusicUrl,
   rhHiddenThemeMusicUrl,
   rhThemeMusicUrl,
+  slamdunkThemeMusicUrl,
 } from '../theme/defaultTemplates';
 import { getThemeContrastWarnings } from '../theme/validateTheme';
 import type {
@@ -86,6 +87,7 @@ const VISUAL_STYLE_OPTIONS = [
   { value: 'naruto', label: '火影忍者' },
   { value: 'eva', label: 'EVA 指挥' },
   { value: 'yyh', label: '幽游白书' },
+  { value: 'slamdunk', label: '灌篮高手' },
 ] as const;
 
 const VISUAL_INTENSITY_OPTIONS = [
@@ -102,6 +104,7 @@ const MUSIC_PRESET_OPTIONS: Array<{ value: ThemeMusicPreset; label: string }> = 
   { value: 'shinobi-flame', label: '忍者火焰' },
   { value: 'eva-sync', label: 'EVA 同步' },
   { value: 'spirit-gun', label: '灵丸脉冲' },
+  { value: 'buzzer-beater', label: '压哨热血' },
 ];
 
 const MAX_THEME_AUDIO_SIZE = 20 * 1024 * 1024;
@@ -171,6 +174,17 @@ function visualDefaultsFor(style: ThemeVisuals['style'], legacyStyle: LegacyThem
       canvasPattern: 'spirit-map',
       nodeFrame: 'spirit-case',
       headerMark: prev?.headerMark || 'REI GUN',
+    };
+  }
+  if (style === 'slamdunk') {
+    return {
+      ...fallbackVisuals(legacyStyle),
+      ...(prev || {}),
+      style,
+      iconPack: 'slamdunk',
+      canvasPattern: 'court',
+      nodeFrame: 'scoreboard-card',
+      headerMark: prev?.headerMark || 'BUZZER BEATER',
     };
   }
   if (style === 'tech') {
@@ -249,6 +263,17 @@ function fallbackMusic(legacyStyle: LegacyThemeStyle, visuals?: ThemeVisuals): T
       volume: 0.16,
       bpm: 138,
       copyrightNote: '原创灵界侦探氛围合成循环；可替换为已授权音频 URL。',
+    };
+  }
+  if (visualStyle === 'slamdunk') {
+    return {
+      title: '想大声说喜欢你',
+      preset: 'buzzer-beater',
+      source: 'url',
+      url: slamdunkThemeMusicUrl,
+      volume: 0.18,
+      bpm: 142,
+      copyrightNote: '灌篮高手风格默认音乐文件，可在主题模板中上传替换。公开分发前请确认音乐授权边界。',
     };
   }
   if (legacyStyle === 'tech' || visualStyle === 'tech') {

@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "1.7.6",
-  "lastUpdated": "2026-05-31-v1.7.6-pose-resource-and-sd2-fixes",
+  "version": "1.7.7",
+  "lastUpdated": "2026-06-01-v1.7.7-slamdunk-theme-polish",
   "packaging": {
     "description": "Electron NSIS 桌面端打包链路(v1.2.1 起标准化, 严禁未明确指令主动打包)。完整产物拓扑: app.asar(electron/{main,loader,preload}.cjs + node_modules) + app.asar.unpacked(node_modules/sharp + @img) + resources/backend-enc/*.t8c(extraResources, asar 外) + resources/frontend(extraResources, asar 外)。前端版本号由 vite define 注入 __APP_VERSION__、Sidebar 左下角自动同步。",
     "scripts": {
@@ -16,9 +16,9 @@
       "T8PC_FRONTEND_DIST": "打包模式 = path.join(process.resourcesPath, 'frontend'); 开发模式 = <project>/dist",
       "T8PC_RES": "打包模式 = process.resourcesPath; 开发模式 = <project>"
     },
-    "version": "1.7.6",
-    "semverVersion": "1.7.6",
-    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.7.6：幽游白书肖像大师隐藏模式新增专用内置音乐 yyh-hidden-tonight.mp3，隐藏模式开启时 ThemeMusicToggle 会自动切换并解除静音，普通幽游白书主题音乐继续使用 yyh-unbalanced-kiss-piano.mp3。本次只推源码和前端资源，不打包 Electron。",
+    "version": "1.7.7",
+    "semverVersion": "1.7.7",
+    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.7.7：新增第八套官方主题「灌篮高手风格」，使用原创篮球馆视觉母题，覆盖木地板球场、计分牌节点、传球弧线、战术板 MiniMap、篮球/哨子 SHIFT 剪线和内置主题音乐；后续热修补充樱木 10 号球衣 LOGO、新篮球传球动画、断线按钮统一篮球资源和深色控制条可读性。本次只推源码，不打包 Electron。",
     "installer": "本次未打包 Electron；最近一次安装包为 dist_electron/T8-PenguinCanvas-Setup-1.5.5.exe (NSIS, 108.96 MB)",
     "checklist": [
       "运行 npm run encrypt 前确认已 npm install bytenode 且使用 Electron 内置 Node",
@@ -44,7 +44,7 @@
     }
   },
   "themes": {
-    "description": "主题模板体系：内置科技风 / 像素糖果风 / OP 风格 / RH 风格 / 火影忍者风格 / EVA风格 / 幽游白书风格七套模板 × 浅色/深色模式，由 zustand theme store 持久化，data-theme-style + data-theme-mode + data-theme-visual 注入 html 根；新增节点应使用 ThemeToken CSS 变量与通用 t8-* 样式，避免逐节点硬编码主题。",
+    "description": "主题模板体系：内置科技风 / 像素糖果风 / OP 风格 / RH 风格 / 火影忍者风格 / EVA风格 / 幽游白书风格 / 灌篮高手风格八套模板 × 浅色/深色模式，由 zustand theme store 持久化，data-theme-style + data-theme-mode + data-theme-visual 注入 html 根；新增节点应使用 ThemeToken CSS 变量与通用 t8-* 样式，避免逐节点硬编码主题。",
     "templateSystem": {
       "schema": "t8-theme-template",
       "version": 2,
@@ -77,7 +77,7 @@
         "画布背景水印必须放在 .t8-canvas-shell::before/::after 背景层，z-index:0 且 pointer-events:none；ReactFlow 节点、边、浮层和 GroupBox 内容必须盖住水印，不能让装饰穿透到素材预览或画板内容上方",
         "强风格官方主题可为 light/dark 分别提供水印资产；若深色水印包含黑底终端、警告面板或厚重贴片，浅色模式必须改用透明底线稿 / 印章 / HUD 版本，避免浅色画布出现突兀深色块",
         "框选/节点右键菜单、空白右键快速添加菜单、拖线候选菜单和选中节点右上角 RUN/关闭浮动条都属于全局主题控件，必须使用 t8-context-menu / t8-node-action-bar 语义类和 visuals.style 作为视觉判断来源，禁止仅按 legacyStyle=像素/科技分支导致 OP、火影、EVA 等主题残留白底或绿色按钮",
-        "全局菜单新增动作时必须检查 light/dark 与七套官方主题的可读性；小图标和菜单图标仍需固定尺寸，避免 OP/像素风胶囊按钮把资源库、图像对比、批量下载等入口撑大",
+        "全局菜单新增动作时必须检查 light/dark 与八套官方主题的可读性；小图标和菜单图标仍需固定尺寸，避免 OP/像素风胶囊按钮把资源库、图像对比、批量下载等入口撑大",
         "节点 NodeID 徽标属于 ReactFlow 节点外层通用浮层，必须使用 .t8-node-serial-badge 这类全局样式挂在节点外框右上角；禁止按标题图标宽度硬编码 left/top 塞进标题行，避免不同节点、不同主题和长标题重叠。"
       ],
       "music": {
@@ -99,7 +99,8 @@
           "naruto-style": "naruto-shinsei-gyakuten.mp3",
           "eva-style": "eva-decisive-battle.mp3",
           "yyh-style": "yyh-unbalanced-kiss-piano.mp3",
-          "yyh-hidden": "yyh-hidden-tonight.mp3"
+          "yyh-hidden": "yyh-hidden-tonight.mp3",
+          "slamdunk-style": "slamdunk-kimi-ga-suki.mp3"
         },
         "rule": "主题音乐默认静音，通常只在用户主动点击播放按钮后播放；RH 鸭鸭隐藏模式会自动切换 rh-hidden-saya.mp3，幽游白书肖像大师隐藏模式会自动切换 yyh-hidden-tonight.mp3，二者都会解除静音。模板编辑器支持上传替换，导出模板可携带 data:audio/*。"
       }
@@ -209,6 +210,19 @@
           "headerMark": "REI GUN"
         },
         "music": "yyh-unbalanced-kiss-piano.mp3；肖像大师隐藏模式自动切换 yyh-hidden-tonight.mp3 并解除静音播放"
+      },
+      "slamdunk": {
+        "label": "灌篮高手风格",
+        "description": "灌篮高手热血篮球馆视觉模板：原创木地板球场、红黑球衣、计分牌节点、传球弧线、半场战术 MiniMap、篮球/哨子 SHIFT 剪线与战术板菜单；不使用官方角色图、漫画截图或队徽原图。",
+        "default": false,
+        "visuals": {
+          "style": "slamdunk",
+          "iconPack": "slamdunk",
+          "canvasPattern": "court",
+          "nodeFrame": "scoreboard-card",
+          "headerMark": "BUZZER BEATER"
+        },
+        "music": "slamdunk-kimi-ga-suki.mp3；默认静音，用户可在主题模板中上传替换授权音频"
       }
     },
     "defaultStyle": "pixel",
@@ -1570,6 +1584,21 @@
         "参考 gpt-image-2-web 的 runSeedance 实现补齐 reference_video / reference_audio 上传链路，避免上游返回 Invalid audio/video format；asset-xxx 保持直接透传兼容。",
         "纯图片生成路径保持原行为，仍复用同一上传函数换取 image_url；新增 mock 路由验证确保最终 Seedance payload 不再包含本地 /files/input/ URL。",
         "验证：node --check backend/src/routes/proxy.js、npm run build 通过；开发后端已重启到新逻辑。"
+      ]
+    },
+    "phase108": {
+      "label": "灌篮高手官方主题 (v1.7.7)",
+      "status": "complete",
+      "items": [
+        "新增第八套官方主题「灌篮高手风格」，使用原创篮球馆视觉母题：木地板球场、红黑球衣、计分牌、篮球橙、传球弧线和战术板，而不是官方角色图、漫画截图或队徽原图。",
+        "主题协议扩展 visuals.style=slamdunk、iconPack=slamdunk、canvasPattern=court、nodeFrame=scoreboard-card、music.preset=buzzer-beater，并在前端类型、后端主题白名单、主题编辑器和内置模板中同步；默认音乐使用 src/assets/theme-music/slamdunk-kimi-ga-suki.mp3。",
+        "新增 src/styles/theme-slamdunk.css，覆盖顶栏品牌、侧栏、画布球场背景、节点计分牌外框、NodeID 球衣号码牌、端口、连线、MiniMap、ReactFlow Controls、主题音乐按钮、右键菜单、拖线候选、NodeActionBar、GroupBox、select/option 和 light/dark legacy internal controls。",
+        "视觉热修新增原创资源 src/assets/slamdunk-court-map.png、slamdunk-jersey-10.png、slamdunk-basketball-v2.png 和 slamdunk-basketball-v2-cursor.png；顶栏品牌 LOGO 使用樱木 10 号球衣，小地图保留 SLAM DUNK 与 SHOHOKU 79 : 78 SANNOH 纪念排版。",
+        "DeletableEdge.tsx 的灌篮主题连线叠加单个 animateMotion 篮球图片精灵，按 edge id 轻微错峰，从出口传到入口；断线按钮和 SHIFT 剪线光标统一使用新版篮球资源，旧中点静态篮球 marker 在灌篮主题下隐藏。",
+        "灌篮高手深色模式下，ThemeMusicToggle 下方 ReactFlow Controls 改为浅色高对比裁判台/记分板边条，按钮图标、禁用态和 hover 态分别强制深色/浅色，避免在深色球场背景中不可读。",
+        "ThemeMusicToggle 保留 buzzer-beater 合成兜底；灌篮高手主题默认走内置 slamdunk-kimi-ga-suki.mp3，默认静音，用户仍可在主题模板管理中上传或填写授权音频 URL 替换。",
+        "验证：npm run build 通过；浏览器验证灌篮主题下每条连线仅 1 个传球篮球，断线按钮/光标使用新版篮球资源，深色模式 ReactFlow Controls 背景、图标和禁用态均有可读对比。",
+        "公开版本同步到 1.7.7：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md、docs/theme-design-guide.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub。"
       ]
     }
   },

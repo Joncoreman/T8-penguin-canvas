@@ -6,12 +6,12 @@ const config = require('../config');
 const router = express.Router();
 const SCHEMA = 't8-theme-template';
 const VERSION = 2;
-const VISUAL_STYLES = new Set(['plain', 'tech', 'pixel', 'op', 'rh', 'naruto', 'eva', 'yyh']);
+const VISUAL_STYLES = new Set(['plain', 'tech', 'pixel', 'op', 'rh', 'naruto', 'eva', 'yyh', 'slamdunk']);
 const INTENSITIES = new Set(['subtle', 'medium', 'strong']);
-const ICON_PACKS = new Set(['default', 'op', 'naruto', 'eva', 'yyh']);
-const CANVAS_PATTERNS = new Set(['none', 'dots', 'map', 'circuit', 'confetti', 'hub', 'chakra', 'eva-grid', 'spirit-map']);
-const NODE_FRAMES = new Set(['plain', 'glass', 'sticker', 'wanted', 'hub-card', 'shinobi-scroll', 'eva-panel', 'spirit-case']);
-const MUSIC_PRESETS = new Set(['tech-pulse', 'pixel-pop', 'grand-line-adventure', 'rh-pulse', 'shinobi-flame', 'eva-sync', 'spirit-gun']);
+const ICON_PACKS = new Set(['default', 'op', 'naruto', 'eva', 'yyh', 'slamdunk']);
+const CANVAS_PATTERNS = new Set(['none', 'dots', 'map', 'circuit', 'confetti', 'hub', 'chakra', 'eva-grid', 'spirit-map', 'court']);
+const NODE_FRAMES = new Set(['plain', 'glass', 'sticker', 'wanted', 'hub-card', 'shinobi-scroll', 'eva-panel', 'spirit-case', 'scoreboard-card']);
+const MUSIC_PRESETS = new Set(['tech-pulse', 'pixel-pop', 'grand-line-adventure', 'rh-pulse', 'shinobi-flame', 'eva-sync', 'spirit-gun', 'buzzer-beater']);
 const MUSIC_SOURCES = new Set(['synth', 'url', 'upload']);
 
 function loadSettings() {
@@ -69,6 +69,8 @@ function normalizeVisuals(raw, legacyStyle) {
           ? 'eva'
         : style === 'yyh'
           ? 'yyh'
+        : style === 'slamdunk'
+          ? 'slamdunk'
           : 'default',
     canvasPattern: CANVAS_PATTERNS.has(source.canvasPattern)
       ? source.canvasPattern
@@ -82,6 +84,8 @@ function normalizeVisuals(raw, legacyStyle) {
           ? 'eva-grid'
         : style === 'yyh'
           ? 'spirit-map'
+        : style === 'slamdunk'
+          ? 'court'
         : style === 'tech'
           ? 'circuit'
           : 'dots',
@@ -97,6 +101,8 @@ function normalizeVisuals(raw, legacyStyle) {
           ? 'eva-panel'
         : style === 'yyh'
           ? 'spirit-case'
+        : style === 'slamdunk'
+          ? 'scoreboard-card'
         : style === 'tech'
           ? 'glass'
           : 'sticker',
@@ -154,6 +160,16 @@ function defaultMusicFor(legacyStyle, visuals) {
       volume: 0.16,
       bpm: 138,
       copyrightNote: '原创灵界侦探氛围合成循环；可替换为已授权音频 URL。',
+    };
+  }
+  if (style === 'slamdunk') {
+    return {
+      title: 'Buzzer Beater Warmup',
+      preset: 'buzzer-beater',
+      source: 'synth',
+      volume: 0.16,
+      bpm: 104,
+      copyrightNote: '原创篮球馆热血合成循环；可替换为已授权音频 URL。',
     };
   }
   if (legacyStyle === 'tech' || style === 'tech') {

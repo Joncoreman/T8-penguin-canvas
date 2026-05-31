@@ -8,6 +8,16 @@ import {
   type EdgeProps,
 } from '@xyflow/react';
 
+const SLAMDUNK_BASKETBALL_URL = new URL('../../assets/slamdunk-basketball-v2.png', import.meta.url).href;
+
+function edgeDelay(id: string) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) {
+    hash = (hash * 31 + id.charCodeAt(i)) % 1400;
+  }
+  return `${hash / 1000}s`;
+}
+
 export default function DeletableEdge(props: EdgeProps) {
   const {
     id,
@@ -63,6 +73,7 @@ export default function DeletableEdge(props: EdgeProps) {
   };
 
   const visible = hover || !!selected;
+  const passBallDelay = edgeDelay(id);
 
   const handleCut = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -91,6 +102,25 @@ export default function DeletableEdge(props: EdgeProps) {
           aria-hidden="true"
         />
       )}
+      <g className="t8-edge-pass-ball" aria-hidden="true">
+        <g className="t8-edge-pass-ball__sprite">
+          <animateMotion
+            dur="1.9s"
+            repeatCount="indefinite"
+            path={edgePath}
+            begin={passBallDelay}
+          />
+          <image
+            className="t8-edge-pass-ball__image"
+            href={SLAMDUNK_BASKETBALL_URL}
+            x={-11}
+            y={-11}
+            width={22}
+            height={22}
+            preserveAspectRatio="xMidYMid meet"
+          />
+        </g>
+      </g>
       {/* 透明的加宽 hit area,捕捉鼠标 hover (BaseEdge 的 interactionWidth 已自带,这里再补一层,确保事件有响应) */}
       <path
         d={edgePath}

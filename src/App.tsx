@@ -396,6 +396,7 @@ function App() {
   const isNaruto = currentTemplate.visuals?.style === 'naruto';
   const isEva = currentTemplate.visuals?.style === 'eva';
   const isYyh = currentTemplate.visuals?.style === 'yyh';
+  const isSlamdunk = currentTemplate.visuals?.style === 'slamdunk';
 
   const handleAddNode = (type: NodeType) => {
     addNodeRef.current?.(type);
@@ -445,7 +446,7 @@ function App() {
     <div
       className={`t8-app-shell h-screen flex flex-col overflow-hidden ${
         isPixel ? '' : isDark ? 'bg-zinc-950 text-white' : 'bg-zinc-50 text-zinc-900'
-      } ${isOp ? 't8-app-shell--op' : ''} ${isRh ? 't8-app-shell--rh' : ''} ${isNaruto ? 't8-app-shell--naruto' : ''} ${isEva ? 't8-app-shell--eva' : ''} ${isYyh ? 't8-app-shell--yyh' : ''}`}
+      } ${isOp ? 't8-app-shell--op' : ''} ${isRh ? 't8-app-shell--rh' : ''} ${isNaruto ? 't8-app-shell--naruto' : ''} ${isEva ? 't8-app-shell--eva' : ''} ${isYyh ? 't8-app-shell--yyh' : ''} ${isSlamdunk ? 't8-app-shell--slamdunk' : ''}`}
       style={{ background: 'var(--t8-bg-app)', color: 'var(--t8-text-main)' }}
     >
       {/* 头部状态栏 */}
@@ -531,6 +532,21 @@ function App() {
                 </div>
               </div>
               <span className="t8-yyh-brand__status" aria-hidden="true">REI GUN READY</span>
+            </div>
+          ) : isSlamdunk ? (
+            <div className="t8-slamdunk-brand flex items-center gap-2">
+              <span className="t8-slamdunk-brand__mark" aria-hidden="true">
+                <span className="t8-slamdunk-brand__ball" />
+              </span>
+              <div className="min-w-0">
+                <h1 className="t8-slamdunk-brand__title text-[14px] font-black leading-none">
+                  灌篮高手 · 贞贞的无限画布
+                </h1>
+                <div className="t8-slamdunk-brand__sub text-[9px] font-bold tracking-wide leading-none mt-0.5">
+                  FULL COURT CANVAS / BUZZER BEATER READY
+                </div>
+              </div>
+              <span className="t8-slamdunk-brand__score" aria-hidden="true">T8 10 : 08 AI</span>
             </div>
           ) : isPixel ? (
             <>

@@ -10,6 +10,7 @@ export const narutoThemeMusicUrl = new URL('../assets/theme-music/naruto-shinsei
 export const evaThemeMusicUrl = new URL('../assets/theme-music/eva-decisive-battle.mp3', import.meta.url).href;
 export const yyhThemeMusicUrl = new URL('../assets/theme-music/yyh-unbalanced-kiss-piano.mp3', import.meta.url).href;
 export const yyhHiddenThemeMusicUrl = new URL('../assets/theme-music/yyh-hidden-tonight.mp3', import.meta.url).href;
+export const slamdunkThemeMusicUrl = new URL('../assets/theme-music/slamdunk-kimi-ga-suki.mp3', import.meta.url).href;
 
 export const DEFAULT_THEME_TEMPLATE_ID = 'pixel-candy';
 export const TECH_TEMPLATE_ID = 'tech-default';
@@ -19,6 +20,7 @@ export const RH_TEMPLATE_ID = 'rh-style';
 export const NARUTO_TEMPLATE_ID = 'naruto-style';
 export const EVA_TEMPLATE_ID = 'eva-style';
 export const YYH_TEMPLATE_ID = 'yyh-style';
+export const SLAMDUNK_TEMPLATE_ID = 'slamdunk-style';
 
 const techDark: ThemeTokens = {
   appBg: '#09090b',
@@ -530,6 +532,80 @@ const yyhLight: ThemeTokens = {
   portAudio: '#7b27c8',
 };
 
+const slamdunkLight: ThemeTokens = {
+  appBg: '#f2c27b',
+  canvasBg: '#e8a85b',
+  panelBg: '#fff3d4',
+  panelBgElevated: '#fff9e6',
+  panelBgMuted: '#e4b16a',
+  nodeBg: '#fff4d8',
+  nodeHeaderBg: '#c91f27',
+  textMain: '#17110f',
+  textMuted: '#4b3126',
+  textDim: '#7a5541',
+  border: '#251713',
+  borderStrong: '#251713',
+  accent: '#c91f27',
+  accentHover: '#e43a34',
+  accentText: '#fff8e8',
+  secondary: '#f07b22',
+  warning: '#ffc84a',
+  danger: '#a40f18',
+  success: '#f07b22',
+  shadowPanel: '5px 5px 0 #251713, 0 18px 44px rgba(67,34,13,0.18)',
+  shadowButton: '3px 3px 0 #251713',
+  shadowStrong: '7px 7px 0 #251713, 0 24px 68px rgba(67,34,13,0.22)',
+  radiusPanel: '10px',
+  radiusButton: '6px',
+  radiusNode: '10px',
+  gridDot: '#9b6a38',
+  edge: '#4a2a1b',
+  edgeSelected: '#f07b22',
+  selectionBg: 'rgba(201,31,39,0.16)',
+  selectionBorder: '#c91f27',
+  portText: '#177c9b',
+  portImage: '#f07b22',
+  portVideo: '#c91f27',
+  portAudio: '#5f4bb6',
+  fontFamily: "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
+  displayFont: "'Arial Black', Impact, 'Noto Sans SC', 'Microsoft YaHei', system-ui, sans-serif",
+};
+
+const slamdunkDark: ThemeTokens = {
+  ...slamdunkLight,
+  appBg: '#120b08',
+  canvasBg: '#1c120c',
+  panelBg: '#21140f',
+  panelBgElevated: '#301d15',
+  panelBgMuted: '#3c2418',
+  nodeBg: '#251710',
+  nodeHeaderBg: '#7f1218',
+  textMain: '#fff0ce',
+  textMuted: '#ddb889',
+  textDim: '#a47b55',
+  border: '#ffd99a',
+  borderStrong: '#ffb84d',
+  accent: '#ff3440',
+  accentHover: '#ff5a46',
+  accentText: '#170806',
+  secondary: '#ff8a2a',
+  warning: '#ffd15a',
+  danger: '#ff4d55',
+  success: '#ffb84d',
+  shadowPanel: '0 18px 54px rgba(0,0,0,0.58), 4px 4px 0 #060302',
+  shadowButton: '3px 3px 0 #060302',
+  shadowStrong: '0 28px 82px rgba(0,0,0,0.68), 7px 7px 0 #060302',
+  gridDot: '#674023',
+  edge: '#d5975a',
+  edgeSelected: '#ff8a2a',
+  selectionBg: 'rgba(255,52,64,0.18)',
+  selectionBorder: '#ffb84d',
+  portText: '#49d7ff',
+  portImage: '#ffb84d',
+  portVideo: '#ff4d55',
+  portAudio: '#b7a0ff',
+};
+
 export const BUILT_IN_THEME_TEMPLATES: ThemeTemplate[] = [
   {
     schema: 't8-theme-template',
@@ -732,6 +808,34 @@ export const BUILT_IN_THEME_TEMPLATES: ThemeTemplate[] = [
       copyrightNote: '幽游白书风格默认音乐文件；肖像大师隐藏模式会自动切换到隐藏主题音乐，可在主题模板中上传替换普通主题音乐。公开分发前请确认音乐授权边界。',
     },
     modes: { dark: { tokens: yyhDark }, light: { tokens: yyhLight } },
+  },
+  {
+    schema: 't8-theme-template',
+    version: THEME_TEMPLATE_VERSION,
+    id: SLAMDUNK_TEMPLATE_ID,
+    name: '灌篮高手风格',
+    description: '热血篮球馆视觉：木地板球场、红黑球衣、计分牌节点、传球弧线、战术板小地图和终场哨声感控件。原创篮球意象，不使用官方角色图像。',
+    author: 'T8',
+    builtIn: true,
+    legacyStyle: 'pixel',
+    visuals: {
+      style: 'slamdunk',
+      intensity: 'strong',
+      iconPack: 'slamdunk',
+      canvasPattern: 'court',
+      nodeFrame: 'scoreboard-card',
+      headerMark: 'BUZZER BEATER',
+    },
+    music: {
+      title: '想大声说喜欢你',
+      preset: 'buzzer-beater',
+      source: 'url',
+      url: slamdunkThemeMusicUrl,
+      volume: 0.18,
+      bpm: 142,
+      copyrightNote: '灌篮高手风格默认音乐文件，可在主题模板中上传替换。公开分发前请确认音乐授权边界。',
+    },
+    modes: { dark: { tokens: slamdunkDark }, light: { tokens: slamdunkLight } },
   },
 ];
 

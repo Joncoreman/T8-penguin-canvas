@@ -10,13 +10,13 @@ https://www.runninghub.cn/?inviteCode=rh-v1121
 My favorite girl Go YounJung
 # 🐧 贞贞的无限画布（企鹅共创版） · T8-penguin-canvas
 
-> AI 节点画布工作流工具 · Web + Electron 桌面端｜v1.7.6
+> AI 节点画布工作流工具 · Web + Electron 桌面端｜v1.7.7
 >
 > GitHub：<https://github.com/T8mars/T8-penguin-canvas>
 
 一个面向 AI 创作的 **节点式画布**：拖拽节点、连线编排、生成图像 / 视频 / 音频、调用 LLM、串接 RunningHub 工作流，叠加批量执行、智能对齐、打组、主题模板与终端日志。Web 浏览器即可使用，亦可一键打包为 Windows 桌面端（NSIS 安装包）。
 
-![status](https://img.shields.io/badge/version-v1.7.6-brightgreen) ![node](https://img.shields.io/badge/node-%E2%89%A518-blue) ![react](https://img.shields.io/badge/react-19-61dafb) ![electron](https://img.shields.io/badge/electron-33-47848f) ![license](https://img.shields.io/badge/license-MIT-yellow)
+![status](https://img.shields.io/badge/version-v1.7.7-brightgreen) ![node](https://img.shields.io/badge/node-%E2%89%A518-blue) ![react](https://img.shields.io/badge/react-19-61dafb) ![electron](https://img.shields.io/badge/electron-33-47848f) ![license](https://img.shields.io/badge/license-MIT-yellow)
 
 ---
 
@@ -61,7 +61,7 @@ My favorite girl Go YounJung
 - 🖱️ **右键画布快速添加节点**：菜单列出 7 个高频节点（upload / text / image / video / seedance / audio / llm）
 - 🎯 **框选自动菜单**：≥2 节点框选后自动弹出操作面板（组执行 / 复制 / 快复制 / 删除 / 打组）
 - ⏪ **Undo / Redo / 复制粘贴 / 导入导出 / 工作流模板** 完整画布交互
-- 🌗 **主题模板系统**：科技风 / 像素糖果风 / OP 风格 / RH 风格 / 火影忍者风格 / EVA 风格 / 幽游白书风格七套内置模板，支持浅色 / 深色、导入导出、编辑保存、自定义路径与默认静音主题音乐；幽游白书风格已为浅色 / 深色分别使用独立水印，肖像大师隐藏模式会自动切换专用隐藏音乐
+- 🌗 **主题模板系统**：科技风 / 像素糖果风 / OP 风格 / RH 风格 / 火影忍者风格 / EVA 风格 / 幽游白书风格 / 灌篮高手风格八套内置模板，支持浅色 / 深色、导入导出、编辑保存、自定义路径与默认静音主题音乐；灌篮高手风格提供木地板球场、计分牌节点、传球弧线和战术板 MiniMap，幽游白书肖像大师隐藏模式会自动切换专用隐藏音乐
 - 🧭 **主题悬浮控件统一**：小图标按钮使用固定语义类，避免 OP / 像素等强风格按钮膨胀；火影小地图、控制条和音乐按钮对齐到与 RH 一致的底部悬浮体验
 - 🎭 **公开主题设计规范**：见 [`docs/theme-design-guide.md`](docs/theme-design-guide.md)，用户可按规范制作、导入和分享更好看的主题画布
 - 🖥️ **终端日志面板**：底部抽屉式实时日志，对齐主项目 logBus 协议
@@ -137,7 +137,7 @@ npm run dist
 | 层 | 技术 |
 |---|---|
 | 前端框架 | React 19 · TypeScript 5 · Vite 6 |
-| 样式 | Tailwind CSS 3 · CSS Modules · 主题模板（科技风 / 像素糖果风 / OP 风格 / RH 风格 / 火影忍者风格 / EVA 风格 / 幽游白书风格） |
+| 样式 | Tailwind CSS 3 · CSS Modules · 主题模板（科技风 / 像素糖果风 / OP 风格 / RH 风格 / 火影忍者风格 / EVA 风格 / 幽游白书风格 / 灌篮高手风格） |
 | 画布引擎 | @xyflow/react 12 · zustand 5 · lucide-react |
 | 后端 | Node.js · Express · sharp（图像处理） · multer（上传） |
 | 桌面端 | Electron 33 · electron-builder 25 · bytenode 1.5 · T8ENC1（自研 AES-256-CBC 二次加密） |

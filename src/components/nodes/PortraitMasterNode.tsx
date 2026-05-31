@@ -643,19 +643,19 @@ const PortraitAvatarPreview = ({ selection }: { selection: PortraitSelection }) 
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center pb-2">
       <svg className="h-[178px] w-full max-w-[232px] overflow-visible" viewBox="0 0 220 180" role="img" aria-label="肖像预览">
-        <g transform="translate(-30 0)">
+        <g>
           <ellipse cx="110" cy="166" rx="62" ry="10" fill="#000" opacity="0.12" />
         </g>
-        <g transform="translate(-14 0)">
+        <g>
           <path
             d="M61 174 C64 133 83 120 110 120 C137 120 156 133 159 174Z"
             fill={preview.outfit}
             stroke="#191714"
             strokeWidth="2.4"
-            transform={`scale(${preview.bodyScale} 1) translate(${110 - 110 / preview.bodyScale} 0)`}
+            transform={`translate(110 0) scale(${preview.bodyScale} 1) translate(-110 0)`}
           />
         </g>
-        <g transform="translate(-30 0)">
+        <g>
           <path d="M93 125 L127 125 L133 153 Q110 164 87 153Z" fill={shadeColor(preview.skin, -8)} stroke="#191714" strokeWidth="2" />
           <PreviewHair preview={preview} layer="back" />
           <g transform={`translate(110 88) scale(${preview.headScaleX} ${preview.headScaleY}) translate(-110 -88)`}>

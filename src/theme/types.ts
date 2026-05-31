@@ -1,6 +1,6 @@
 export type ThemeMode = 'dark' | 'light';
 export type LegacyThemeStyle = 'tech' | 'pixel';
-export type ThemeVisualStyle = 'plain' | 'tech' | 'pixel' | 'op' | 'rh' | 'naruto' | 'eva' | 'yyh';
+export type ThemeVisualStyle = 'plain' | 'tech' | 'pixel' | 'op' | 'rh' | 'naruto' | 'eva' | 'yyh' | 'slamdunk';
 export type ThemeIntensity = 'subtle' | 'medium' | 'strong';
 export type ThemeMusicPreset =
   | 'tech-pulse'
@@ -9,7 +9,8 @@ export type ThemeMusicPreset =
   | 'rh-pulse'
   | 'shinobi-flame'
   | 'eva-sync'
-  | 'spirit-gun';
+  | 'spirit-gun'
+  | 'buzzer-beater';
 export type ThemeMusicSource = 'synth' | 'url' | 'upload';
 
 export interface ThemeTokens {
@@ -58,9 +59,9 @@ export interface ThemeModeDefinition {
 export interface ThemeVisuals {
   style: ThemeVisualStyle;
   intensity?: ThemeIntensity;
-  iconPack?: 'default' | 'op' | 'naruto' | 'eva' | 'yyh';
-  canvasPattern?: 'none' | 'dots' | 'map' | 'circuit' | 'confetti' | 'hub' | 'chakra' | 'eva-grid' | 'spirit-map';
-  nodeFrame?: 'plain' | 'glass' | 'sticker' | 'wanted' | 'hub-card' | 'shinobi-scroll' | 'eva-panel' | 'spirit-case';
+  iconPack?: 'default' | 'op' | 'naruto' | 'eva' | 'yyh' | 'slamdunk';
+  canvasPattern?: 'none' | 'dots' | 'map' | 'circuit' | 'confetti' | 'hub' | 'chakra' | 'eva-grid' | 'spirit-map' | 'court';
+  nodeFrame?: 'plain' | 'glass' | 'sticker' | 'wanted' | 'hub-card' | 'shinobi-scroll' | 'eva-panel' | 'spirit-case' | 'scoreboard-card';
   headerMark?: string;
 }
 

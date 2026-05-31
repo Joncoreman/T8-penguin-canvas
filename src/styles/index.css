@@ -7,6 +7,7 @@
 @import './theme-naruto.css';
 @import './theme-eva.css';
 @import './theme-yyh.css';
+@import './theme-slamdunk.css';
 
 @tailwind base;
 @tailwind components;
@@ -821,6 +822,11 @@ body.cut-mode .react-flow__edge .react-flow__edge-interaction {
 
 .t8-edge-theme-marker {
   display: none;
+}
+
+.t8-edge-pass-ball {
+  display: none;
+  pointer-events: none;
 }
 
 /* === 批量移线 phantom 节点(透明锚点) === */

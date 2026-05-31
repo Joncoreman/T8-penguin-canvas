@@ -1,0 +1,1132 @@
+/*
+ * Slam Dunk inspired visual skin.
+ * Original full-court basketball UI: maple court, red/black jersey panels,
+ * scoreboard cards, chalkboard tactics, pass-arc edges, and buzzer-beater controls.
+ */
+
+html[data-theme-visual="slamdunk"] {
+  --sd-ink: var(--t8-text-main);
+  --sd-cream: var(--t8-bg-panel);
+  --sd-card: var(--t8-bg-node);
+  --sd-card-2: var(--t8-bg-panel-elevated);
+  --sd-muted: var(--t8-bg-panel-muted);
+  --sd-red: var(--t8-accent);
+  --sd-red-hot: var(--t8-accent-hover);
+  --sd-orange: var(--t8-secondary);
+  --sd-gold: var(--t8-warning);
+  --sd-green: var(--sd-orange);
+  --sd-line: color-mix(in srgb, var(--t8-text-main) 44%, transparent);
+  --sd-court-line: color-mix(in srgb, var(--t8-accent-text) 64%, transparent);
+  --sd-court-line-strong: color-mix(in srgb, var(--t8-accent-text) 78%, transparent);
+  --sd-court-floor-a: #e0a15a;
+  --sd-court-floor-b: #cf8540;
+  --sd-board: color-mix(in srgb, var(--t8-bg-panel) 84%, #000 16%);
+  --sd-board-dark: #17110f;
+  --sd-topbar-bg:
+    linear-gradient(90deg, #b51520 0 14px, #17110f 14px 38%, #2c1710 38% 72%, #5a2118 100%);
+  --sd-sidebar-bg:
+    linear-gradient(90deg, var(--sd-red) 0 7px, var(--sd-cream) 7px 10px, transparent 10px),
+    linear-gradient(180deg, color-mix(in srgb, var(--sd-cream) 96%, #fff 4%), color-mix(in srgb, var(--sd-cream) 88%, var(--sd-orange) 12%));
+  --sd-shadow: var(--t8-shadow-panel);
+  --sd-button-shape: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  --sd-card-shape: polygon(14px 0, calc(100% - 10px) 0, 100% 12px, 100% 100%, 0 100%, 0 12px);
+  --sd-jersey-image: url("../assets/slamdunk-jersey-10.png");
+  --sd-basketball-image: url("../assets/slamdunk-basketball-v2.png");
+  --sd-basketball-cursor-image: url("../assets/slamdunk-basketball-v2-cursor.png");
+  --sd-ball-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='29' fill='black'/><path d='M5 32h54M32 3c-9 12-9 46 0 58M17 9c10 10 20 36 20 50M47 9c-10 10-20 36-20 50' fill='none' stroke='white' stroke-width='5' stroke-linecap='round'/></svg>");
+  --sd-whistle-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path fill='black' d='M6 8h12l5 4v8H10a7 7 0 0 1 0-14h4l2-3h5v4h-3l-1 1H6Zm5 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z'/></svg>");
+  --sd-court-map-image: url("../assets/slamdunk-court-map.png");
+  --sd-court-map-tint:
+    linear-gradient(180deg, color-mix(in srgb, #fff3d2 22%, transparent), color-mix(in srgb, var(--sd-court-floor-b) 18%, transparent));
+  --sd-court-map-mini-tint:
+    linear-gradient(180deg, color-mix(in srgb, #fff3d2 18%, transparent), color-mix(in srgb, var(--sd-red) 10%, transparent));
+  --sd-court-bg:
+    linear-gradient(90deg, transparent 0 44px, var(--sd-court-line-strong) 44px 48px, transparent 48px calc(100% - 48px), var(--sd-court-line-strong) calc(100% - 48px) calc(100% - 44px), transparent calc(100% - 44px)),
+    linear-gradient(0deg, transparent 0 calc(50% - 136px), var(--sd-court-line) calc(50% - 136px) calc(50% - 133px), transparent calc(50% - 133px) calc(50% + 133px), var(--sd-court-line) calc(50% + 133px) calc(50% + 136px), transparent calc(50% + 136px)),
+    linear-gradient(90deg, transparent 0 120px, var(--sd-court-line) 120px 123px, transparent 123px calc(100% - 123px), var(--sd-court-line) calc(100% - 123px) calc(100% - 120px), transparent calc(100% - 120px)),
+    radial-gradient(circle at 120px 50%, transparent 0 72px, var(--sd-court-line) 73px 76px, transparent 77px),
+    radial-gradient(circle at calc(100% - 120px) 50%, transparent 0 72px, var(--sd-court-line) 73px 76px, transparent 77px),
+    radial-gradient(circle at 52px 50%, transparent 0 18px, var(--sd-orange) 19px 23px, transparent 24px),
+    radial-gradient(circle at calc(100% - 52px) 50%, transparent 0 18px, var(--sd-orange) 19px 23px, transparent 24px),
+    radial-gradient(circle at 50% 50%, transparent 0 76px, var(--sd-court-line-strong) 77px 81px, transparent 82px),
+    linear-gradient(90deg, transparent 0 calc(50% - 1.5px), var(--sd-court-line-strong) calc(50% - 1.5px) calc(50% + 1.5px), transparent calc(50% + 1.5px)),
+    repeating-linear-gradient(90deg, var(--sd-court-floor-a) 0 68px, var(--sd-court-floor-b) 68px 73px);
+  --sd-court-map-bg:
+    var(--sd-court-map-tint),
+    var(--sd-court-map-image) center / cover no-repeat,
+    var(--sd-court-bg);
+  --sd-court-map-mini-bg:
+    var(--sd-court-map-mini-tint),
+    var(--sd-court-map-image) center / cover no-repeat,
+    var(--sd-card);
+  --t8-cut-cursor: var(--sd-basketball-cursor-image) 32 32, crosshair;
+  --t8-cut-color: var(--sd-orange);
+  --t8-cut-track: color-mix(in srgb, var(--sd-orange) 88%, var(--sd-red));
+  --t8-cut-button-bg: var(--sd-card-2);
+  --t8-cut-button-fg: var(--sd-orange);
+  --t8-cut-button-mask: var(--sd-whistle-mask);
+  --px-mint: var(--sd-orange);
+  --px-mint-deep: var(--sd-red);
+  --px-candy-mint: var(--sd-orange);
+  --px-candy-mint-deep: var(--sd-red);
+  --px-success: var(--sd-orange);
+  --px-cyan: var(--sd-orange);
+  --px-sky: var(--sd-orange);
+  --px-blue: var(--sd-red);
+  --px-teal: var(--sd-orange);
+  --px-violet: var(--sd-orange);
+  --px-purple: var(--sd-orange);
+  --px-fuchsia: var(--sd-red);
+  --px-candy-sky: var(--sd-orange);
+  --px-candy-violet: var(--sd-orange);
+  --px-candy-pink: var(--sd-red);
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] {
+  --sd-board: color-mix(in srgb, var(--t8-bg-panel) 74%, #000 26%);
+  --sd-court-floor-a: #21130d;
+  --sd-court-floor-b: #2d1a11;
+  --sd-topbar-bg:
+    linear-gradient(90deg, #c91522 0 14px, #080403 14px 38%, #1b0e0a 38% 72%, #461711 100%);
+  --sd-sidebar-bg:
+    linear-gradient(90deg, var(--sd-red) 0 7px, var(--sd-orange) 7px 10px, transparent 10px),
+    linear-gradient(180deg, #150b08, #24140e);
+  --sd-court-line: rgba(255, 232, 190, 0.18);
+  --sd-court-line-strong: rgba(255, 232, 190, 0.32);
+  --sd-line: rgba(255, 217, 154, 0.38);
+  --sd-court-map-tint:
+    linear-gradient(180deg, rgba(12, 7, 5, 0.38), rgba(28, 13, 8, 0.62));
+  --sd-court-map-mini-tint:
+    linear-gradient(180deg, rgba(8, 4, 3, 0.24), rgba(8, 4, 3, 0.46));
+}
+
+@keyframes sd-pass-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+
+@keyframes sd-pass-flow-red {
+  from {
+    stroke-dashoffset: 18;
+  }
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+@keyframes sd-ball-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg) scale(0.92);
+  }
+  50% {
+    transform: translate(-50%, -50%) rotate(180deg) scale(1.05);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg) scale(0.92);
+  }
+}
+
+html[data-theme-visual="slamdunk"] body,
+html[data-theme-visual="slamdunk"] #root {
+  background: var(--t8-bg-app);
+  color: var(--t8-text-main);
+  font-family: var(--t8-font-family);
+}
+
+html[data-theme-visual="slamdunk"] .t8-app-shell {
+  background:
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--sd-red) 24%, transparent), transparent 28%),
+    radial-gradient(circle at 86% 10%, color-mix(in srgb, var(--sd-orange) 22%, transparent), transparent 26%),
+    repeating-linear-gradient(90deg, transparent 0 38px, color-mix(in srgb, var(--sd-ink) 8%, transparent) 38px 39px),
+    var(--t8-bg-app) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-topbar {
+  position: relative;
+  min-height: 54px;
+  background:
+    radial-gradient(circle at 12% 50%, color-mix(in srgb, var(--sd-orange) 20%, transparent), transparent 18%),
+    var(--sd-topbar-bg) !important;
+  border-bottom: 3px solid var(--sd-ink) !important;
+  box-shadow:
+    0 4px 0 var(--sd-orange),
+    0 16px 36px rgba(0, 0, 0, 0.22);
+  overflow: visible;
+}
+
+html[data-theme-visual="slamdunk"] .t8-topbar::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  height: 5px;
+  background:
+    repeating-linear-gradient(90deg, var(--sd-ink) 0 18px, var(--sd-red) 18px 52px, var(--sd-orange) 52px 64px, var(--sd-ink) 64px 70px);
+  pointer-events: none;
+}
+
+html[data-theme-visual="slamdunk"] .t8-slamdunk-brand__mark {
+  position: relative;
+  width: 42px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  clip-path: var(--sd-button-shape);
+  border: 2px solid var(--sd-ink);
+  background:
+    linear-gradient(90deg, var(--sd-red) 0 31%, var(--sd-cream) 31% 38%, var(--sd-ink) 38% 100%);
+  box-shadow: 3px 3px 0 var(--sd-ink);
+}
+
+html[data-theme-visual="slamdunk"] .t8-slamdunk-brand__ball {
+  width: 31px;
+  height: 31px;
+  background: var(--sd-jersey-image) center / contain no-repeat;
+  filter: drop-shadow(1px 1px 0 var(--sd-ink));
+}
+
+html[data-theme-visual="slamdunk"] .t8-slamdunk-brand__ball::before {
+  content: none;
+}
+
+html[data-theme-visual="slamdunk"] .t8-slamdunk-brand__ball::after {
+  content: none;
+}
+
+html[data-theme-visual="slamdunk"] .t8-slamdunk-brand__title {
+  color: #fff0ce;
+  font-family: var(--t8-font-display);
+  font-size: 16px !important;
+  font-weight: 950;
+  letter-spacing: 0;
+  text-shadow:
+    2px 2px 0 #070302,
+    0 0 12px color-mix(in srgb, var(--sd-red) 50%, transparent);
+}
+
+html[data-theme-visual="slamdunk"] .t8-slamdunk-brand__sub {
+  color: var(--sd-orange);
+  letter-spacing: 0;
+  text-shadow: 1px 1px 0 #070302;
+}
+
+html[data-theme-visual="slamdunk"] .t8-slamdunk-brand__score {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border: 2px solid var(--sd-ink);
+  border-radius: 4px;
+  background: #17110f;
+  color: var(--sd-gold);
+  font-family: var(--t8-font-display);
+  font-size: 10px;
+  font-weight: 950;
+  box-shadow: inset 0 -2px 0 rgba(255, 255, 255, 0.12);
+  white-space: nowrap;
+}
+
+html[data-theme-visual="slamdunk"] .t8-topbar button,
+html[data-theme-visual="slamdunk"] .t8-topbar .px-btn,
+html[data-theme-visual="slamdunk"] .t8-topbar .t8-btn,
+html[data-theme-visual="slamdunk"] .t8-topbar .px-chip,
+html[data-theme-visual="slamdunk"] .t8-topbar-status-chip {
+  min-height: 25px;
+  border: 2px solid var(--sd-ink) !important;
+  border-radius: 6px !important;
+  clip-path: var(--sd-button-shape);
+  background: linear-gradient(180deg, var(--sd-card-2), var(--sd-cream)) !important;
+  color: var(--sd-ink) !important;
+  box-shadow: 3px 3px 0 var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-topbar button:hover,
+html[data-theme-visual="slamdunk"] .t8-topbar .t8-btn:hover {
+  background: linear-gradient(180deg, var(--sd-red-hot), var(--sd-red)) !important;
+  color: var(--t8-accent-text) !important;
+  transform: translate(-1px, -1px);
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar {
+  position: relative;
+  background: var(--sd-sidebar-bg) !important;
+  border-right: 4px solid var(--sd-ink) !important;
+  box-shadow: 6px 0 0 var(--sd-orange);
+  overflow: hidden !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar > * {
+  position: relative;
+  z-index: 2;
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar::before {
+  content: "STARTING FIVE\A10  控球\A11  分镜\A14  图像\A04  视频\A07  声音";
+  white-space: pre;
+  position: absolute;
+  right: 10px;
+  top: 18px;
+  z-index: 1;
+  width: 86px;
+  padding: 8px 7px;
+  border: 2px solid var(--sd-ink);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--sd-ink) 90%, transparent);
+  color: var(--sd-gold);
+  font-family: var(--t8-font-display);
+  font-size: 8px;
+  line-height: 1.45;
+  opacity: 0.22;
+  transform: rotate(-5deg);
+  pointer-events: none;
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar::after {
+  content: "";
+  position: absolute;
+  inset: auto 18px 34px 26px;
+  height: 74px;
+  border: 2px solid color-mix(in srgb, var(--sd-ink) 34%, transparent);
+  border-top: 0;
+  border-radius: 0 0 74px 74px;
+  opacity: 0.38;
+  pointer-events: none;
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar .px-row,
+html[data-theme-visual="slamdunk"] .t8-sidebar .px-group-title,
+html[data-theme-visual="slamdunk"] .t8-sidebar-search-row,
+html[data-theme-visual="slamdunk"] .t8-sidebar > div {
+  border-color: color-mix(in srgb, var(--sd-ink) 52%, transparent) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar .px-row {
+  border-radius: 9px !important;
+  background: transparent !important;
+  color: var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar .px-row.is-active {
+  background:
+    linear-gradient(90deg, var(--sd-red) 0 5px, transparent 5px),
+    linear-gradient(180deg, color-mix(in srgb, var(--sd-orange) 30%, var(--sd-card-2)), color-mix(in srgb, var(--sd-card) 86%, var(--sd-orange) 14%)) !important;
+  border: 2px solid var(--sd-ink) !important;
+  color: var(--sd-ink) !important;
+  box-shadow: 3px 3px 0 var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar .px-row.is-active,
+html[data-theme-visual="slamdunk"] .t8-sidebar .px-row.is-active * {
+  color: var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .t8-sidebar .px-row {
+  color: var(--t8-text-main) !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .t8-sidebar .px-row.is-active {
+  background:
+    linear-gradient(90deg, var(--sd-red) 0 5px, transparent 5px),
+    linear-gradient(180deg, color-mix(in srgb, var(--sd-red) 22%, var(--sd-card-2)), var(--sd-card)) !important;
+  color: var(--t8-text-main) !important;
+  border-color: var(--sd-orange) !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .t8-sidebar .px-row.is-active,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .t8-sidebar .px-row.is-active * {
+  color: #fff8e8 !important;
+  text-shadow: 1px 1px 0 #060302;
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar .px-group-title {
+  color: var(--sd-red) !important;
+  text-shadow: none !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .t8-sidebar .px-group-title {
+  color: var(--sd-gold) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar-node {
+  border: 2px solid transparent;
+  border-radius: 8px !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar-node > span:first-child {
+  background:
+    radial-gradient(circle at 70% 28%, color-mix(in srgb, #fff 30%, transparent) 0 18%, transparent 19%),
+    linear-gradient(135deg, var(--sd-orange), var(--sd-red)) !important;
+  border-color: var(--sd-ink) !important;
+  color: var(--t8-accent-text) !important;
+  box-shadow: 2px 2px 0 var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-sidebar-node:hover {
+  border-color: var(--sd-ink);
+  background: color-mix(in srgb, var(--sd-red) 14%, var(--sd-card-2)) !important;
+  box-shadow: 2px 2px 0 var(--sd-ink);
+}
+
+html[data-theme-visual="slamdunk"] .t8-canvas-shell {
+  --t8-flow-controls-bg: var(--sd-board);
+  --t8-flow-controls-border: var(--sd-ink);
+  --t8-flow-controls-fg: var(--sd-cream);
+  --t8-flow-controls-muted: color-mix(in srgb, var(--sd-cream) 50%, transparent);
+  --t8-flow-controls-button-bg: color-mix(in srgb, var(--sd-board) 88%, var(--sd-red) 12%);
+  --t8-flow-controls-button-hover-bg: var(--sd-red);
+  --t8-flow-controls-accent: var(--sd-orange);
+  background: var(--sd-court-map-bg) !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="light"] .t8-canvas-shell {
+  --t8-flow-controls-fg: #fff0ce;
+  background: var(--sd-court-map-bg) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-canvas-shell > .react-flow,
+html[data-theme-visual="slamdunk"] .react-flow__pane,
+html[data-theme-visual="slamdunk"] .react-flow__renderer,
+html[data-theme-visual="slamdunk"] .react-flow__viewport {
+  background: transparent !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__background {
+  background: var(--sd-court-map-bg) !important;
+  background-color: transparent !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-canvas-shell > .react-flow {
+  position: relative;
+}
+
+html[data-theme-visual="slamdunk"] .t8-canvas-shell > .react-flow::before,
+html[data-theme-visual="slamdunk"] .t8-canvas-shell > .react-flow::after {
+  content: none;
+  position: absolute;
+  top: 50%;
+  z-index: 0;
+  width: 86px;
+  height: 162px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  opacity: 0.48;
+  background:
+    radial-gradient(circle at 42px 50%, transparent 0 14px, var(--sd-orange) 15px 19px, transparent 20px),
+    linear-gradient(90deg, var(--sd-court-line-strong) 0 5px, transparent 5px),
+    linear-gradient(0deg, transparent 0 calc(50% - 58px), var(--sd-court-line) calc(50% - 58px) calc(50% - 55px), transparent calc(50% - 55px) calc(50% + 55px), var(--sd-court-line) calc(50% + 55px) calc(50% + 58px), transparent calc(50% + 58px));
+}
+
+html[data-theme-visual="slamdunk"] .t8-canvas-shell > .react-flow::before {
+  left: 43px;
+}
+
+html[data-theme-visual="slamdunk"] .t8-canvas-shell > .react-flow::after {
+  right: 43px;
+  transform: translateY(-50%) scaleX(-1);
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__background-pattern circle {
+  fill: color-mix(in srgb, var(--sd-ink) 42%, transparent) !important;
+  opacity: 0.22;
+}
+
+html[data-theme-visual="slamdunk"] .t8-canvas-shell::before {
+  content: none;
+  position: absolute;
+  inset: 42px 80px;
+  z-index: 0;
+  pointer-events: none;
+  border: 2px solid var(--sd-court-line);
+  border-radius: 999px;
+  opacity: 0.38;
+}
+
+html[data-theme-visual="slamdunk"] .t8-canvas-shell::after {
+  content: none;
+  position: absolute;
+  right: 64px;
+  bottom: 56px;
+  z-index: 0;
+  color: color-mix(in srgb, var(--sd-ink) 18%, transparent);
+  font-family: var(--t8-font-display);
+  font-size: 54px;
+  font-weight: 950;
+  letter-spacing: 0;
+  transform: rotate(-7deg);
+  pointer-events: none;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) {
+  filter: none !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div,
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div:first-child,
+html[data-theme-style="pixel"][data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div:first-child {
+  border: 3px solid var(--sd-ink) !important;
+  border-radius: var(--t8-radius-node) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--sd-card) 96%, #fff 4%), var(--sd-card)) !important;
+  box-shadow: none !important;
+  overflow: visible;
+  isolation: isolate;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div::before {
+  content: "TIME OUT";
+  position: absolute;
+  right: 10px;
+  top: 7px;
+  z-index: 4;
+  color: color-mix(in srgb, var(--t8-accent-text) 78%, transparent);
+  font-family: var(--t8-font-display);
+  font-size: 8px;
+  font-weight: 950;
+  pointer-events: none;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div > .t8-node-header,
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div > [class*="border-b"] {
+  min-height: 52px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--sd-red-hot) 78%, var(--sd-card) 22%), var(--sd-red)) !important;
+  border-bottom: 4px solid var(--sd-ink) !important;
+  color: var(--t8-accent-text) !important;
+  position: relative;
+  z-index: 2;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div > .t8-node-header [class*="text-white"],
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div > [class*="border-b"] [class*="text-white"] {
+  color: var(--t8-accent-text) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div > .t8-node-header [class*="text-[10px]"],
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div > [class*="border-b"] [class*="text-[10px]"],
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div > .t8-node-header .text-xs,
+html[data-theme-visual="slamdunk"] .react-flow__node:not(.react-flow__node-groupBox) > div > [class*="border-b"] .text-xs {
+  color: color-mix(in srgb, var(--t8-accent-text) 76%, transparent) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node.selected:not(.react-flow__node-groupBox) > div,
+html[data-theme-visual="slamdunk"] .react-flow__node.selected:not(.react-flow__node-groupBox) > div:first-child,
+html[data-theme-style="pixel"][data-theme-visual="slamdunk"] .react-flow__node.selected:not(.react-flow__node-groupBox) > div:first-child {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sd-orange) 64%, transparent) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node.selected:not(.react-flow__node-groupBox) > div > .t8-node-header,
+html[data-theme-visual="slamdunk"] .react-flow__node.selected:not(.react-flow__node-groupBox) > div > [class*="border-b"] {
+  background:
+    linear-gradient(180deg, var(--sd-red-hot), color-mix(in srgb, var(--sd-red) 86%, #000 14%)) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-node-serial-badge {
+  top: -12px;
+  right: -12px;
+  min-width: 27px;
+  height: 22px;
+  border: 2px solid var(--sd-ink);
+  border-radius: 5px;
+  background: linear-gradient(180deg, var(--sd-red), color-mix(in srgb, var(--sd-red) 74%, #000));
+  color: var(--t8-accent-text);
+  box-shadow: 2px 2px 0 var(--sd-ink);
+  font-family: var(--t8-font-display);
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__handle {
+  border: 2px solid var(--sd-ink) !important;
+  background: var(--sd-orange) !important;
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--sd-ink) 80%, transparent) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__handle.target {
+  background: var(--sd-gold) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__handle.source {
+  background: var(--sd-red) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__edge-path,
+html[data-theme-visual="slamdunk"] .react-flow__connection-path {
+  stroke: color-mix(in srgb, var(--sd-orange) 72%, var(--sd-gold)) !important;
+  stroke-width: 3.2px !important;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 16 10 4 10 !important;
+  animation: sd-pass-flow 0.95s linear infinite;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--sd-orange) 36%, transparent)) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-edge-yyh-red-segment {
+  display: block;
+  stroke: var(--sd-red) !important;
+  stroke-width: 2.2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 4 24;
+  animation: sd-pass-flow-red 0.95s linear infinite;
+  opacity: 0.82;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--sd-red) 36%, transparent));
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__edge.selected .react-flow__edge-path,
+html[data-theme-visual="slamdunk"] .react-flow__edge:hover .react-flow__edge-path,
+html[data-theme-visual="slamdunk"] .react-flow__edge:focus .react-flow__edge-path {
+  stroke: var(--sd-red-hot) !important;
+  stroke-width: 3.8px !important;
+  stroke-dasharray: 7 8 !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__edge.selected .t8-edge-yyh-red-segment,
+html[data-theme-visual="slamdunk"] .react-flow__edge:hover .t8-edge-yyh-red-segment {
+  stroke: var(--sd-gold) !important;
+  opacity: 1;
+}
+
+html[data-theme-visual="slamdunk"] .t8-edge-theme-marker {
+  display: none;
+}
+
+html[data-theme-visual="slamdunk"] .t8-edge-pass-ball {
+  display: block;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--sd-orange) 62%, transparent));
+}
+
+html[data-theme-visual="slamdunk"] .t8-edge-pass-ball__image {
+  image-rendering: auto;
+}
+
+html[data-theme-visual="slamdunk"] .t8-edge-cut-button {
+  width: 40px;
+  height: 40px;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-edge-cut-button:hover {
+  background: transparent !important;
+  transform: scale(1.08);
+}
+
+html[data-theme-visual="slamdunk"] .t8-edge-cut-glyph {
+  width: 36px;
+  height: 36px;
+  background: var(--sd-basketball-image) center / contain no-repeat;
+  -webkit-mask: none;
+  mask: none;
+  filter: drop-shadow(2px 2px 0 var(--sd-ink));
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node-groupBox > div,
+html[data-theme-visual="slamdunk"] .group-box-node {
+  border: 3px dashed var(--sd-ink) !important;
+  border-radius: 12px !important;
+  background:
+    linear-gradient(90deg, transparent 0 calc(50% - 1px), color-mix(in srgb, var(--sd-court-line) 80%, transparent) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
+    color-mix(in srgb, var(--sd-card) 56%, transparent) !important;
+  box-shadow: 5px 5px 0 color-mix(in srgb, var(--sd-ink) 72%, transparent) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__minimap {
+  position: absolute;
+  background: var(--sd-court-map-mini-bg) !important;
+  background-color: var(--sd-card) !important;
+  overflow: visible !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__minimap::before,
+html[data-theme-visual="slamdunk"] .react-flow__minimap::after {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  font-family: var(--t8-font-display);
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__minimap::before {
+  content: "SLAM DUNK";
+  left: 0;
+  top: -46px;
+  padding: 2px 7px 3px;
+  border: 2px solid var(--sd-ink);
+  border-radius: 5px;
+  background: var(--sd-cream);
+  color: var(--sd-red);
+  font-size: 12px;
+  line-height: 1;
+  text-shadow: 1px 1px 0 var(--sd-gold);
+  box-shadow: 2px 2px 0 var(--sd-ink);
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__minimap::after {
+  content: "SHOHOKU 79 : 78 SANNOH";
+  left: 0;
+  top: -22px;
+  right: auto;
+  transform: none;
+  padding: 2px 6px;
+  border: 2px solid var(--sd-ink);
+  border-radius: 4px;
+  background: #17110f;
+  color: var(--sd-gold);
+  font-size: 9px;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: inset 0 -2px 0 rgba(255, 255, 255, 0.13);
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__controls,
+html[data-theme-visual="slamdunk"] .t8-theme-music-toggle,
+html[data-theme-visual="slamdunk"] .t8-control-rail-help {
+  border: 2px solid var(--sd-ink) !important;
+  border-radius: 8px !important;
+  box-shadow: 3px 3px 0 var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__controls {
+  background: var(--sd-board-dark) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__controls-button,
+html[data-theme-visual="slamdunk"] .t8-theme-music-toggle,
+html[data-theme-visual="slamdunk"] .t8-control-rail-help {
+  background: linear-gradient(180deg, var(--sd-board-dark), #0b0504) !important;
+  color: #fff0ce !important;
+  fill: #fff0ce !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__controls-button svg,
+html[data-theme-visual="slamdunk"] .t8-theme-music-toggle svg,
+html[data-theme-visual="slamdunk"] .t8-control-rail-help svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+  fill: none !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__controls-button:hover,
+html[data-theme-visual="slamdunk"] .t8-theme-music-toggle:hover,
+html[data-theme-visual="slamdunk"] .t8-control-rail-help:hover {
+  background: linear-gradient(180deg, var(--sd-red-hot), var(--sd-red)) !important;
+  color: var(--t8-accent-text) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__controls-button:disabled {
+  background: color-mix(in srgb, var(--sd-board-dark) 74%, #000 26%) !important;
+  color: color-mix(in srgb, #fff0ce 36%, transparent) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls {
+  background-color: #fff0ce !important;
+  background-image:
+    linear-gradient(90deg, transparent 0 calc(50% - 1px), rgba(23, 17, 15, 0.16) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
+    linear-gradient(180deg, #fff8e8, #f0bf71) !important;
+  border-color: #fff0ce !important;
+  box-shadow:
+    3px 3px 0 #060302,
+    0 0 0 2px rgba(23, 17, 15, 0.74),
+    0 0 18px rgba(255, 209, 90, 0.2) !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls-button {
+  background-color: #fff3d4 !important;
+  background-image: linear-gradient(180deg, #fff8e8, #efbf70) !important;
+  border-bottom-color: rgba(23, 17, 15, 0.78) !important;
+  color: #17110f !important;
+  fill: #17110f !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls-button svg,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls-button svg [stroke] {
+  color: #17110f !important;
+  stroke: #17110f !important;
+  fill: #17110f !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls-button svg path,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls-button svg [fill]:not([fill="none"]) {
+  fill: #17110f !important;
+  stroke: #17110f !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls-button:hover {
+  background-color: var(--sd-red) !important;
+  background-image: linear-gradient(180deg, var(--sd-red-hot), var(--sd-red)) !important;
+  color: #fff8e8 !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls-button:hover svg,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls-button:hover svg path {
+  color: #fff8e8 !important;
+  fill: #fff8e8 !important;
+  stroke: #fff8e8 !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls-button:disabled {
+  background-color: #d8b16d !important;
+  background-image: linear-gradient(180deg, #e8c985, #b88645) !important;
+  color: rgba(23, 17, 15, 0.58) !important;
+  opacity: 1 !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls-button:disabled svg,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__controls-button:disabled svg path {
+  color: rgba(23, 17, 15, 0.58) !important;
+  fill: rgba(23, 17, 15, 0.58) !important;
+  stroke: rgba(23, 17, 15, 0.58) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-node-action-bar--slamdunk button {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--sd-board-dark) 84%, var(--sd-orange) 16%), var(--sd-board-dark)) !important;
+  border: 2px solid var(--sd-orange) !important;
+  color: #fff0ce !important;
+  box-shadow: 2px 2px 0 var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-node-action-bar--slamdunk button:hover {
+  background: linear-gradient(180deg, var(--sd-red-hot), var(--sd-red)) !important;
+  color: var(--t8-accent-text) !important;
+  border-color: var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-node-action-bar--slamdunk button svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-context-menu,
+html[data-theme-visual="slamdunk"] .t8-model-help-panel,
+html[data-theme-visual="slamdunk"] .resource-library-drawer,
+html[data-theme-visual="slamdunk"] .t8-node-action-bar {
+  border: 3px solid var(--sd-ink) !important;
+  border-radius: 10px !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--sd-card-2) 92%, var(--sd-orange) 8%), var(--sd-card)) !important;
+  color: var(--sd-ink) !important;
+  box-shadow: 5px 5px 0 var(--sd-ink), 0 18px 42px rgba(0, 0, 0, 0.22) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-context-menu::before,
+html[data-theme-visual="slamdunk"] .t8-node-action-bar::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 6px;
+  background: repeating-linear-gradient(90deg, var(--sd-red) 0 32px, var(--sd-cream) 32px 40px, var(--sd-ink) 40px 56px);
+  pointer-events: none;
+}
+
+html[data-theme-visual="slamdunk"] .t8-btn,
+html[data-theme-visual="slamdunk"] .px-btn,
+html[data-theme-visual="slamdunk"] button.t8-mini-icon-button,
+html[data-theme-visual="slamdunk"] .resource-card-action {
+  border-radius: 6px !important;
+}
+
+html[data-theme-visual="slamdunk"] .px-btn--mint,
+html[data-theme-visual="slamdunk"] .px-btn--sky,
+html[data-theme-visual="slamdunk"] .px-btn--violet,
+html[data-theme-visual="slamdunk"] .px-btn--pink,
+html[data-theme-visual="slamdunk"] .px-btn--peach,
+html[data-theme-visual="slamdunk"] .px-btn--yellow,
+html[data-theme-visual="slamdunk"] .px-chip--mint,
+html[data-theme-visual="slamdunk"] .t8-btn-primary,
+html[data-theme-visual="slamdunk"] .react-flow__node button.w-full,
+html[data-theme-visual="slamdunk"] .react-flow__node button.flex-1 {
+  border: 2px solid var(--sd-ink) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--sd-orange) 84%, #fff 10%), var(--sd-red)) !important;
+  color: var(--t8-accent-text) !important;
+  box-shadow: 3px 3px 0 var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .px-btn--mint:hover,
+html[data-theme-visual="slamdunk"] .px-btn--sky:hover,
+html[data-theme-visual="slamdunk"] .px-btn--violet:hover,
+html[data-theme-visual="slamdunk"] .px-btn--pink:hover,
+html[data-theme-visual="slamdunk"] .px-btn--peach:hover,
+html[data-theme-visual="slamdunk"] .px-btn--yellow:hover,
+html[data-theme-visual="slamdunk"] .t8-btn-primary:hover,
+html[data-theme-visual="slamdunk"] .react-flow__node button.w-full:hover:not(:disabled),
+html[data-theme-visual="slamdunk"] .react-flow__node button.flex-1:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--sd-red-hot), var(--sd-red)) !important;
+  color: var(--t8-accent-text) !important;
+}
+
+html[data-theme-visual="slamdunk"] input,
+html[data-theme-visual="slamdunk"] textarea,
+html[data-theme-visual="slamdunk"] select,
+html[data-theme-visual="slamdunk"] .t8-input,
+html[data-theme-visual="slamdunk"] .t8-select {
+  border: 2px solid color-mix(in srgb, var(--sd-ink) 72%, transparent) !important;
+  border-radius: 6px !important;
+  background: color-mix(in srgb, var(--sd-card-2) 90%, #fff 10%) !important;
+  color: var(--sd-ink) !important;
+  color-scheme: light;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] input,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] textarea,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] select,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .t8-input,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .t8-select {
+  color-scheme: dark;
+}
+
+html[data-theme-visual="slamdunk"] select option {
+  background: var(--sd-card-2);
+  color: var(--sd-ink);
+}
+
+html[data-theme-visual="slamdunk"] select option:checked {
+  background: var(--sd-red);
+  color: var(--t8-accent-text);
+}
+
+html[data-theme-visual="slamdunk"] .t8-material-preview-header {
+  border: 2px solid var(--sd-ink) !important;
+  border-radius: 7px !important;
+  background:
+    radial-gradient(circle at 92% 50%, color-mix(in srgb, var(--sd-gold) 32%, transparent) 0 10px, transparent 11px),
+    linear-gradient(180deg, color-mix(in srgb, var(--sd-gold) 86%, #fff 8%), var(--sd-orange)) !important;
+  color: var(--sd-ink) !important;
+  box-shadow: none !important;
+  font-family: var(--t8-font-display);
+}
+
+html[data-theme-visual="slamdunk"] .t8-material-preview-count {
+  border: 1.5px solid var(--sd-ink) !important;
+  border-radius: 3px !important;
+  background: var(--sd-gold) !important;
+  color: var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .t8-material-preview-group-label {
+  color: color-mix(in srgb, var(--sd-ink) 74%, var(--sd-red)) !important;
+  font-weight: 800;
+}
+
+html[data-theme-visual="slamdunk"] .t8-material-preview-upload {
+  border-color: color-mix(in srgb, var(--sd-ink) 48%, transparent) !important;
+  background: color-mix(in srgb, var(--sd-gold) 16%, var(--sd-card-2)) !important;
+  color: var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="text-emerald-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="text-green-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="text-lime-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="text-cyan-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="text-sky-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="text-blue-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="text-teal-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="text-indigo-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="text-violet-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="text-purple-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="text-fuchsia-"],
+html[data-theme-visual="slamdunk"] [class*="text-emerald-"],
+html[data-theme-visual="slamdunk"] [class*="text-green-"],
+html[data-theme-visual="slamdunk"] [class*="text-lime-"],
+html[data-theme-visual="slamdunk"] [class*="text-cyan-"],
+html[data-theme-visual="slamdunk"] [class*="text-sky-"],
+html[data-theme-visual="slamdunk"] [class*="text-blue-"],
+html[data-theme-visual="slamdunk"] [class*="text-teal-"],
+html[data-theme-visual="slamdunk"] [class*="text-indigo-"],
+html[data-theme-visual="slamdunk"] [class*="text-violet-"],
+html[data-theme-visual="slamdunk"] [class*="text-purple-"],
+html[data-theme-visual="slamdunk"] [class*="text-fuchsia-"] {
+  color: var(--sd-orange) !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__node [class*="text-emerald-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__node [class*="text-green-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__node [class*="text-lime-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__node [class*="text-cyan-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__node [class*="text-sky-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__node [class*="text-blue-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__node [class*="text-teal-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__node [class*="text-indigo-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__node [class*="text-violet-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__node [class*="text-purple-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .react-flow__node [class*="text-fuchsia-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] [class*="text-emerald-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] [class*="text-green-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] [class*="text-lime-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] [class*="text-cyan-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] [class*="text-sky-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] [class*="text-blue-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] [class*="text-teal-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] [class*="text-indigo-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] [class*="text-violet-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] [class*="text-purple-"],
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] [class*="text-fuchsia-"] {
+  color: var(--sd-gold) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="bg-emerald-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="bg-green-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="bg-lime-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="bg-cyan-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="bg-sky-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="bg-blue-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="bg-teal-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="bg-indigo-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="bg-violet-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="bg-purple-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="bg-fuchsia-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] [class*="bg-emerald-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] [class*="bg-green-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] [class*="bg-lime-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] [class*="bg-cyan-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] [class*="bg-sky-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] [class*="bg-blue-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] [class*="bg-teal-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] [class*="bg-indigo-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] [class*="bg-violet-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] [class*="bg-purple-"]:not(img):not(video):not(canvas),
+html[data-theme-visual="slamdunk"] [class*="bg-fuchsia-"]:not(img):not(video):not(canvas) {
+  background-color: color-mix(in srgb, var(--sd-orange) 22%, var(--sd-card-2)) !important;
+  background-image: none !important;
+}
+
+html[data-theme-visual="slamdunk"] button[class*="bg-emerald-"],
+html[data-theme-visual="slamdunk"] button[class*="bg-green-"],
+html[data-theme-visual="slamdunk"] button[class*="bg-lime-"],
+html[data-theme-visual="slamdunk"] button[class*="bg-cyan-"],
+html[data-theme-visual="slamdunk"] button[class*="bg-sky-"],
+html[data-theme-visual="slamdunk"] button[class*="bg-blue-"],
+html[data-theme-visual="slamdunk"] button[class*="bg-teal-"],
+html[data-theme-visual="slamdunk"] button[class*="bg-indigo-"],
+html[data-theme-visual="slamdunk"] button[class*="bg-violet-"],
+html[data-theme-visual="slamdunk"] button[class*="bg-purple-"],
+html[data-theme-visual="slamdunk"] button[class*="bg-fuchsia-"] {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--sd-orange) 84%, #fff 10%), var(--sd-red)) !important;
+  color: var(--t8-accent-text) !important;
+  border-color: var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="border-emerald-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="border-green-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="border-lime-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="border-cyan-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="border-sky-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="border-blue-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="border-teal-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="border-indigo-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="border-violet-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="border-purple-"],
+html[data-theme-visual="slamdunk"] .react-flow__node [class*="border-fuchsia-"],
+html[data-theme-visual="slamdunk"] [class*="border-emerald-"],
+html[data-theme-visual="slamdunk"] [class*="border-green-"],
+html[data-theme-visual="slamdunk"] [class*="border-lime-"],
+html[data-theme-visual="slamdunk"] [class*="border-cyan-"],
+html[data-theme-visual="slamdunk"] [class*="border-sky-"],
+html[data-theme-visual="slamdunk"] [class*="border-blue-"],
+html[data-theme-visual="slamdunk"] [class*="border-teal-"],
+html[data-theme-visual="slamdunk"] [class*="border-indigo-"],
+html[data-theme-visual="slamdunk"] [class*="border-violet-"],
+html[data-theme-visual="slamdunk"] [class*="border-purple-"],
+html[data-theme-visual="slamdunk"] [class*="border-fuchsia-"] {
+  border-color: var(--sd-orange) !important;
+}
+
+html[data-theme-visual="slamdunk"] [class*="accent-cyan-"],
+html[data-theme-visual="slamdunk"] [class*="accent-sky-"],
+html[data-theme-visual="slamdunk"] [class*="accent-blue-"],
+html[data-theme-visual="slamdunk"] [class*="accent-teal-"],
+html[data-theme-visual="slamdunk"] [class*="accent-indigo-"],
+html[data-theme-visual="slamdunk"] [class*="accent-violet-"],
+html[data-theme-visual="slamdunk"] [class*="accent-purple-"],
+html[data-theme-visual="slamdunk"] [class*="accent-fuchsia-"],
+html[data-theme-visual="slamdunk"] [class*="accent-emerald-"],
+html[data-theme-visual="slamdunk"] [class*="accent-green-"],
+html[data-theme-visual="slamdunk"] [class*="accent-lime-"] {
+  accent-color: var(--sd-orange) !important;
+}
+
+html[data-theme-visual="slamdunk"] [class*="ring-cyan-"],
+html[data-theme-visual="slamdunk"] [class*="ring-sky-"],
+html[data-theme-visual="slamdunk"] [class*="ring-blue-"],
+html[data-theme-visual="slamdunk"] [class*="ring-teal-"],
+html[data-theme-visual="slamdunk"] [class*="ring-indigo-"],
+html[data-theme-visual="slamdunk"] [class*="ring-violet-"],
+html[data-theme-visual="slamdunk"] [class*="ring-purple-"],
+html[data-theme-visual="slamdunk"] [class*="ring-fuchsia-"],
+html[data-theme-visual="slamdunk"] [class*="ring-emerald-"],
+html[data-theme-visual="slamdunk"] [class*="ring-green-"],
+html[data-theme-visual="slamdunk"] [class*="ring-lime-"] {
+  --tw-ring-color: color-mix(in srgb, var(--sd-orange) 58%, transparent) !important;
+}
+
+html[data-theme-visual="slamdunk"] [class*="shadow-cyan-"],
+html[data-theme-visual="slamdunk"] [class*="shadow-sky-"],
+html[data-theme-visual="slamdunk"] [class*="shadow-blue-"],
+html[data-theme-visual="slamdunk"] [class*="shadow-teal-"],
+html[data-theme-visual="slamdunk"] [class*="shadow-indigo-"],
+html[data-theme-visual="slamdunk"] [class*="shadow-violet-"],
+html[data-theme-visual="slamdunk"] [class*="shadow-purple-"],
+html[data-theme-visual="slamdunk"] [class*="shadow-fuchsia-"],
+html[data-theme-visual="slamdunk"] [class*="shadow-emerald-"],
+html[data-theme-visual="slamdunk"] [class*="shadow-green-"],
+html[data-theme-visual="slamdunk"] [class*="shadow-lime-"] {
+  --tw-shadow-color: color-mix(in srgb, var(--sd-orange) 24%, transparent) !important;
+  --tw-shadow: none !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node-output .w-6.h-6.rounded,
+html[data-theme-visual="slamdunk"] .react-flow__node .w-6.h-6.rounded.flex.items-center.justify-center,
+html[data-theme-visual="slamdunk"] .react-flow__node [style*="94, 234, 212"] {
+  background:
+    radial-gradient(circle at 68% 28%, color-mix(in srgb, #fff 30%, transparent) 0 20%, transparent 21%),
+    linear-gradient(135deg, var(--sd-orange), var(--sd-red)) !important;
+  color: var(--t8-accent-text) !important;
+  border-color: var(--sd-ink) !important;
+  box-shadow: inset 0 0 0 1px var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__node-output .w-6.h-6.rounded svg,
+html[data-theme-visual="slamdunk"] .react-flow__node .w-6.h-6.rounded.flex.items-center.justify-center svg,
+html[data-theme-visual="slamdunk"] .react-flow__node [style*="94, 234, 212"] svg {
+  color: currentColor !important;
+  stroke: currentColor !important;
+}
+
+html[data-theme-visual="slamdunk"] .text-white,
+html[data-theme-visual="slamdunk"] .text-zinc-100,
+html[data-theme-visual="slamdunk"] .text-zinc-200,
+html[data-theme-visual="slamdunk"] .text-neutral-100 {
+  color: var(--sd-ink) !important;
+}
+
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .text-white,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .text-zinc-100,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .text-zinc-200,
+html[data-theme-visual="slamdunk"][data-theme-mode="dark"] .text-neutral-100 {
+  color: var(--t8-text-main) !important;
+}
+
+html[data-theme-visual="slamdunk"] .bg-zinc-900,
+html[data-theme-visual="slamdunk"] .bg-neutral-900,
+html[data-theme-visual="slamdunk"] .bg-black\/40,
+html[data-theme-visual="slamdunk"] .bg-white\/5 {
+  background-color: color-mix(in srgb, var(--sd-card-2) 88%, transparent) !important;
+}
+
+html[data-theme-visual="slamdunk"] .border-white\/10,
+html[data-theme-visual="slamdunk"] .border-white\/20,
+html[data-theme-visual="slamdunk"] .border-zinc-700 {
+  border-color: color-mix(in srgb, var(--sd-ink) 28%, transparent) !important;
+}
