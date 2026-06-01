@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Undo2,
   Redo2,
@@ -21,7 +21,17 @@ import {
 import { useThemeStore } from '../stores/theme';
 import { useLogStore } from '../stores/logs';
 import { useTaskCompletionSoundStore } from '../stores/taskCompletionSound';
+import { useShortcutStore } from '../stores/shortcuts';
 import { CANVAS_TEMPLATES, type CanvasTemplate } from '../config/canvasTemplates';
+import {
+  DEFAULT_SHORTCUTS,
+  formatShortcutCombo,
+  formatShortcutList,
+  keyboardEventToShortcutCombo,
+  validateShortcutCombo,
+  type ShortcutAction,
+  type ShortcutCombo,
+} from '../utils/keyboardShortcuts';
 
 interface CanvasToolbarProps {
   canUndo: boolean;
@@ -78,9 +88,25 @@ export default function CanvasToolbar({
   const toggleTerm = useLogStore((s) => s.toggleOpen);
   const completionSoundEnabled = useTaskCompletionSoundStore((s) => s.enabled);
   const toggleCompletionSound = useTaskCompletionSoundStore((s) => s.toggleEnabled);
+  const shortcuts = useShortcutStore((s) => s.shortcuts);
+  const setActionShortcuts = useShortcutStore((s) => s.setActionShortcuts);
+  const clearActionShortcuts = useShortcutStore((s) => s.clearActionShortcuts);
+  const resetShortcutAction = useShortcutStore((s) => s.resetAction);
+  const resetAllShortcuts = useShortcutStore((s) => s.resetAll);
   const [tplOpen, setTplOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [recordingActionId, setRecordingActionId] = useState<string | null>(null);
+  const [shortcutMessage, setShortcutMessage] = useState<string>('');
   const tplRef = useRef<HTMLDivElement>(null);
+  const groupedShortcutActions = useMemo(() => {
+    const groups = new Map<string, ShortcutAction[]>();
+    for (const action of DEFAULT_SHORTCUTS) {
+      groups.set(action.group, [...(groups.get(action.group) || []), action]);
+    }
+    return Array.from(groups.entries());
+  }, []);
+
+  const shortcutText = (actionId: string) => formatShortcutList(shortcuts[actionId]);
 
   // 点击外部关闭模板下拉
   useEffect(() => {
@@ -93,6 +119,38 @@ export default function CanvasToolbar({
     window.addEventListener('mousedown', onClick);
     return () => window.removeEventListener('mousedown', onClick);
   }, [tplOpen]);
+
+  useEffect(() => {
+    if (!recordingActionId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === 'Escape' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+        setRecordingActionId(null);
+        setShortcutMessage('');
+        return;
+      }
+      const combo = keyboardEventToShortcutCombo(event);
+      const validation = validateShortcutCombo(combo);
+      if (!validation.ok || !combo) {
+        const reason = validation.reason === 'reserved'
+          ? '这个快捷键会和浏览器或系统冲突，换一个吧。'
+          : '请按一个包含普通按键的快捷键。';
+        setShortcutMessage(reason);
+        return;
+      }
+      const result = setActionShortcuts(recordingActionId, [combo]);
+      if (!result.ok) {
+        const conflictText = result.conflicts?.map((item) => item.label).join('、') || '其他动作';
+        setShortcutMessage(`快捷键已被「${conflictText}」占用。`);
+        return;
+      }
+      setRecordingActionId(null);
+      setShortcutMessage(`已设置为 ${formatShortcutCombo(combo)}。`);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [recordingActionId, setActionShortcuts]);
 
   const baseBtn = isPixel
     ? 't8-toolbar-button relative flex items-center justify-center w-8 h-8 rounded-full transition-colors hover:bg-[var(--px-muted)] text-[var(--px-ink)]'
@@ -109,6 +167,50 @@ export default function CanvasToolbar({
     : `t8-toolbar-panel flex items-center gap-0.5 px-1.5 py-1 rounded-lg backdrop-blur shadow-lg border ${
         isDark ? 'bg-zinc-900/90 border-white/10' : 'bg-white/95 border-black/10'
       }`;
+
+  const kbdCls = isPixel
+    ? 'bg-[var(--px-surface)] border-2 border-[var(--px-ink)] text-[var(--px-ink)]'
+    : isDark
+      ? 'bg-white/10 text-white'
+      : 'bg-white border border-black/10 text-zinc-900';
+  const compactBtnCls = isPixel
+    ? 'px-btn px-btn--ghost text-[10px] px-2 py-1'
+    : `rounded px-2 py-1 text-[10px] font-semibold transition-colors ${
+        isDark ? 'bg-white/10 text-white hover:bg-white/15' : 'bg-black/5 text-zinc-700 hover:bg-black/10'
+      }`;
+  const dangerBtnCls = isPixel
+    ? 'px-btn px-btn--ghost text-[10px] px-2 py-1'
+    : `rounded px-2 py-1 text-[10px] font-semibold transition-colors ${
+        isDark ? 'bg-rose-500/15 text-rose-100 hover:bg-rose-500/25' : 'bg-rose-500/10 text-rose-700 hover:bg-rose-500/20'
+      }`;
+  const renderShortcutChips = (combos: ShortcutCombo[]) => {
+    if (!combos.length) {
+      return (
+        <span className={`text-[11px] ${isPixel ? 'text-[var(--px-ink-soft)]' : isDark ? 'text-white/45' : 'text-zinc-500'}`}>
+          未设置
+        </span>
+      );
+    }
+    return combos.map((combo) => (
+      <kbd key={formatShortcutCombo(combo)} className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${kbdCls}`}>
+        {formatShortcutCombo(combo)}
+      </kbd>
+    ));
+  };
+  const readonlyMouseShortcuts = [
+    ['鼠标拖拽连接桩', '连接节点'],
+    [`拖线中 ${shortcutText('connection.pan-mode')}`, '开启/关闭连线导航模式'],
+    ['左键拖动空白', '平移画布'],
+    ['Ctrl + 左键拖动', '框选多个节点'],
+    ['右键点击节点 / 选区', '弹出菜单'],
+    ['滚轮 / 触控板', '缩放画布'],
+    [`${shortcutText('connection.pan-mode')} + 拖拽`, '平移画布(备选)'],
+  ];
+  const closeShortcutPanel = () => {
+    setHelpOpen(false);
+    setRecordingActionId(null);
+    setShortcutMessage('');
+  };
 
   const runningCls = isPixel
     ? isRunning
@@ -201,14 +303,14 @@ export default function CanvasToolbar({
         <button
           className={`${baseBtn} ${!canUndo ? disabledCls : ''}`}
           onClick={onUndo}
-          title="撤销 (Ctrl+Z)"
+          title={`撤销 (${shortcutText('canvas.undo')})`}
         >
           <Undo2 size={16} />
         </button>
         <button
           className={`${baseBtn} ${!canRedo ? disabledCls : ''}`}
           onClick={onRedo}
-          title="重做 (Ctrl+Shift+Z)"
+          title={`重做 (${shortcutText('canvas.redo')})`}
         >
           <Redo2 size={16} />
         </button>
@@ -219,7 +321,7 @@ export default function CanvasToolbar({
         <button
           className={`${baseBtn} ${selectedCount === 0 ? disabledCls : ''}`}
           onClick={onCopy}
-          title={`复制选中节点 (Ctrl+C)${selectedCount > 0 ? ` · ${selectedCount} 个` : ''}`}
+          title={`复制选中节点 (${shortcutText('canvas.copy')})${selectedCount > 0 ? ` · ${selectedCount} 个` : ''}`}
         >
           <Copy size={16} />
           {selectedCount > 0 && (
@@ -237,14 +339,14 @@ export default function CanvasToolbar({
         <button
           className={`${baseBtn} ${clipboardCount === 0 ? disabledCls : ''}`}
           onClick={onPaste}
-          title={`粘贴 (Ctrl+V)${clipboardCount > 0 ? ` · 剪贴板 ${clipboardCount} 个` : ''}`}
+          title={`粘贴 (${shortcutText('canvas.paste')})${clipboardCount > 0 ? ` · 剪贴板 ${clipboardCount} 个` : ''}`}
         >
           <ClipboardPaste size={16} />
         </button>
         <button
           className={`${baseBtn} ${selectedCount === 0 ? disabledCls : ''}`}
           onClick={onDelete}
-          title="删除选中 (Delete)"
+          title={`删除选中 (${shortcutText('canvas.delete')})`}
         >
           <Trash2 size={16} />
         </button>
@@ -327,8 +429,11 @@ export default function CanvasToolbar({
         {/* 帮助 */}
         <button
           className={baseBtn}
-          onClick={() => setHelpOpen(true)}
-          title="快捷键说明"
+          onClick={() => {
+            setShortcutMessage('');
+            setHelpOpen(true);
+          }}
+          title="快捷键设置"
         >
           <HelpCircle size={16} />
         </button>
@@ -362,19 +467,19 @@ export default function CanvasToolbar({
         </button>
       </div>
 
-      {/* 帮助弹窗 */}
+      {/* 快捷键设置弹窗 */}
       {helpOpen && (
         <div
           className={`fixed inset-0 z-50 flex items-center justify-center ${
             isPixel ? 'px-modal-mask' : 'bg-black/40'
           }`}
-          onClick={() => setHelpOpen(false)}
+          onClick={closeShortcutPanel}
         >
           <div
             className={
               isPixel
-                ? 'w-[420px] px-card'
-                : `w-[420px] rounded-lg shadow-2xl border ${
+                ? 'w-[min(760px,calc(100vw-32px))] px-card'
+                : `w-[min(760px,calc(100vw-32px))] rounded-lg shadow-2xl border ${
                     isDark ? 'bg-zinc-900 border-white/10 text-white' : 'bg-white border-black/10 text-zinc-900'
                   }`
             }
@@ -391,10 +496,10 @@ export default function CanvasToolbar({
             >
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <HelpCircle size={16} />
-                快捷键说明
+                快捷键设置
               </div>
               <button
-                onClick={() => setHelpOpen(false)}
+                onClick={closeShortcutPanel}
                 className={
                   isPixel
                     ? 'px-btn px-btn--icon px-btn--ghost'
@@ -404,64 +509,155 @@ export default function CanvasToolbar({
                 <X size={14} />
               </button>
             </div>
-            <div className="p-4 space-y-2 text-xs">
-              {[
-                ['Ctrl + Z', '撤销'],
-                ['Ctrl + Shift + Z / Ctrl + Y', '重做'],
-                ['Ctrl + C', '复制选中节点'],
-                ['Ctrl + V', '粘贴节点(自动偏移)'],
-                ['Ctrl + Shift + V', '连边粘贴(保留与原画布邻居的连接)'],
-                ['Ctrl + D', '快速复制选中节点'],
-                ['Delete / Backspace', '删除选中节点 / 连线'],
-                ['Ctrl + A', '全选节点'],
-                ['鼠标拖拽连接桩', '连接节点'],
-                ['拖线中 Space', '开启/关闭连线导航模式'],
-                ['左键拖动空白', '平移画布'],
-                ['Ctrl + 左键拖动', '框选多个节点'],
-                ['右键点击节点 / 选区', '弹出菜单(组执行 / 打组)'],
-                ['Ctrl + G', '选中多个节点后快捷打组'],
-                ['R', '未选中节点时打开 / 关闭资源库'],
-                ['Z', '画布空白处缩放到全貌'],
-                ['G', '画布空白处定位最近节点'],
-                ['打组后右上角 ▶', '执行组内所有节点'],
-                ['打组后双击标题', '重命名节点组'],
-                ['滚轮 / 触控板', '缩放画布'],
-                ['空格 + 拖拽', '平移画布(备选)'],
-              ].map(([k, v]) => (
+            <div className="p-4 space-y-4 text-xs max-h-[72vh] overflow-y-auto">
+              <div
+                className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 ${
+                  isPixel
+                    ? 'bg-[var(--px-muted)] border-2 border-[var(--px-ink)] rounded-[10px]'
+                    : isDark
+                      ? 'bg-white/5 rounded-md'
+                      : 'bg-black/5 rounded-md'
+                }`}
+              >
+                <div className={isPixel ? 'text-[var(--px-ink-soft)]' : isDark ? 'text-white/65' : 'text-zinc-600'}>
+                  点击“录制”后直接按新的组合键；Esc 取消。冲突或浏览器保留键会提示，不会覆盖。
+                </div>
+                <button
+                  type="button"
+                  className={compactBtnCls}
+                  onClick={() => {
+                    if (!window.confirm('恢复全部快捷键为默认值？')) return;
+                    resetAllShortcuts();
+                    setRecordingActionId(null);
+                    setShortcutMessage('已恢复全部默认快捷键。');
+                  }}
+                >
+                  全部恢复默认
+                </button>
+              </div>
+
+              {shortcutMessage && (
                 <div
-                  key={k}
-                  className={`flex items-center justify-between px-3 py-1.5 rounded ${
+                  className={`px-3 py-2 rounded text-[11px] ${
                     isPixel
-                      ? 'bg-[var(--px-muted)] border-2 border-[var(--px-ink)] rounded-[10px]'
+                      ? 'bg-[var(--px-yellow)] border-2 border-[var(--px-ink)] text-[var(--px-ink)]'
                       : isDark
-                        ? 'bg-white/5'
-                        : 'bg-black/5'
+                        ? 'bg-amber-500/15 text-amber-100 border border-amber-400/25'
+                        : 'bg-amber-50 text-amber-800 border border-amber-200'
                   }`}
                 >
-                  <kbd
-                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                      isPixel
-                        ? 'bg-[var(--px-surface)] border-2 border-[var(--px-ink)] text-[var(--px-ink)]'
-                        : isDark
-                          ? 'bg-white/10'
-                          : 'bg-white border border-black/10'
+                  {shortcutMessage}
+                </div>
+              )}
+
+              {groupedShortcutActions.map(([group, actions]) => (
+                <section key={group} className="space-y-2">
+                  <div
+                    className={`text-[11px] font-semibold uppercase tracking-wide ${
+                      isPixel ? 'text-[var(--px-ink)]' : isDark ? 'text-white/55' : 'text-zinc-500'
                     }`}
                   >
-                    {k}
-                  </kbd>
-                  <span
-                    className={
-                      isPixel
-                        ? 'text-[var(--px-ink-soft)]'
-                        : isDark
-                          ? 'text-white/70'
-                          : 'text-zinc-600'
-                    }
-                  >
-                    {v}
-                  </span>
-                </div>
+                    {group}
+                  </div>
+                  <div className="space-y-2">
+                    {actions.map((action) => {
+                      const combos = shortcuts[action.id] || [];
+                      const isRecording = recordingActionId === action.id;
+                      return (
+                        <div
+                          key={action.id}
+                          className={`grid grid-cols-1 sm:grid-cols-[minmax(130px,1fr)_minmax(150px,1.1fr)_auto] items-center gap-3 px-3 py-2 ${
+                            isPixel
+                              ? 'bg-[var(--px-surface)] border-2 border-[var(--px-ink)] rounded-[10px]'
+                              : isDark
+                                ? 'bg-white/5 border border-white/10 rounded-md'
+                                : 'bg-white border border-black/10 rounded-md'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="font-semibold truncate">{action.label}</div>
+                            <div
+                              className={`mt-0.5 text-[10px] leading-snug ${
+                                isPixel ? 'text-[var(--px-ink-soft)]' : isDark ? 'text-white/50' : 'text-zinc-500'
+                              }`}
+                            >
+                              {action.description}
+                            </div>
+                          </div>
+                          <div className="min-w-0 flex flex-wrap items-center gap-1.5">
+                            {renderShortcutChips(combos)}
+                          </div>
+                          <div className="flex items-center gap-1 justify-end">
+                            <button
+                              type="button"
+                              className={isRecording ? dangerBtnCls : compactBtnCls}
+                              onClick={() => {
+                                setRecordingActionId(action.id);
+                                setShortcutMessage(`请按「${action.label}」的新快捷键，Esc 取消。`);
+                              }}
+                            >
+                              {isRecording ? '按键中' : '录制'}
+                            </button>
+                            <button
+                              type="button"
+                              className={dangerBtnCls}
+                              onClick={() => {
+                                clearActionShortcuts(action.id);
+                                setRecordingActionId(null);
+                                setShortcutMessage(`已清空「${action.label}」快捷键。`);
+                              }}
+                            >
+                              清空
+                            </button>
+                            <button
+                              type="button"
+                              className={compactBtnCls}
+                              onClick={() => {
+                                resetShortcutAction(action.id);
+                                setRecordingActionId(null);
+                                setShortcutMessage(`已恢复「${action.label}」默认快捷键。`);
+                              }}
+                            >
+                              默认
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
               ))}
+
+              <section className="space-y-2">
+                <div
+                  className={`text-[11px] font-semibold uppercase tracking-wide ${
+                    isPixel ? 'text-[var(--px-ink)]' : isDark ? 'text-white/55' : 'text-zinc-500'
+                  }`}
+                >
+                  鼠标操作
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {readonlyMouseShortcuts.map(([input, action]) => (
+                    <div
+                      key={input}
+                      className={`flex items-center justify-between gap-3 px-3 py-2 ${
+                        isPixel
+                          ? 'bg-[var(--px-muted)] border-2 border-[var(--px-ink)] rounded-[10px]'
+                          : isDark
+                            ? 'bg-white/5 rounded-md'
+                            : 'bg-black/5 rounded-md'
+                      }`}
+                    >
+                      <kbd className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${kbdCls}`}>
+                        {input}
+                      </kbd>
+                      <span className={isPixel ? 'text-[var(--px-ink-soft)]' : isDark ? 'text-white/65' : 'text-zinc-600'}>
+                        {action}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
             </div>
           </div>
         </div>

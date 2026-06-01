@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Moon, Settings, Sun, Wifi, WifiOff, Sparkles, Cloud, ExternalLink, Copy, Check, Gift, Heart, Youtube, PlayCircle, Bell, Wand2, Globe, MessageCircle, CalendarDays, Rocket, Key, Gem, Library, Palette, Skull, Sailboat } from 'lucide-react';
 import { useThemeStore } from './stores/theme';
 import { useApiKeysStore } from './stores/apiKeys';
+import { useShortcutStore } from './stores/shortcuts';
 import Sidebar from './components/Sidebar';
 import Canvas, { type AddNodeFn, type InsertWorkflowFn } from './components/Canvas';
 import ApiSettingsModal from './components/ApiSettings';
@@ -18,6 +19,7 @@ import { applyThemeTemplate } from './theme/applyTheme';
 import { resolveThemeTemplate } from './theme/defaultTemplates';
 import { materialSetItemsToData, type MaterialSetKind, type MaterialSetItem } from './utils/materialSet';
 import { workflowManifestToFragment } from './utils/workflowResource';
+import { matchesAnyShortcut } from './utils/keyboardShortcuts';
 import {
   buildPortraitPrompt,
   normalizePortraitLocks,
@@ -155,6 +157,7 @@ async function workflowResourceToFragment(item: ResourceItem) {
 function App() {
   const { theme, style, templateId, customTemplates, toggleTheme, loadCustomTemplates } = useThemeStore();
   const { load: loadSettings } = useApiKeysStore();
+  const shortcuts = useShortcutStore((s) => s.shortcuts);
   const currentTemplate = useMemo(
     () => resolveThemeTemplate(templateId, customTemplates),
     [templateId, customTemplates],
@@ -384,11 +387,11 @@ function App() {
     loadCustomTemplates();
   }, [loadSettings, loadCustomTemplates]);
 
-  // R: 未选中任何节点时打开 / 关闭资源库。输入框内不拦截，避免打断提示词编辑。
+  // 资源库快捷键：未选中任何节点时打开 / 关闭资源库。输入框内不拦截，避免打断提示词编辑。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== 'r') return;
-      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.repeat) return;
+      if (!matchesAnyShortcut(shortcuts['global.resource-library'], e)) return;
+      if (e.repeat) return;
       if (isShortcutTypingTarget(e.target)) return;
       if (document.querySelector('.react-flow__node.selected')) return;
       e.preventDefault();
@@ -396,7 +399,7 @@ function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [shortcuts]);
 
   const isDark = theme === 'dark';
   const isPixel = style === 'pixel';

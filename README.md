@@ -10,13 +10,13 @@ https://www.runninghub.cn/?inviteCode=rh-v1121
 My favorite girl Go YounJung
 # 🐧 贞贞的无限画布（企鹅共创版） · T8-penguin-canvas
 
-> AI 节点画布工作流工具 · Web + Electron 桌面端｜v1.9.0
+> AI 节点画布工作流工具 · Web + Electron 桌面端｜v1.9.1
 >
 > GitHub：<https://github.com/T8mars/T8-penguin-canvas>
 
 一个面向 AI 创作的 **节点式画布**：拖拽节点、连线编排、生成图像 / 视频 / 音频、调用 LLM、串接 RunningHub 工作流，叠加批量执行、智能对齐、打组、主题模板与终端日志。Web 浏览器即可使用，亦可一键打包为 Windows 桌面端（NSIS 安装包）。
 
-![status](https://img.shields.io/badge/version-v1.9.0-brightgreen) ![node](https://img.shields.io/badge/node-%E2%89%A518-blue) ![react](https://img.shields.io/badge/react-19-61dafb) ![electron](https://img.shields.io/badge/electron-33-47848f) ![license](https://img.shields.io/badge/license-MIT-yellow)
+![status](https://img.shields.io/badge/version-v1.9.1-brightgreen) ![node](https://img.shields.io/badge/node-%E2%89%A518-blue) ![react](https://img.shields.io/badge/react-19-61dafb) ![electron](https://img.shields.io/badge/electron-33-47848f) ![license](https://img.shields.io/badge/license-MIT-yellow)
 
 ---
 
@@ -42,6 +42,7 @@ My favorite girl Go YounJung
 - 🗂️ **素材集节点 + 资源库整套复用**：可把同类型文本 / 图像 / 视频 / 音频合并为素材集，支持拖拽排序、反转 / 文件名 / 随机排序、导入素材集 / 导出素材集、保存到资源库、从资源库整套插入画布；未选中节点时按 `R` 可快速打开 / 关闭资源库
 - 🚚 **跨画布节点 / 素材发送 + Eagle 本地入库**：框选多个带连线节点可用“节点片段”发送到其他画布并保留内部连线；上传素材、输出素材或素材集仍支持智能保持 / 合并素材集 / 上传素材 / 拆分上传 / 输出素材，发送弹窗提供最近画布、发送历史和重复素材提示，发送后可自动切换并定位到新内容，资源库素材也可一键发送，Eagle 入库仅允许本机 localhost 接口
 - 🔢 **画布 NodeID 快速连线 / 查找**（v1.8.9）：每个画布内节点都会显示独立递增的 `NodeID`，删除不回退；角标按真实可见节点卡片右上角锚定，避免因节点外层测量框变化漂离节点；拖线菜单顶部可用“发送到ID”输入编号自动连线，顶部工具栏可按 ID 查找并居中定位节点，复制 / 发送 / 导入到其他画布时按目标画布继续编号
+- ⌨️ **自定义快捷键设置**（v1.9.1）：顶部工具栏 `?` 打开快捷键设置，可录制组合键、清空单项、单项 / 全部恢复默认；撤销、重做、复制粘贴、打组、画布定位、资源库和连线导航都走统一配置并本地持久化，冲突与浏览器保留键会即时提示
 - 🔔 **任务完成提示音**：顶部工具条可独立开关，默认开启；图像 / 视频 / SD2.0 / 音频 / LLM 任务成功完成后播放轻提示音，5 秒内最多响一次，和主题音乐通道分开，主题音乐静音时仍可提示
 - 📁 **跨平台本地路径默认值**：Windows 继续默认 `D:\zhenzhen`，macOS / Linux 默认 `~/zhenzhen`；旧版非 Windows 配置若仍是硬编码默认值会自动迁移，自定义路径不会被覆盖
 - 🏷️ **生成提示词 @ 素材提及**：图像 / 视频 / SD2.0 / 音频 / LLM / RunningHub / RH 钱包应用 / RH 超市文本参数可输入 `@` 选择当前上游素材，输入框内显示小预览图，提交时稳定解析为 `@image1` / `@video1` / `@audio1`
@@ -198,6 +199,8 @@ T8-penguin-canvas/
 
 ## 🎛️ 画布快捷键
 
+默认快捷键如下；可在顶部工具栏 `?` →「快捷键设置」里自定义、清空单项或恢复默认，配置会保存在本机浏览器 / Electron 用户数据中。
+
 | 快捷键 | 作用 |
 |---|---|
 | `Ctrl + Z` | 撤销 |
@@ -211,7 +214,7 @@ T8-penguin-canvas/
 | `空格 + 拖拽` | 平移画布 |
 | `滚轮 / 触控板` | 缩放画布 |
 
-工具栏图标：▶ 批量运行 · 🧲 网格吸附 · ↶↷ 历史 · ⧉ 复制 · 📋 粘贴 · 🗑️ 删除 · ⬆️ 导入 · ⬇️ 导出 · ✨ 模板 · ❓ 帮助
+工具栏图标：▶ 批量运行 · 🧲 网格吸附 · ↶↷ 历史 · ⧉ 复制 · 📋 粘贴 · 🗑️ 删除 · ⬆️ 导入 · ⬇️ 导出 · ✨ 模板 · ❓ 快捷键设置
 
 ---
 
