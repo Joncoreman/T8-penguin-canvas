@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "1.8.6",
-  "lastUpdated": "2026-06-01-ai-watermark-full-runtime-packaging",
+  "version": "1.8.7",
+  "lastUpdated": "2026-06-01-image-hover-preview-editor-fit",
   "packaging": {
     "description": "Electron NSIS 桌面端打包链路(v1.2.1 起标准化, 严禁未明确指令主动打包)。完整产物拓扑: app.asar(electron/{main,loader,preload}.cjs + node_modules) + app.asar.unpacked(node_modules/sharp + @img) + resources/backend-enc/*.t8c(extraResources, asar 外) + resources/frontend(extraResources, asar 外)。前端版本号由 vite define 注入 __APP_VERSION__、Sidebar 左下角自动同步。",
     "scripts": {
@@ -16,10 +16,10 @@
       "T8PC_FRONTEND_DIST": "打包模式 = path.join(process.resourcesPath, 'frontend'); 开发模式 = <project>/dist",
       "T8PC_RES": "打包模式 = process.resourcesPath; 开发模式 = <project>"
     },
-    "version": "1.8.6",
-    "semverVersion": "1.8.6",
-    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.8.6：去AI水印辅助节点补齐 full optional dependency 运行规范、上游更新扩展标准和 Electron sidecar runtime 打包规范。默认主流程仍保持贞贞工坊 / RunningHub / LLM 独立 Key 不变。",
-    "installer": "本次按规范重新打包 Electron，安装包产物为 dist_electron/T8-PenguinCanvas-Setup-1.8.6.exe（NSIS，129.40 MB）；去AI水印完整离线能力需要在 tools/remove-ai-watermarks-runtime 准备 sidecar runtime 并可用 T8_REQUIRE_AI_WATERMARK_RUNTIME=1 强制校验。",
+    "version": "1.8.7",
+    "semverVersion": "1.8.7",
+    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.8.7：上传素材 / 输出素材图像新增 hover 小眼睛原图预览，图像编辑弹窗非组合模式按真实舞台尺寸完整展示图片。默认主流程仍保持贞贞工坊 / RunningHub / LLM 独立 Key 不变。",
+    "installer": "本次为源码发布，未重新打包 Electron；上一安装包仍为 dist_electron/T8-PenguinCanvas-Setup-1.8.6.exe（NSIS，129.40 MB）。如需离线用户包，仍需按打包清单准备 remove-ai-watermarks sidecar runtime 并执行 npm run dist。",
     "checklist": [
       "运行 npm run encrypt 前确认已 npm install bytenode 且使用 Electron 内置 Node",
       "backend/src/ 任何文件修改后必须重新 npm run encrypt 再打包",
@@ -1760,6 +1760,20 @@
         "Electron 用户包若要开箱可用，必须准备 tools/remove-ai-watermarks-runtime sidecar runtime，electron-builder 会复制到 resources/tools/remove-ai-watermarks；正式发版可设置 T8_REQUIRE_AI_WATERMARK_RUNTIME=1 强制缺失即失败。",
         "上游仓库更新后只同步 registry、命令参数、mark/mode/options 与能力探测适配；新增能力必须补 tests/aiWatermarkRunner.test.ts 并更新 README/features/skill 的 MIT attribution 与打包说明。"
       ]
+    },
+    "phase119": {
+      "label": "图像素材原图悬停预览与编辑舞台完整显示 (v1.8.7)",
+      "status": "complete",
+      "items": [
+        "上传素材与输出素材的图像卡片新增 hover-only 小眼睛按钮：平时隐藏，鼠标悬停图片卡片后出现；按钮本身使用 t8-mini-icon-button / t8-image-preview-trigger，跟随当前主题变量。",
+        "鼠标移到小眼睛按钮时通过 ImageHoverPreview portal 在 body 上显示原图预览；默认按 naturalWidth/naturalHeight 100% 展示，若超过视口则等比限制到 80vw / 80vh，并用 placeImagePreviewPanel 自动在右侧或左侧避让。",
+        "输出素材图像保留原右上角图像对比入口，新预览按钮固定在对比按钮下方，避免与已有快捷对比 UI 重叠；上传素材图像入口位于图片右上角。",
+        "预览按钮拦截 pointerdown/mousedown/click，避免触发 ReactFlow 节点拖拽或素材 Ctrl 拖拽；图片双击编辑、Ctrl+拖拽发送、下载和打散合集功能保持原样。",
+        "ImageEditModal 非 compose 模式新增 ResizeObserver 读取真实舞台可视尺寸，以 imagePreviewLimit 计算 maxWidth/maxHeight，图片容器 flex 不收缩并居中，修复双击上传/输出图像编辑时上下被裁掉的问题。",
+        "新增 src/components/ImageHoverPreview.tsx、src/utils/imageHoverPreview.ts 与 tests/imageHoverPreview.test.ts，锁定原图预览尺寸收敛和预览面板出屏翻转逻辑。",
+        "公开版本同步到 1.8.7：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub；本次只推源码，不打包 Electron。",
+        "验证：node --test tests/imageHoverPreview.test.ts 通过；npm run build 通过（仅保留既有 chunk size 与 react-vendor 空 chunk 警告）；浏览器检查当前画布存在 3 个 preview trigger、默认 opacity=0、hover CSS 与 preview popover 样式已注入。"
+      ]
     }
   },
   "categories": {
@@ -1770,7 +1784,7 @@
         {
           "type": "upload",
           "label": "上传素材节点",
-          "description": "图像 / 视频 / 音频 三合一上传；支持同类型批量上传、输出合集与一键打散，选型后输出端口自适应染色"
+          "description": "图像 / 视频 / 音频 三合一上传；支持同类型批量上传、输出合集、一键打散和图像 hover 原图预览，选型后输出端口自适应染色"
         },
         {
           "type": "material-set",
@@ -1780,7 +1794,7 @@
         {
           "type": "output",
           "label": "输出素材节点",
-          "description": "终端预览节点：自动收集上游任意节点的 文本/图像/视频/音频，多素材合集可一键打散为独立输出节点；图像视频按原始宽高比显示(object-contain)，文本双击可编辑"
+          "description": "终端预览节点：自动收集上游任意节点的 文本/图像/视频/音频，多素材合集可一键打散为独立输出节点；图像支持 hover 原图预览和快捷图像对比，图像视频按原始宽高比显示(object-contain)，文本双击可编辑"
         }
       ]
     },

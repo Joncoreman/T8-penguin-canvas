@@ -121,6 +121,8 @@ interface CropBox {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const EDIT_STAGE_PADDING = 32;
+const EDIT_STAGE_MIN_PREVIEW = 180;
 
 // 计算切割矩形 (natural 像素), 兼容 等分 / 自定义 两个模式
 function computeRects(
@@ -247,6 +249,7 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const [imageStageBox, setImageStageBox] = useState({ w: 0, h: 0 });
   const drawCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawDragRef = useRef<{
     pointerId: number;
@@ -1082,6 +1085,38 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
   useEffect(() => {
     composeFitRef.current = composeFit;
   }, [composeFit]);
+
+  // 非 compose 模式需要按真实舞台可视尺寸缩放图片，避免宽图/高图在裁剪弹窗里被上下遮住。
+  useEffect(() => {
+    if (mode === 'compose') return;
+    const el = stageRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setImageStageBox({ w: r.width, h: r.height });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [mode]);
+
+  const imagePreviewLimit = useMemo(() => {
+    const fallbackW =
+      typeof window === 'undefined' ? 1200 : Math.max(360, Math.floor(window.innerWidth * 0.94) - 80);
+    const fallbackH =
+      typeof window === 'undefined' ? 640 : Math.max(280, Math.floor(window.innerHeight * 0.94) - 220);
+    const stageW = imageStageBox.w > 0 ? imageStageBox.w : fallbackW;
+    const stageH = imageStageBox.h > 0 ? imageStageBox.h : fallbackH;
+    return {
+      maxW: Math.max(EDIT_STAGE_MIN_PREVIEW, Math.floor(stageW - EDIT_STAGE_PADDING * 2 - 8)),
+      maxH: Math.max(EDIT_STAGE_MIN_PREVIEW, Math.floor(stageH - EDIT_STAGE_PADDING * 2 - 8)),
+    };
+  }, [imageStageBox]);
 
   // ---- mask / brush 画布渲染 (如不同状态中跳转, 根据矢量重画) ----
   const drawStrokeOnCtx = (
@@ -2290,10 +2325,10 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
           style={{
             flex: 1,
             overflow: 'auto',
-            padding: 32,
+            padding: EDIT_STAGE_PADDING,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            alignItems: 'flex-start',
+            justifyContent: 'flex-start',
             background: isPixel ? '#FFF1B8' : isDark ? '#020617' : '#f8fafc',
             minHeight: 360,
             cursor:
@@ -2321,6 +2356,8 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
             style={{
               position: 'relative',
               display: 'inline-block',
+              flex: '0 0 auto',
+              margin: 'auto',
               lineHeight: 0,
               userSelect: 'none',
             }}
@@ -2344,8 +2381,11 @@ const ImageEditModal = ({ srcUrl, onClose, onProduce }: Props) => {
               }}
               style={{
                 display: 'block',
-                maxWidth: 'calc(94vw - 80px)',
-                maxHeight: 'calc(94vh - 220px)',
+                maxWidth: imagePreviewLimit.maxW,
+                maxHeight: imagePreviewLimit.maxH,
+                width: 'auto',
+                height: 'auto',
+                objectFit: 'contain',
                 background: isPixel ? '#fff' : '#000',
                 borderRadius: isPixel ? 0 : 8,
                 imageRendering: isPixel ? 'pixelated' : 'auto',

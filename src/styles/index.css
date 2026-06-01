@@ -1146,6 +1146,46 @@ html[data-theme-visual="op"] .t8-group-box__handle {
   pointer-events: none;
 }
 
+.t8-image-preview-trigger {
+  border-color: color-mix(in srgb, var(--t8-border-strong, #38bdf8) 72%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--t8-bg-panel-elevated, #111827) 88%, transparent), color-mix(in srgb, var(--t8-bg-panel, #020617) 92%, transparent));
+  color: var(--t8-accent, #38bdf8);
+  backdrop-filter: blur(8px);
+}
+
+.t8-image-preview-trigger:hover,
+.t8-image-preview-trigger:focus-visible {
+  border-color: var(--t8-accent, #38bdf8);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--t8-accent, #38bdf8) 24%, var(--t8-bg-panel-elevated, #111827)), var(--t8-bg-panel-elevated, #111827));
+  color: var(--t8-accent, #38bdf8);
+  box-shadow:
+    var(--t8-shadow-button, 0 8px 22px rgba(0, 0, 0, 0.26)),
+    0 0 0 3px color-mix(in srgb, var(--t8-accent, #38bdf8) 24%, transparent);
+}
+
+.t8-image-preview-popover {
+  position: fixed;
+  z-index: 9500;
+  overflow: hidden;
+  pointer-events: none;
+  border: 1px solid var(--t8-border-strong, var(--t8-border, #334155));
+  border-radius: min(var(--t8-radius-panel, 12px), 12px);
+  background: var(--t8-bg-panel-elevated, #0f172a);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--t8-accent, #38bdf8) 24%, transparent),
+    0 18px 48px rgba(0, 0, 0, 0.36);
+}
+
+.t8-image-preview-popover__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
 .t8-node-serial-badge {
   position: absolute;
   top: -10px;

@@ -16,6 +16,7 @@ import { resolveThemeTemplate } from '../../theme/defaultTemplates';
 import ImageEditModal, { type ImageEditProduceMeta } from './ImageEditModal';
 import ImageCompareModal from '../ImageCompareModal';
 import CollectionSplitButton from '../CollectionSplitButton';
+import ImageHoverPreview from '../ImageHoverPreview';
 import { useMaterialDropTarget } from '../../hooks/useMaterialDropTarget';
 import { useDragMaterialStore, type MaterialPayload } from '../../stores/dragMaterial';
 import ResizableCorners from './ResizableCorners';
@@ -943,7 +944,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
               }
             >
               {collected.images.map((u, i) => (
-                <div key={i} className="group space-y-0.5">
+                <div key={i} className="group group/output-image-card space-y-0.5">
                   <div className="relative">
                     <img
                       src={u}
@@ -971,7 +972,7 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
                     />
                     <button
                       type="button"
-                      className="nodrag nopan t8-btn t8-mini-icon-button t8-image-compare-button absolute right-1.5 top-1.5 z-10 h-7 w-7 p-0 opacity-100 shadow-md transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
+                      className="nodrag nopan t8-btn t8-mini-icon-button t8-image-compare-button absolute right-1.5 top-1.5 z-10 h-7 w-7 p-0 opacity-100 shadow-md transition sm:opacity-0 sm:group-hover/output-image-card:opacity-100 sm:focus:opacity-100"
                       title="对比输入图与结果图"
                       aria-label="对比输入图与结果图"
                       onPointerDown={(e) => {
@@ -990,6 +991,11 @@ const OutputNode = ({ id, data, selected }: NodeProps) => {
                     >
                       <GitCompare size={13} />
                     </button>
+                    <ImageHoverPreview
+                      src={u}
+                      alt={`图像 ${i + 1}`}
+                      buttonClassName="absolute right-1.5 top-10 z-10 h-7 w-7 p-0 opacity-0 shadow-md transition group-hover/output-image-card:opacity-100 focus:opacity-100"
+                    />
                   </div>
                   <div className={`flex items-center gap-1 text-[10px] ${isDark ? 'text-white/40' : 'text-zinc-400'}`}>
                     <span className="truncate flex-1" title={u}>{u.split('/').pop()}</span>
