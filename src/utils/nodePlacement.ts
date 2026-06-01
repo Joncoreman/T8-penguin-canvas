@@ -62,6 +62,7 @@ export const NODE_DEFAULT_SIZE: Record<string, { w: number; h: number }> = {
   'frame-extractor': { w: 320, h: 300 },
   'frame-pair': { w: 320, h: 360 },
   'grid-crop': { w: 320, h: 360 },
+  'grid-editor': { w: 520, h: 620 },
   cinematic: { w: 720, h: 460 },
   'video-motion': { w: 720, h: 460 },
   'multi-angle-visual': { w: 760, h: 520 },

@@ -36,6 +36,7 @@ export type NodeType =
   | 'remove-bg'
   | 'upscale'
   | 'grid-crop'
+  | 'grid-editor'
   // Auxiliary (5)
   | 'edit'
   | 'idea'

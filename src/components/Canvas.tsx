@@ -102,6 +102,7 @@ import RHToolsNode from './nodes/RHToolsNode';
 import ResizeNode from './nodes/ResizeNode';
 import UpscaleNode from './nodes/UpscaleNode';
 import GridCropNode from './nodes/GridCropNode';
+import GridEditorNode from './nodes/GridEditorNode';
 import CombineNode from './nodes/CombineNode';
 import RemoveBgNode from './nodes/RemoveBgNode';
 import ImageCompareNode from './nodes/ImageCompareNode';
@@ -177,6 +178,7 @@ const SPECIFIC_NODES: Record<string, any> = {
   'remove-bg': RemoveBgNode,
   upscale: UpscaleNode,
   'grid-crop': GridCropNode,
+  'grid-editor': GridEditorNode,
   // Auxiliary (5)
   edit: ImageNode, // 复用 ImageNode,默认偏向 edit 能力
   idea: IdeaNode,
@@ -422,6 +424,19 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
   'image-compare': { mode: 'slider', align: 'contain', split: 50, opacity: 50, threshold: 24 },
   'drawing-board': { boardRatio: '16:9', boardWidth: 960, boardHeight: 540, boardElements: [], boardColor: '#111827', boardStrokeSize: 5 },
   'grid-crop': { rows: 3, cols: 3, gap: 0 },
+  'grid-editor': {
+    gridEditorRows: 3,
+    gridEditorCols: 3,
+    gridEditorWidth: 1200,
+    gridEditorHeight: 1200,
+    gridEditorGap: 0,
+    gridEditorBackground: '#111827',
+    gridEditorFit: 'adaptive',
+    gridEditorShowIndexes: false,
+    gridEditorOrder: [],
+    gridEditorLocalItems: [],
+    gridEditorHiddenIds: [],
+  },
   'remove-ai-watermark': {
     aiWatermarkMode: 'smart',
     aiWatermarkProcessAll: false,
@@ -458,7 +473,7 @@ const EXECUTABLE_NODE_TYPES = new Set<string>([
   'video', 'seedance', 'audio', 'llm', 'runninghub', 'runninghub-wallet',
   // v1.2.10.1: rh-tools 与 RunningHub 同质，同样可被批量运行调起
   'rh-tools',
-  'resize', 'upscale', 'grid-crop', 'remove-bg', 'combine', 'image-compare', 'drawing-board',
+  'resize', 'upscale', 'grid-crop', 'grid-editor', 'remove-bg', 'combine', 'image-compare', 'drawing-board',
   'frame-extractor', 'frame-pair',
   'upload',
   // v1.2.8 工具节点 (循环器 / 从合集获取)

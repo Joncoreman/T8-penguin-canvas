@@ -26,7 +26,7 @@ const config = {
   // 服务器
   HOST: process.env.HOST || '127.0.0.1',
   PORT: process.env.PORT || 18766, // 注意:与主项目 18765 错开
-  APP_VERSION: '1.9.1',
+  APP_VERSION: '1.9.2',
   NODE_ENV: process.env.NODE_ENV || (IS_PACKAGED ? 'production' : 'development'),
   IS_PACKAGED,
 

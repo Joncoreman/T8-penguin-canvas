@@ -10,13 +10,13 @@ https://www.runninghub.cn/?inviteCode=rh-v1121
 My favorite girl Go YounJung
 # 🐧 贞贞的无限画布（企鹅共创版） · T8-penguin-canvas
 
-> AI 节点画布工作流工具 · Web + Electron 桌面端｜v1.9.1
+> AI 节点画布工作流工具 · Web + Electron 桌面端｜v1.9.2
 >
 > GitHub：<https://github.com/T8mars/T8-penguin-canvas>
 
 一个面向 AI 创作的 **节点式画布**：拖拽节点、连线编排、生成图像 / 视频 / 音频、调用 LLM、串接 RunningHub 工作流，叠加批量执行、智能对齐、打组、主题模板与终端日志。Web 浏览器即可使用，亦可一键打包为 Windows 桌面端（NSIS 安装包）。
 
-![status](https://img.shields.io/badge/version-v1.9.1-brightgreen) ![node](https://img.shields.io/badge/node-%E2%89%A518-blue) ![react](https://img.shields.io/badge/react-19-61dafb) ![electron](https://img.shields.io/badge/electron-33-47848f) ![license](https://img.shields.io/badge/license-MIT-yellow)
+![status](https://img.shields.io/badge/version-v1.9.2-brightgreen) ![node](https://img.shields.io/badge/node-%E2%89%A518-blue) ![react](https://img.shields.io/badge/react-19-61dafb) ![electron](https://img.shields.io/badge/electron-33-47848f) ![license](https://img.shields.io/badge/license-MIT-yellow)
 
 ---
 
@@ -35,7 +35,7 @@ My favorite girl Go YounJung
 
 ## ✨ 功能亮点
 
-- 🎨 **41 个节点**，覆盖文本 / 图像 / 视频 / 音频 / LLM / RunningHub / 工具 / 辅助 / 工具箱 / 输出预览 / 上传素材 / 素材集
+- 🎨 **42 个节点**，覆盖文本 / 图像 / 视频 / 音频 / LLM / RunningHub / 工具 / 辅助 / 工具箱 / 输出预览 / 上传素材 / 素材集
 - 🧺 **画布级批量导入 + 素材合集打散**：上传节点支持一次选择多张图 / 多个视频 / 多段音频；也可直接把剪贴板或文件拖到画布，同类型多素材自动形成合集，上传和输出合集都可一键打散为多个独立素材节点
 - 👁️ **上传 / 输出图像原图悬停预览**（v1.8.7）：上传素材与输出素材的图像卡片在 hover 时显示小眼睛按钮，鼠标停在按钮上可按 100% 原尺寸预览，超出视口时自动等比收进可见区域，输出素材入口位于图像对比按钮下方
 - 🧹 **生成节点上游素材单项排除**（v1.8.8）：图像 / 视频 / SD2.0 / 音频 / LLM / RunningHub / RH 工具节点的上游素材缩略图右下角可点 X，从当前节点排除单个传入素材但不切断连线，并可用“恢复N”一键恢复
@@ -53,6 +53,7 @@ My favorite girl Go YounJung
 - 📈 **一键批量运行**：Kahn 拓扑排序串行触发可执行节点，进度可视化，支持中断
 - 🖼️ **图像编辑模态·五模式**：裁剪 / 蒙版 / 笔刷 / 网格 / 组合；非组合模式会按弹窗舞台真实可视尺寸完整显示原图，避免双击上传 / 输出素材编辑时上下被工具栏遮住；组合模式支持多图层拖拽 / 4 角同比缩放 + Shift 自由比例 + Alt 中心缩放 + 旋转 15° 吸附 + 50 深独立撤销栈
 - ✂️ **宫格剪裁去缝预览**：独立宫格剪裁节点支持 gap 去缝、常用宫格预设、指定序号导出、输出顺序和上游合集批量拆分；批量拆分兼容上传多图与资源库素材集，并在节点内直接预览切线与被裁掉的缝隙区域
+- 🧱 **宫格编辑拼版节点**（v1.9.2）：工具节点新增宫格编辑，可接收上游图像或本地上传，按 2×2 / 3×3 / 3×4 / 4×3 / 1×4 / 4×1 与自定义宽高生成分镜拼版图；支持 adaptive 完整显示、拖拽排序、单格删除、序号叠加、拆分输出和 `/api/image/grid-compose` 生成 PNG
 - 🎬 **电影感组合器**：电影感节点支持成片风格、镜头、光影、调色、质感各 50 项，带中英文 prompt、强度控制、收藏复用、JSON 导入/导出和一键运行输出
 - 🎥 **视频运镜组合器**：视频运镜节点支持成片场景、运镜动作、路径、节奏、稳定和主体约束各 50 项，带可响应 50 项动作 / 50 项路径的路线示意、中英文 prompt、收藏复用、JSON 导入/导出和一键运行输出
 - 🧍 **肖像大师**：工具箱新增捏人 Prompt 设计器，内置 9 大类词库，每个小参数 100 个可选词条，支持不选、锁定、权重、自定义补充、Avatar 分层方向预览、角色库收藏、JSON 导入导出、资源库角色分类、跨画布发送配置 / Prompt、高级随机、风格随机包、种子复现和批量输出文本节点 / 文本素材集
@@ -61,7 +62,7 @@ My favorite girl Go YounJung
 - 🧾 **文本分割二版**：文本分割节点支持段落 / 行 / 自定义分隔 / Markdown / 序号 / 智能分镜 / 正则高级 / 字数切块；按段落严格以至少一个空行切段，按行才逐行切分，内置模式说明、中文输入稳定编辑、双列预览布局、分段收藏、JSON 导入导出，并一键创建前置文本循环器链路；循环器执行完成后可自动打散为多个文本节点
 - 🖌️ **图层画板节点**（v1.9.0 增强）：工具分类开放画板节点，支持 16:9 / 9:16 等画布比例、空白图层、图层组折叠、可见 / 锁定状态、载入上游或本地图片、手绘 / 文字 / 图形 / 箭头、缩放旋转、套索 / 钢笔非破坏式抠图、放大编辑窗口、导入导出画板 JSON 与运行输出 PNG；放大窗口复用完整图层面板并按设备像素比重绘，避免图片被低清预览二次放大
 - 🔑 **分类独立 API Key 可选 · 默认折叠**（v1.2.6）：gpt-image / nano-banana / mj / veo / grok / seedance / suno 七个分类 Key 未填自动 fallback 贞贞通用 Key，新手默认折叠不被干扰
-- 🧭 **扩展 API 平台高级入口**（v1.8.5）：API 设置页默认折叠的「扩展 API 平台【高级/可选】」可配置 OpenAI 兼容、ModelScope、火山引擎、本地 ComfyUI、即梦 CLI；面板已按平台用途、适用节点、连接配置、模型列表和高级项分区说明，启用后图像 / 视频 / SD2.0 / LLM 节点可选择高级来源，默认不改变主流程
+- 🧭 **扩展 API 平台高级入口**（v1.9.2 强化）：API 设置页默认折叠的「扩展 API 平台【高级/可选】」可配置 OpenAI 兼容、ModelScope、火山引擎、本地 ComfyUI、即梦 CLI；面板已按平台用途、适用节点、连接配置、模型列表和高级项分区说明，ModelScope 提供国内 / 国外 Token 获取入口，输入框连续输入与中文 IME 不会被重渲染打断
 - 🧽 **去AI水印辅助节点**（v1.8.6）：桥接 `wiltodelta/remove-ai-watermarks`，支持可见水印识别去除、框选擦除（cv2 / LaMA）、隐形水印、AI 元数据检查 / 清理和来源鉴别；开发环境可使用本地 Python 包，用户 Electron 完整包可通过 `tools/remove-ai-watermarks-runtime` sidecar runtime 随包分发
 - 🧲 **智能对齐辅助线 + snap-to-grid**：拖动时检测同列 / 同行 / 居中对齐并弱吸附
 - 📦 **GroupBox 打组**：框选 ≥2 节点一键套色框容器，可拖拽联动、整体执行、12 色调色板

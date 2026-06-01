@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "1.9.1",
-  "lastUpdated": "2026-06-01-custom-shortcuts",
+  "version": "1.9.2",
+  "lastUpdated": "2026-06-02-grid-editor-api-settings-hotfix",
   "packaging": {
     "description": "Electron NSIS 桌面端打包链路(v1.2.1 起标准化, 严禁未明确指令主动打包)。完整产物拓扑: app.asar(electron/{main,loader,preload}.cjs + node_modules) + app.asar.unpacked(node_modules/sharp + @img) + resources/backend-enc/*.t8c(extraResources, asar 外) + resources/frontend(extraResources, asar 外)。前端版本号由 vite define 注入 __APP_VERSION__、Sidebar 左下角自动同步。",
     "scripts": {
@@ -16,9 +16,9 @@
       "T8PC_FRONTEND_DIST": "打包模式 = path.join(process.resourcesPath, 'frontend'); 开发模式 = <project>/dist",
       "T8PC_RES": "打包模式 = process.resourcesPath; 开发模式 = <project>"
     },
-    "version": "1.9.1",
-    "semverVersion": "1.9.1",
-    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.9.1：顶部工具栏快捷键面板升级为可自定义设置，支持录制组合键、清空单项、单项/全部恢复默认、冲突提示和浏览器保留键拦截；撤销/重做/复制粘贴/打组/画布定位/资源库/连线导航等动作统一走快捷键 store 并本地持久化。默认主流程仍保持贞贞工坊 / RunningHub / LLM 独立 Key 不变。",
+    "version": "1.9.2",
+    "semverVersion": "1.9.2",
+    "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.9.2：新增宫格编辑拼版节点与 /api/image/grid-compose，支持上游/本地图像混排、拖拽排序、adaptive 完整显示、自定义宽高和拆分输出；修复宫格编辑宽高输入被 64 钳制、自定义比例无法稳定选择，以及扩展 API 平台输入框/textarea 每次输入被重挂载导致中文 IME 中断的问题，并给 ModelScope 增加国内/国外 Token 获取入口。默认主流程仍保持贞贞工坊 / RunningHub / LLM 独立 Key 不变。",
     "installer": "本次为源码发布，未重新打包 Electron；上一安装包仍为 dist_electron/T8-PenguinCanvas-Setup-1.8.6.exe（NSIS，129.40 MB）。如需离线用户包，仍需按打包清单准备 remove-ai-watermarks sidecar runtime 并执行 npm run dist。",
     "checklist": [
       "运行 npm run encrypt 前确认已 npm install bytenode 且使用 Electron 内置 Node",
@@ -276,7 +276,7 @@
       "每次同步上游后必须重新跑 status/capability、代表性 process smoke、node --test tests/*.test.ts、npm run build 和 Electron 打包后置检查。"
     ]
   },
-  "totalNodes": 41,
+  "totalNodes": 42,
   "phases": {
     "phase0": {
       "label": "基础设施",
@@ -1826,6 +1826,31 @@
         "公开版本同步到 1.9.1：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub；本次只推源码，不打包 Electron。",
         "验证：node --test tests/keyboardShortcuts.test.ts、node --test tests/*.test.ts 与 npm run build 通过；浏览器检查快捷键设置面板可打开，包含录制/清空/默认/全部恢复默认入口且 console error/warn 为空。"
       ]
+    },
+    "phase124": {
+      "label": "宫格编辑节点第一版 (v1.9.2)",
+      "status": "complete",
+      "items": [
+        "新增可见工具节点 grid-editor / 宫格编辑，左侧接 image、右侧输出 image，用于多图分镜宫格拼版；与已有 grid-crop 宫格剪裁形成拼接/拆分互补。",
+        "支持横向 cols 与纵向 rows，预设 2×2、3×3、3×4、4×3、1×4、4×1；支持 1:1、4:3、16:9、9:16 和自定义宽高，输出 PNG。",
+        "节点会自动收集上游图像，也允许在格子 + 或上传按钮中追加本地图像；格子内图片可拖拽排序、单格删除，删除上游图只影响当前节点，不断开连线。",
+        "支持 gap、背景色、adaptive/cover/contain/fill 适配和序号叠加；默认自适应完整显示图像，节点预览按真实输出比例滚动展示，素材超过格子数量时显示溢出提示，并可自动扩容行数。",
+        "新增后端 POST /api/image/grid-compose，使用 sharp 按 rows/cols/width/height/gap/background/fit/showIndexes/cells[] 生成拼接图并保存到 /files/output。",
+        "拆分按钮第一版会把当前已填格子的图片顺序写入 imageUrls / urls，继续复用现有输出素材、资源库和节点发送链路。",
+        "公开版本同步到 1.9.2：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；本次只推源码，不打包 Electron。"
+      ]
+    },
+    "phase125": {
+      "label": "宫格编辑尺寸输入与扩展 API 设置热修 (v1.9.2)",
+      "status": "complete",
+      "items": [
+        "宫格编辑宽/高数字框改为编辑中 draft 状态，用户清空或输入中间态时不再立刻被 normalizeGridEditorConfig 钳制回 64；失焦或回车后再提交并按 64-4096 范围归一。",
+        "宫格编辑比例下拉新增稳定的 GRID_EDITOR_CUSTOM_RATIO_VALUE='custom'，gridEditorRatioSelectValue(width,height,mode) 作为显示值唯一来源；选择自定义只写 ratioMode，不再被当前宽高字符串覆盖。",
+        "自定义宽高提交会自动标记 gridEditorRatioMode='custom'；选择 1:1 / 4:3 / 16:9 / 9:16 预设时才同步改写 width/height，避免比例选择和尺寸输入互相抢状态。",
+        "扩展 API 平台表单的 AdvancedProviderFormBlock 提升为顶层组件，禁止在 renderAdvancedProviderForm 内定义 const FormBlock，避免 React 每次输入都重挂载字段导致焦点丢失和中文 IME 中断。",
+        "ModelScope 连接密钥区新增“获取 Token · 国内”和“获取 Token · 国外”两个外链入口，分别打开 https://www.modelscope.cn/my/access/token 与 https://www.modelscope.ai/my/access/token。",
+        "新增/更新 tests/gridEditor.test.ts 与 tests/apiSettingsTheme.test.ts，验证自定义比例、尺寸 draft、扩展平台字段不重挂载和 ModelScope Token 链接；发布前需跑 node --test tests/gridEditor.test.ts tests/apiSettingsTheme.test.ts、node --test tests/*.test.ts 与 npm run build。"
+      ]
     }
   },
   "categories": {
@@ -1946,7 +1971,7 @@
     },
     "utility": {
       "label": "工具节点",
-      "count": 13,
+      "count": 14,
       "nodes": [
         {
           "type": "drawing-board",
@@ -2016,6 +2041,11 @@
           "type": "grid-crop",
           "label": "宫格剪裁",
           "description": "网格切图，支持 gap 去缝、常用预设、指定序号导出、输出顺序、上游合集批量拆分和节点内切线预览；批量拆分兼容上传素材多图与资源库素材集图像"
+        },
+        {
+          "type": "grid-editor",
+          "label": "宫格编辑",
+          "description": "多图分镜宫格拼版节点：自动接收上游图像，也可本地上传；支持行列预设、自定义输出尺寸、间距、背景、adaptive/cover/contain/fill、序号叠加、拖拽排序、单格删除、超量自动扩容、拆分输出和运行生成一张拼接 PNG"
         }
       ]
     },
@@ -2467,13 +2497,15 @@
     },
     "advancedProviders": {
       "label": "扩展 API 平台【高级/可选】",
-      "status": "guided-settings-layout-enabled",
-      "since": "v1.8.0-roadmap / v1.8.1-backend-foundation / v1.8.2-settings-ui / v1.8.4-generation / v1.8.5-guided-settings",
+      "status": "guided-settings-layout-ime-safe-token-links",
+      "since": "v1.8.0-roadmap / v1.8.1-backend-foundation / v1.8.2-settings-ui / v1.8.4-generation / v1.8.5-guided-settings / v1.9.2-ime-token-links",
       "placement": "API 设置页中位于「分类独立 API Key【可选】」之后、文件自动保存路径之前，默认折叠；未配置时不影响主流程。展开后左侧是平台卡片，右侧按说明、基础信息、连接配置、模型列表和高级项分区。",
       "principles": [
         "默认不改变贞贞工坊 / RunningHub / LLM 独立 Key 与分类 Key fallback 链路。",
         "只有用户主动展开、配置并在节点里选择扩展平台时才启用。",
         "设置页必须解释每个平台的用途、适用节点和填写方式，避免把 Base URL、Token、模型列表、AK/SK、ComfyUI JSON 等内部字段直接平铺给用户。",
+        "扩展平台表单不得在 render 函数内部定义 React 子组件；输入框和 textarea 必须在输入过程中保持同一组件实例，避免中文 IME 和连续输入被重渲染打断。",
+        "ModelScope Token 获取入口必须同时提供国内站和国际站链接，分别指向 https://www.modelscope.cn/my/access/token 与 https://www.modelscope.ai/my/access/token。",
         "设置保存和节点调用解耦，节点仅保存 providerSource/providerId/providerModel/providerParams。",
         "所有扩展平台输出必须归一化到现有 OutputNode、资源库、自动保存、节点发送和 Loop 可识别的协议。",
         "Key、火山 AK/SK、CLI 路径和本地服务地址必须后端保存、脱敏展示并避免写入日志。"
@@ -2566,6 +2598,7 @@
         "POST /api/image/resize — sharp 尺寸调整",
         "POST /api/image/upscale — lanczos3 放大",
         "POST /api/image/grid-crop — 九宫格切图，支持 rows / cols / gap、rectsPx 自定义矩形、orderMode 输出顺序与 exportIndexes 指定序号",
+        "POST /api/image/grid-compose — 多图宫格拼接，支持 rows / cols / width / height / gap / background / fit / showIndexes / cells[]，输出 PNG 到 /files/output",
         "POST /api/image/combine — 横/纵向拼接",
         "POST /api/image/compare — 双图对比结果生成(slider/side-by-side/blink/overlay/heatmap/focus)",
         "POST /api/image/remove-bg — 抠图(占位)"
@@ -2639,6 +2672,7 @@
     "resize",
     "upscale",
     "grid-crop",
+    "grid-editor",
     "remove-bg",
     "combine",
     "image-compare",

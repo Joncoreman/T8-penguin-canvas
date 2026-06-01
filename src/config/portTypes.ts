@@ -90,6 +90,7 @@ export const NODE_PORTS: Record<string, NodePorts> = {
   'remove-bg': { inputs: ['image'], outputs: ['image'] },
   upscale: { inputs: ['image'], outputs: ['image'] },
   'grid-crop': { inputs: ['image'], outputs: ['image'] },
+  'grid-editor': { inputs: ['image'], outputs: ['image'] },
 
   // ========== Auxiliary ==========
   edit: { inputs: ['text', 'image'], outputs: ['image'] },

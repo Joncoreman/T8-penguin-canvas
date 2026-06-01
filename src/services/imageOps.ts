@@ -1,6 +1,8 @@
 /**
  * 图像变换 service - /api/image/*
  */
+import type { GridComposeRequest } from '../utils/gridEditor';
+
 async function postOp<T = any>(path: string, body: any): Promise<T> {
   const r = await fetch(`/api/image/${path}`, {
     method: 'POST',
@@ -70,6 +72,16 @@ export const opGridCrop = (
     'grid-crop',
     { imageUrl, rows, cols, gap, rectsPx, ...(options || {}) },
   );
+
+export const opGridCompose = (request: GridComposeRequest) =>
+  postOp<{
+    imageUrl: string;
+    rows: number;
+    cols: number;
+    width: number;
+    height: number;
+    gap: number;
+  }>('grid-compose', request);
 
 export const opCombine = (imageUrls: string[], direction: 'horizontal' | 'vertical') =>
   postOp<{ imageUrl: string }>('combine', { imageUrls, direction });

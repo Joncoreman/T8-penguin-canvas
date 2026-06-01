@@ -13,6 +13,197 @@
 @tailwind components;
 @tailwind utilities;
 
+/* API settings semantic theme adapter */
+.t8-api-settings-modal {
+  background: color-mix(in srgb, var(--t8-bg-panel, #111827) 96%, transparent) !important;
+  border-color: var(--t8-border-strong, var(--t8-border, rgba(255, 255, 255, 0.18))) !important;
+  color: var(--t8-text-main, #f8fafc) !important;
+  box-shadow: var(--t8-shadow-panel, 0 24px 68px rgba(0, 0, 0, 0.38)) !important;
+}
+
+.t8-api-settings-header,
+.t8-api-settings-footer {
+  border-color: var(--t8-border, rgba(255, 255, 255, 0.16)) !important;
+  color: var(--t8-text-main, #f8fafc) !important;
+}
+
+.t8-api-settings-header {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--t8-bg-panel-elevated, #1f2937) 92%, var(--t8-accent, #38bdf8) 8%), var(--t8-bg-panel, #111827)) !important;
+}
+
+.t8-api-settings-body {
+  background: color-mix(in srgb, var(--t8-bg-panel, #111827) 94%, transparent) !important;
+  color: var(--t8-text-main, #f8fafc) !important;
+}
+
+.t8-api-settings-footer {
+  background: color-mix(in srgb, var(--t8-bg-panel-elevated, #1f2937) 72%, transparent) !important;
+}
+
+.t8-api-settings-title,
+.t8-api-settings-label {
+  color: var(--t8-text-main, #f8fafc) !important;
+}
+
+.t8-api-settings-hint {
+  color: var(--t8-text-muted, rgba(248, 250, 252, 0.68)) !important;
+}
+
+.t8-api-settings-icon {
+  color: var(--t8-text-muted, rgba(248, 250, 252, 0.72)) !important;
+}
+
+.t8-api-settings-icon-btn,
+.t8-api-settings-secondary-btn,
+.t8-api-settings-action-btn {
+  background: color-mix(in srgb, var(--t8-bg-panel-elevated, #1f2937) 82%, transparent) !important;
+  border-color: var(--t8-border, rgba(255, 255, 255, 0.14)) !important;
+  color: var(--t8-text-main, #f8fafc) !important;
+}
+
+.t8-api-settings-primary-btn {
+  background: linear-gradient(180deg, var(--t8-accent-hover, #0ea5e9), var(--t8-accent, #38bdf8)) !important;
+  border-color: var(--t8-border-strong, var(--t8-accent, #38bdf8)) !important;
+  color: var(--t8-accent-text, #031522) !important;
+  box-shadow: var(--t8-shadow-button, 0 10px 24px rgba(0, 0, 0, 0.24)) !important;
+}
+
+.t8-api-settings-primary-btn:hover {
+  filter: brightness(1.04);
+}
+
+.t8-api-settings-icon-btn:hover,
+.t8-api-settings-secondary-btn:hover,
+.t8-api-settings-action-btn:hover {
+  background: color-mix(in srgb, var(--t8-accent, #38bdf8) 18%, var(--t8-bg-panel-elevated, #1f2937)) !important;
+  border-color: var(--t8-border-strong, var(--t8-accent, #38bdf8)) !important;
+}
+
+.t8-api-settings-divider {
+  border-color: var(--t8-border, rgba(255, 255, 255, 0.16)) !important;
+}
+
+.t8-api-settings-input {
+  background: color-mix(in srgb, var(--t8-bg-panel-elevated, #1f2937) 88%, transparent) !important;
+  border-color: var(--t8-border, rgba(255, 255, 255, 0.16)) !important;
+  color: var(--t8-text-main, #f8fafc) !important;
+}
+
+.t8-api-settings-input::placeholder {
+  color: var(--t8-text-dim, rgba(148, 163, 184, 0.72)) !important;
+}
+
+.t8-api-settings-input:focus {
+  border-color: var(--t8-border-strong, var(--t8-accent, #38bdf8)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--t8-accent, #38bdf8) 22%, transparent) !important;
+}
+
+.t8-api-settings-toggle {
+  background: color-mix(in srgb, var(--t8-bg-panel-elevated, #1f2937) 88%, transparent) !important;
+  border-color: var(--t8-border-strong, var(--t8-border, rgba(255, 255, 255, 0.18))) !important;
+  color: var(--t8-text-main, #f8fafc) !important;
+  min-width: 0;
+}
+
+.t8-api-settings-toggle:hover,
+.t8-api-settings-toggle[data-open="true"] {
+  background: color-mix(in srgb, var(--t8-accent, #38bdf8) 16%, var(--t8-bg-panel-elevated, #1f2937)) !important;
+  border-color: var(--t8-border-strong, var(--t8-accent, #38bdf8)) !important;
+}
+
+.t8-api-settings-badge,
+.t8-api-settings-pill {
+  background: color-mix(in srgb, var(--t8-bg-panel-muted, #334155) 88%, transparent) !important;
+  border-color: var(--t8-border, rgba(255, 255, 255, 0.16)) !important;
+  color: var(--t8-text-main, #f8fafc) !important;
+  text-shadow: none !important;
+  white-space: nowrap;
+}
+
+.t8-api-settings-badge[data-tone="success"] {
+  background: color-mix(in srgb, var(--t8-success, #34d399) 24%, var(--t8-bg-panel-elevated, #1f2937)) !important;
+  border-color: color-mix(in srgb, var(--t8-success, #34d399) 58%, var(--t8-border, rgba(255, 255, 255, 0.16))) !important;
+}
+
+.t8-api-settings-badge[data-tone="muted"] {
+  background: color-mix(in srgb, var(--t8-bg-panel-elevated, #1f2937) 82%, transparent) !important;
+  color: var(--t8-text-muted, rgba(248, 250, 252, 0.68)) !important;
+}
+
+.t8-api-settings-provider-card {
+  background: color-mix(in srgb, var(--t8-bg-panel-elevated, #1f2937) 80%, transparent) !important;
+  border-color: var(--t8-border, rgba(255, 255, 255, 0.16)) !important;
+  color: var(--t8-text-main, #f8fafc) !important;
+}
+
+.t8-api-settings-provider-card:hover,
+.t8-api-settings-provider-card[data-active="true"] {
+  background: color-mix(in srgb, var(--t8-accent, #38bdf8) 18%, var(--t8-bg-panel-elevated, #1f2937)) !important;
+  border-color: var(--t8-border-strong, var(--t8-accent, #38bdf8)) !important;
+}
+
+.t8-api-settings-provider-panel,
+.t8-api-settings-section,
+.t8-api-settings-guide {
+  border-color: var(--t8-border, rgba(255, 255, 255, 0.16)) !important;
+  color: var(--t8-text-main, #f8fafc) !important;
+}
+
+.t8-api-settings-provider-panel {
+  background: color-mix(in srgb, var(--t8-bg-panel, #111827) 92%, transparent) !important;
+}
+
+.t8-api-settings-section {
+  background: color-mix(in srgb, var(--t8-bg-panel-elevated, #1f2937) 84%, transparent) !important;
+}
+
+.t8-api-settings-guide {
+  background: color-mix(in srgb, var(--t8-warning, #f59e0b) 11%, var(--t8-bg-panel-elevated, #1f2937)) !important;
+  color: var(--t8-text-muted, rgba(248, 250, 252, 0.72)) !important;
+}
+
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-toggle,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-provider-card,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-icon-btn,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-secondary-btn,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-action-btn,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-primary-btn {
+  color: var(--t8-text-main, #f8fafc) !important;
+}
+
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-primary-btn {
+  background: linear-gradient(180deg, var(--t8-accent-hover, #0ea5e9), var(--t8-accent, #38bdf8)) !important;
+  border-color: var(--t8-border-strong, var(--t8-accent, #38bdf8)) !important;
+  color: var(--t8-accent-text, #031522) !important;
+  box-shadow: var(--t8-shadow-button, 0 10px 24px rgba(0, 0, 0, 0.24)) !important;
+}
+
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-toggle,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-provider-card {
+  background: color-mix(in srgb, var(--t8-bg-panel-elevated, #1f2937) 88%, transparent) !important;
+  border-color: var(--t8-border-strong, var(--t8-border, rgba(255, 255, 255, 0.18))) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-toggle:hover,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-toggle[data-open="true"],
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-provider-card:hover,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-provider-card[data-active="true"] {
+  background: color-mix(in srgb, var(--t8-accent, #38bdf8) 18%, var(--t8-bg-panel-elevated, #1f2937)) !important;
+  border-color: var(--t8-border-strong, var(--t8-accent, #38bdf8)) !important;
+  color: var(--t8-text-main, #f8fafc) !important;
+}
+
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-badge,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-pill,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-input,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-provider-panel,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-section,
+html[data-theme-template] .t8-api-settings-modal .t8-api-settings-guide {
+  color: var(--t8-text-main, #f8fafc) !important;
+}
+
 /* 「在线画布」推广浮层 下拉入场动画 */
 @keyframes fadeIn {
   from {

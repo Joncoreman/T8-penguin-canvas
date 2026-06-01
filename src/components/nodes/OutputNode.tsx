@@ -72,6 +72,7 @@ const NODE_INPUT_LABELS: Record<string, string> = {
   resize: '尺寸调整图',
   combine: '合成图',
   'grid-crop': '宫格切图',
+  'grid-editor': '宫格拼图',
   'remove-bg': '抠图结果',
   upscale: '放大结果',
   relay: '中继图',

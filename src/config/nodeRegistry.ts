@@ -54,6 +54,7 @@ export const NODE_REGISTRY: NodeMeta[] = [
   { type: 'remove-bg', label: '抠图', category: 'utility', description: '去除背景', icon: 'Eraser', color: 'orange', hidden: true },
   { type: 'upscale', label: '放大', category: 'utility', description: '图像放大', icon: 'ZoomIn', color: 'orange', hidden: true },
   { type: 'grid-crop', label: '宫格剪裁', category: 'utility', description: '网格切图', icon: 'Grid3x3', color: 'orange' },
+  { type: 'grid-editor', label: '宫格编辑', category: 'utility', description: '多图分镜宫格拼接与顺序拆分', icon: 'LayoutGrid', color: 'orange' },
 
   // ========== Auxiliary 辅助节点(6) ==========
   // 其中 2 个暂时隐藏: edit / video-output
