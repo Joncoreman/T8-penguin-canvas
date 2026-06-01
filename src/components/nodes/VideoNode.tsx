@@ -16,7 +16,15 @@ import {
   SORA2_FAL_DURATIONS,
   SORA2_FAL_RESOLUTIONS,
 } from '../../providers/models';
-import { submitVideo, queryVideo, submitVideoFal, queryVideoFal, type VideoSubmitRequest, type VideoFalSubmitRequest } from '../../services/generation';
+import {
+  generateExternalVideo,
+  submitVideo,
+  queryVideo,
+  submitVideoFal,
+  queryVideoFal,
+  type VideoSubmitRequest,
+  type VideoFalSubmitRequest,
+} from '../../services/generation';
 import { useUpdateNodeData } from './useUpdateNodeData';
 import { useHasAutoOutput } from './useHasAutoOutput';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
@@ -30,6 +38,12 @@ import { resolveMediaMentions, type MediaMention } from './mediaMentions';
 import { useDragMaterialStore, type MaterialPayload } from '../../stores/dragMaterial';
 import { useMaterialDropTarget } from '../../hooks/useMaterialDropTarget';
 import { taskCompletionSound } from '../../stores/taskCompletionSound';
+import { useApiKeysStore } from '../../stores/apiKeys';
+import {
+  advancedProviderModelOptions,
+  advancedProvidersForNode,
+  resolveAdvancedProviderSelection,
+} from '../../utils/advancedProviders';
 
 /**
  * VideoNode - 异步视频生成(完全对齐 gpt-image-2-web)
@@ -60,6 +74,25 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
   const isPixel = themeStyle === 'pixel';
 
   const d = data as any;
+  const advancedProviders = useApiKeysStore((s) => s.settings.advancedProviders);
+  const videoAdvancedProviders = useMemo(
+    () => advancedProvidersForNode(advancedProviders, 'video'),
+    [advancedProviders],
+  );
+  const providerSelection = useMemo(
+    () => resolveAdvancedProviderSelection(advancedProviders, 'video', {
+      providerSource: d?.providerSource,
+      providerId: d?.providerId,
+      providerModel: d?.providerModel,
+    }),
+    [advancedProviders, d?.providerSource, d?.providerId, d?.providerModel],
+  );
+  const isExternalSelected = providerSelection.available && providerSelection.providerSource !== 'zhenzhen';
+  const savedExternalMissing = !!d?.providerSource && d.providerSource !== 'zhenzhen' && !providerSelection.available;
+  const externalModelOptions = providerSelection.provider
+    ? advancedProviderModelOptions(providerSelection.provider, 'video')
+    : [];
+  const externalProviderModel = providerSelection.providerModel || externalModelOptions[0] || '';
   // 主模型 id (对应 VIDEO_MODELS 项)
   const rawModel = typeof d?.model === 'string' ? d.model : '';
   const isLegacySora2Model = /^sora-2(?:-\d{4}-\d{2}-\d{2})?$/.test(rawModel);
@@ -306,6 +339,42 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
     taskCompletionSound.primeAudio();
     update({ status: 'submitting', error: null, videoUrl: null, taskId: null });
     try {
+      if (isExternalSelected && providerSelection.provider) {
+        const providerModel = externalProviderModel;
+        const refs = imageUrls.slice(0, Math.max(1, maxMentionRefs || modelDef.maxRefImages || 8));
+        logBus.info(
+          `扩展平台视频提交: ${providerSelection.provider.label || providerSelection.provider.id} · ${providerModel} · refs=${refs.length}`,
+          src,
+        );
+        const r = await generateExternalVideo({
+          providerId: providerSelection.provider.id,
+          providerModel,
+          model: providerModel,
+          prompt: finalPrompt,
+          aspect_ratio: ratio,
+          ratio,
+          duration,
+          resolution,
+          seed: seed > 0 ? seed : undefined,
+          images: refs,
+          providerParams: d?.providerParams,
+        });
+        const nextVideoUrl = r.videoUrls[0];
+        if (!nextVideoUrl) throw new Error('扩展平台没有返回视频。');
+        update({
+          status: 'success',
+          videoUrl: nextVideoUrl,
+          videoUrls: r.videoUrls,
+          remoteVideoUrls: r.remoteVideoUrls,
+          taskId: r.taskId || null,
+          lastPrompt: finalPrompt,
+          progress: '100%',
+        });
+        logBus.success(`扩展平台视频完成 → ${nextVideoUrl}`, src);
+        taskCompletionSound.notifyComplete(id, 'video');
+        return;
+      }
+
       // === FAL 分支 ===
       if (isFal && falReg) {
         const falMaxRefs =
@@ -510,12 +579,84 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
         </div>
         <div className="flex-1">
           <div className="text-sm font-semibold text-white">视频</div>
-          <div className="text-[10px] text-white/40">{modelDef.label} · {modelDef.kind}</div>
+          <div className="text-[10px] text-white/40">
+            {isExternalSelected && providerSelection.provider
+              ? `${providerSelection.provider.label || providerSelection.provider.id} · ${externalProviderModel || '未选模型'}`
+              : `${modelDef.label} · ${modelDef.kind}`}
+          </div>
         </div>
       </div>
 
       <div className="p-2.5 space-y-2" onMouseDown={(e) => e.stopPropagation()}>
+        {videoAdvancedProviders.length > 0 && (
+          <div className="rounded border border-white/10 bg-white/[0.03] p-2 space-y-2">
+            <button
+              type="button"
+              onClick={() => update({ advancedProviderOpen: !d?.advancedProviderOpen })}
+              className="w-full flex items-center justify-between text-[10px] font-semibold text-white/70 hover:text-white"
+            >
+              <span>高级来源</span>
+              <span>{isExternalSelected && providerSelection.provider ? providerSelection.provider.label : '默认视频接口'}</span>
+            </button>
+            {d?.advancedProviderOpen && (
+              <div className="space-y-2">
+                <div>
+                  <label className="text-[10px] text-white/50 block mb-1">平台</label>
+                  <select
+                    value={isExternalSelected ? providerSelection.providerId : 'zhenzhen'}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      if (nextId === 'zhenzhen') {
+                        update({ providerSource: 'zhenzhen', providerId: '', providerModel: '' });
+                        return;
+                      }
+                      const provider = videoAdvancedProviders.find((item) => item.id === nextId);
+                      if (!provider) return;
+                      const nextModels = advancedProviderModelOptions(provider, 'video');
+                      update({
+                        providerSource: provider.protocol,
+                        providerId: provider.id,
+                        providerModel: nextModels[0] || '',
+                      });
+                    }}
+                    style={{ background: '#18181b', color: '#ffffff' }}
+                    className="w-full rounded border border-white/10 px-2 py-1 text-xs outline-none focus:border-white/30"
+                  >
+                    <option value="zhenzhen" style={{ background: '#18181b', color: '#ffffff' }}>贞贞工坊（默认）</option>
+                    {videoAdvancedProviders.map((provider) => (
+                      <option key={provider.id} value={provider.id} style={{ background: '#18181b', color: '#ffffff' }}>
+                        {provider.label || provider.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {isExternalSelected && providerSelection.provider && (
+                  <div>
+                    <label className="text-[10px] text-white/50 block mb-1">外部模型</label>
+                    <select
+                      value={externalProviderModel}
+                      onChange={(e) => update({ providerModel: e.target.value })}
+                      style={{ background: '#18181b', color: '#ffffff' }}
+                      className="w-full rounded border border-white/10 px-2 py-1 text-xs outline-none focus:border-white/30"
+                    >
+                      {externalModelOptions.map((m) => (
+                        <option key={m} value={m} style={{ background: '#18181b', color: '#ffffff' }}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {savedExternalMissing && (
+                  <div className="text-[10px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1">
+                    当前画布记录的扩展平台未启用或不存在，已临时回到默认来源。
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 主模型 */}
+        {!isExternalSelected && (
         <div>
           <label className="text-[10px] text-white/50 block mb-1">模型类型</label>
           <select
@@ -528,9 +669,10 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
             ))}
           </select>
         </div>
+        )}
 
         {/* 子模型(主项目 veo_model / gk_model) */}
-        {modelDef.apiModelOptions.length > 1 && (
+        {!isExternalSelected && modelDef.apiModelOptions.length > 1 && (
           <div>
             <label className="text-[10px] text-white/50 block mb-1">具体模型</label>
             <select

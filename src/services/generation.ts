@@ -38,6 +38,91 @@ export async function generateImage(req: GenerateImageRequest): Promise<Generate
   return data.data;
 }
 
+export interface GenerateExternalImageRequest {
+  providerId: string;
+  providerModel?: string;
+  model?: string;
+  prompt: string;
+  size?: string;
+  width?: number;
+  height?: number;
+  n?: number;
+  images?: string[];
+  providerParams?: Record<string, any>;
+}
+
+export interface GenerateExternalImageResult {
+  imageUrls: string[];
+  remoteImageUrls?: string[];
+  taskId?: string;
+  raw?: any;
+  provider?: any;
+}
+
+export async function generateExternalImage(req: GenerateExternalImageRequest): Promise<GenerateExternalImageResult> {
+  const r = await fetch('/api/proxy/external/image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  const data = await r.json();
+  if (!r.ok || !data.success) {
+    throw new Error(data?.error || `HTTP ${r.status}`);
+  }
+  const payload = data.data || {};
+  return {
+    imageUrls: Array.isArray(payload.imageUrls) ? payload.imageUrls : [],
+    remoteImageUrls: Array.isArray(payload.remoteImageUrls) ? payload.remoteImageUrls : undefined,
+    taskId: payload.taskId,
+    raw: payload.raw,
+    provider: payload.provider,
+  };
+}
+
+export interface GenerateExternalVideoRequest {
+  providerId: string;
+  providerModel?: string;
+  model?: string;
+  prompt: string;
+  aspect_ratio?: string;
+  ratio?: string;
+  duration?: number | string;
+  resolution?: string;
+  seed?: number;
+  images?: string[];
+  videos?: string[];
+  audios?: string[];
+  providerParams?: Record<string, any>;
+}
+
+export interface GenerateExternalVideoResult {
+  videoUrls: string[];
+  remoteVideoUrls?: string[];
+  taskId?: string;
+  raw?: any;
+  provider?: any;
+}
+
+export async function generateExternalVideo(req: GenerateExternalVideoRequest): Promise<GenerateExternalVideoResult> {
+  const r = await fetch('/api/proxy/external/video', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  const data = await r.json();
+  if (!r.ok || !data.success) {
+    throw new Error(data?.error || `HTTP ${r.status}`);
+  }
+  const payload = data.data || {};
+  return {
+    videoUrls: Array.isArray(payload.videoUrls) ? payload.videoUrls : [],
+    remoteVideoUrls: Array.isArray(payload.remoteVideoUrls) ? payload.remoteVideoUrls : undefined,
+    taskId: payload.taskId,
+    raw: payload.raw,
+    provider: payload.provider,
+  };
+}
+
 // ========================================================================
 // 图像异步任务(对齐 gpt-image-2-web 的 submit + poll 模式)
 // submitImageAsync 返 { sync, taskId?, urls?, status, progress }
@@ -335,6 +420,31 @@ export async function generateLlm(req: GenerateLlmRequest): Promise<GenerateLlmR
     throw new Error(data?.error || `HTTP ${r.status}`);
   }
   return data.data;
+}
+
+export interface GenerateExternalLlmRequest extends Omit<GenerateLlmRequest, 'stream'> {
+  providerId: string;
+  providerModel?: string;
+  providerParams?: Record<string, any>;
+}
+
+export async function generateExternalLlm(req: GenerateExternalLlmRequest): Promise<GenerateLlmResult> {
+  const r = await fetch('/api/proxy/external/llm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  const data = await r.json();
+  if (!r.ok || !data.success) {
+    throw new Error(data?.error || `HTTP ${r.status}`);
+  }
+  const payload = data.data || {};
+  return {
+    content: payload.text || payload.content || '',
+    imageUrls: Array.isArray(payload.imageUrls) ? payload.imageUrls : undefined,
+    raw: payload.raw,
+    model: req.model,
+  };
 }
 
 /**

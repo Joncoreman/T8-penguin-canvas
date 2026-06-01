@@ -109,7 +109,12 @@ export interface AdvancedProviderConfig {
   };
   comfyuiConfig?: {
     instances?: string[];
-    workflows?: Array<{ id: string; name: string }>;
+    workflows?: Array<{
+      id: string;
+      name: string;
+      workflowJson?: Record<string, any>;
+      fields?: Array<{ nodeId: string; fieldName: string; source?: string; value?: any }>;
+    }>;
   };
   jimengConfig?: {
     executablePath?: string;

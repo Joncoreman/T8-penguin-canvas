@@ -194,25 +194,28 @@
 
 #### Phase C：OpenAI 兼容与 ModelScope
 
-- 状态：下一阶段开发重点，尚未接入图像/LLM 节点真实生成调用。
-- 先接入图像与 LLM，视频只保留配置和模型列表。
-- 图像节点增加高级 provider 选择；默认不显示，只有已启用 provider 时出现。
-- ModelScope 实现异步提交、轮询、错误归一化和自动保存。
+- 状态：已在 v1.8.4 落地。
+- 已接入 OpenAI 兼容图像 / 视频 / LLM 调用，统一走 `/api/proxy/external/{image,video,llm}`，输出自动转存到 `/files/output/*`。
+- 图像节点与 LLM 节点已增加高级 provider 选择；默认不显示，只有已启用 provider 时出现。
+- ModelScope 已实现异步图像提交、轮询、错误归一化和自动保存。
 
 #### Phase D：火山引擎与即梦 Seedance CLI
 
-- 火山接入 Seedream 图像与 Seedance 视频，优先支持 base64/dataURL 与远程 URL。
-- 即梦 CLI 支持状态检测、text2image、image2image、text2video、image2video、frames/multiframe video 的最小可用链路。
-- 视频节点/SD2.0 节点提供高级来源选择，但默认仍走当前贞贞工坊路径。
+- 状态：已在 v1.8.4 落地。
+- 火山已接入 Seedream 图像与 Seedance 视频，支持 dataURL / 本地 T8 素材解析、提交任务、轮询和视频转存。
+- 即梦 CLI 已支持状态检测、text2image、image2image、text2video、单图 multimodal2video、多图 multiframe2video、poll 与输出转存。
+- 视频节点 / SD2.0 节点已提供高级来源选择，但默认仍走当前贞贞工坊路径。
 
 #### Phase E：本地 ComfyUI 工作流
 
-- 支持 ComfyUI 实例列表、队列状态、工作流 JSON 导入/保存、参数映射。
-- 实现运行、轮询 history、下载 image/video/audio/text 输出。
-- 如果用户已有工作流，新增可选「本地 ComfyUI」节点或在图像节点高级来源中选择工作流。
+- 状态：已在 v1.8.4 落地图像节点高级来源版。
+- API 设置页支持 ComfyUI 实例列表、队列状态测试、工作流 JSON 粘贴保存和参数映射 JSON。
+- 后端已实现 `/prompt` 提交、`/history/{prompt_id}` 轮询，并归一化 image/video/audio/text 输出；图像节点可在高级来源中选择已保存工作流。
+- 独立「本地 ComfyUI」节点仍作为后续可选扩展，不影响当前节点融合方案。
 
 #### Phase F：体验收口与回归
 
-- 所有扩展平台错误统一成用户可读文案：未配置 Key、模型不存在、格式不支持、CLI 未安装、ComfyUI 不在线、任务超时。
-- 输出素材统一进入自动保存、资源库、节点发送、Loop 等既有链路。
-- 浏览器回归设置页折叠态、节点默认态、扩展平台启用态；命令回归 `npm run build`、后端语法检查和相关 node tests。
+- 状态：已在 v1.8.4 落地基础收口。
+- 扩展平台错误已统一成用户可读文案：未配置 Key、模型不存在、格式不支持、CLI 未安装、ComfyUI 不在线、任务超时。
+- 输出素材统一进入 `/files/output/*`，因此可继续被 OutputNode、资源库、节点发送、Loop 与自动保存链路识别。
+- 命令回归已覆盖 `node --test tests/*.test.ts`、`npm run build`；浏览器插件验证因当前本地 URL 安全策略阻止，未绕过策略。

@@ -152,3 +152,33 @@ test('summarizeAdvancedProviders reports enabled platforms, configured keys, and
   assert.equal(summary.comfyuiConfigured, true);
   assert.equal(summary.jimengConfigured, true);
 });
+
+test('normalizeAdvancedProviders preserves ComfyUI workflow json and exposed field mappings', () => {
+  const workflowJson = {
+    '1': { class_type: 'CLIPTextEncode', inputs: { text: '' } },
+  };
+  const providers = normalizeAdvancedProviders([
+    {
+      id: 'comfyui',
+      protocol: 'comfyui',
+      enabled: true,
+      baseUrl: 'http://127.0.0.1:8188',
+      comfyuiConfig: {
+        instances: ['http://127.0.0.1:8188'],
+        workflows: [
+          {
+            id: 'workflow-1',
+            name: 'Flux',
+            workflowJson,
+            fields: [{ nodeId: '1', fieldName: 'text', source: 'prompt' }],
+          },
+        ],
+      },
+    },
+  ]);
+
+  const workflow = providers.find((item: any) => item.id === 'comfyui')?.comfyuiConfig?.workflows?.[0];
+
+  assert.deepEqual(workflow?.workflowJson, workflowJson);
+  assert.deepEqual(workflow?.fields, [{ nodeId: '1', fieldName: 'text', source: 'prompt' }]);
+});

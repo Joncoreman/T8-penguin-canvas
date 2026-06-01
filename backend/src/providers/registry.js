@@ -187,6 +187,33 @@ function normalizePlainObject(value, maxEntries = 64) {
   return out;
 }
 
+function cloneJsonValue(value, maxBytes = 2 * 1024 * 1024) {
+  if (value == null) return undefined;
+  try {
+    const text = JSON.stringify(value);
+    if (!text || text.length > maxBytes) return undefined;
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeComfyFields(value) {
+  const out = [];
+  for (const raw of Array.isArray(value) ? value : []) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const nodeId = cleanText(raw.nodeId || raw.node || '', 80);
+    const fieldName = cleanText(raw.fieldName || raw.input || raw.name || '', 80);
+    const source = cleanText(raw.source || fieldName, 80);
+    if (!nodeId || !fieldName) continue;
+    const field = { nodeId, fieldName, source };
+    const fixedValue = cloneJsonValue(raw.value, 64 * 1024);
+    if (fixedValue !== undefined) field.value = fixedValue;
+    out.push(field);
+  }
+  return out.slice(0, 200);
+}
+
 function normalizeVolcengineConfig(value, previous = {}) {
   const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
@@ -207,10 +234,18 @@ function normalizeComfyuiConfig(value) {
   }
   const workflows = Array.isArray(raw.workflows)
     ? raw.workflows
-        .map((item) => (item && typeof item === 'object' ? {
-          id: cleanText(item.id || item.name, 80),
-          name: cleanText(item.name || item.id, 120),
-        } : null))
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null;
+          const workflowJson = cloneJsonValue(item.workflowJson || item.workflow || item.raw);
+          const workflow = {
+            id: cleanText(item.id || item.name, 80),
+            name: cleanText(item.name || item.id, 120),
+          };
+          if (workflowJson !== undefined) workflow.workflowJson = workflowJson;
+          const fields = normalizeComfyFields(item.fields);
+          if (fields.length) workflow.fields = fields;
+          return workflow;
+        })
         .filter((item) => item && item.id && item.name)
         .slice(0, 80)
     : [];

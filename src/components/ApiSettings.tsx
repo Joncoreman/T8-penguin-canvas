@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Download, ExternalLink, Eye, EyeOff, FileUp, KeyRound, Loader2, Lock, Save, Settings2, X, FolderOpen, ServerCog } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronRight, Download, ExternalLink, Eye, EyeOff, FileUp, Info, KeyRound, Loader2, Lock, Save, Settings2, TestTube2, X, FolderOpen, ServerCog } from 'lucide-react';
 import { useApiKeysStore, FIXED_ZHENZHEN_BASE, RH_BASE } from '../stores/apiKeys';
 import { useThemeStore } from '../stores/theme';
 import type { AdvancedProviderConfig, AdvancedProviderProtocol, ApiSettings } from '../types/canvas';
@@ -75,6 +75,59 @@ const ADVANCED_PROVIDER_LABELS: Record<AdvancedProviderProtocol, string> = {
   'jimeng-cli': '即梦 CLI',
 };
 
+const ADVANCED_PROVIDER_GUIDES: Record<AdvancedProviderProtocol, {
+  subtitle: string;
+  description: string;
+  nodeScopes: string[];
+  connectionHint: string;
+  modelHint: string;
+  baseUrlPlaceholder?: string;
+  keyLabel?: string;
+}> = {
+  'openai-compatible': {
+    subtitle: '接入兼容 OpenAI 格式的图像 / 视频 / LLM 服务',
+    description: '适合接入你自己的中转站、One API、New API 或其他兼容 /v1/chat/completions、/v1/images/generations、/v1/videos/generations 的服务。',
+    nodeScopes: ['图像节点', '视频节点', 'LLM 节点'],
+    connectionHint: 'Base URL 填到 /v1 这一层，例如 https://api.example.com/v1；Key 留空会保留后端已保存的密钥。',
+    modelHint: '每行一个模型名。只填你确实要在节点里选择的模型，空白时会使用内置兜底示例。',
+    baseUrlPlaceholder: 'https://api.example.com/v1',
+    keyLabel: 'API Key / Token',
+  },
+  modelscope: {
+    subtitle: '接入 ModelScope 的异步图像任务与兼容聊天接口',
+    description: '适合把 ModelScope 上的图像模型加入图像节点，也可以给 LLM 节点填入可用的聊天模型。',
+    nodeScopes: ['图像节点', 'LLM 节点'],
+    connectionHint: 'Base URL 通常使用 ModelScope API 地址；Token 填 ModelScope 访问令牌。',
+    modelHint: '图像模型建议填写 ModelScope 模型 ID，例如 owner/model-name；聊天模型按平台实际模型名填写。',
+    baseUrlPlaceholder: 'https://api-inference.modelscope.cn/v1',
+    keyLabel: 'ModelScope Token',
+  },
+  volcengine: {
+    subtitle: '接入火山方舟 / Seedream / Seedance',
+    description: '适合用火山引擎做 Seedream 图像、Seedance 视频或方舟聊天模型。只在节点里选择高级来源时才会走这里。',
+    nodeScopes: ['图像节点', '视频节点', 'LLM 节点'],
+    connectionHint: 'Base URL 填火山方舟 API 地址；常规生成使用 API Key，素材上传能力可补充 AK/SK。',
+    modelHint: '图像、视频、聊天模型分别按火山控制台里的模型接入点填写，每行一个。',
+    baseUrlPlaceholder: 'https://ark.cn-beijing.volces.com/api/v3',
+    keyLabel: '火山 API Key',
+  },
+  comfyui: {
+    subtitle: '接入本机 ComfyUI 工作流',
+    description: '适合把本机 ComfyUI 的 API Workflow 接到图像节点。为安全起见这里只允许本机地址。',
+    nodeScopes: ['图像节点'],
+    connectionHint: '实例地址填本机 ComfyUI，例如 http://127.0.0.1:8188。多个实例可一行一个。',
+    modelHint: '图像节点里选择的是工作流 ID/名称，不需要填写模型列表。',
+    baseUrlPlaceholder: 'http://127.0.0.1:8188',
+  },
+  'jimeng-cli': {
+    subtitle: '通过本地 dreamina / 即梦 CLI 调用图像和视频',
+    description: '适合已经在本机配置好即梦 CLI 的用户。它不走 API Key，而是调用本地命令并轮询任务结果。',
+    nodeScopes: ['图像节点', '视频节点', 'SD2.0 节点'],
+    connectionHint: '填写 dreamina 可执行文件路径；如果 CLI 装在 WSL 里，再打开 WSL 并填写发行版名称。',
+    modelHint: '模型名按 CLI 支持的命令参数填写，例如 seedance2.0fast_vip。每行一个。',
+  },
+};
+
 const emptyMap = (): Record<KeyField, string> => ({
   zhenzhenApiKey: '', rhApiKey: '', llmApiKey: '',
   gptImageApiKey: '', nanoBananaApiKey: '', mjApiKey: '', veoApiKey: '',
@@ -112,6 +165,7 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
   const [activeAdvancedProviderId, setActiveAdvancedProviderId] = useState<string>('');
   const [advancedDirty, setAdvancedDirty] = useState(false);
   const [advancedTestStatus, setAdvancedTestStatus] = useState<Record<string, { loading?: boolean; ok?: boolean; message?: string }>>({});
+  const [advancedComfyDrafts, setAdvancedComfyDrafts] = useState<Record<string, { workflowJson?: string; fields?: string }>>({});
   const [backupMessage, setBackupMessage] = useState<string>('');
   const backupFileInputRef = useRef<HTMLInputElement | null>(null);
   // 眼睛预览拉取的明文（仅缓存，不提交）
@@ -138,6 +192,7 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
       setActiveAdvancedProviderId(providers[0]?.id || '');
       setAdvancedDirty(false);
       setAdvancedTestStatus({});
+      setAdvancedComfyDrafts({});
       // 回填文件自动保存路径(明文字段，不脱敏)
       setFileSavePathInput((settings as any)?.fileSavePath || '');
       setCanvasAutoSavePathInput((settings as any)?.canvasAutoSavePath || '');
@@ -502,38 +557,104 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
 
   const renderAdvancedProviderForm = (provider: AdvancedProviderConfig) => {
     const protocolLabel = ADVANCED_PROVIDER_LABELS[provider.protocol] || provider.protocol;
+    const guide = ADVANCED_PROVIDER_GUIDES[provider.protocol];
     const isComfy = provider.protocol === 'comfyui';
     const isJimeng = provider.protocol === 'jimeng-cli';
     const isVolc = provider.protocol === 'volcengine';
     const sectionCls = isPixel
-      ? 'border border-[var(--px-ink)] bg-white p-3 space-y-3'
-      : `border rounded-lg p-3 space-y-3 ${isDark ? 'border-white/10 bg-white/[0.03]' : 'border-black/10 bg-black/[0.02]'}`;
-    const textareaCls = `${inputCls} min-h-[72px] resize-y font-mono text-xs`;
+      ? 'border border-[var(--px-ink)] bg-white p-3 space-y-4 min-w-0'
+      : `border rounded-xl p-3 sm:p-4 space-y-4 min-w-0 ${isDark ? 'border-white/10 bg-white/[0.03]' : 'border-black/10 bg-black/[0.02]'}`;
+    const formBlockCls = isPixel
+      ? 'border border-[var(--px-ink)]/40 bg-[var(--px-paper)]/70 p-3 space-y-3'
+      : `rounded-lg border p-3 space-y-3 ${isDark ? 'border-white/10 bg-black/10' : 'border-black/10 bg-white/70'}`;
+    const fieldInputCls = `${inputCls.replace('flex-1 ', '')} w-full min-w-0`;
+    const textareaCls = `${fieldInputCls} min-h-[76px] resize-y font-mono text-xs leading-relaxed`;
+    const guideBoxCls = isPixel
+      ? 'border border-[var(--px-ink)]/40 bg-white/80 p-3 text-[11px] leading-relaxed text-[var(--px-ink)]'
+      : `rounded-lg border p-3 text-[11px] leading-relaxed ${
+          isDark
+            ? 'border-amber-300/20 bg-amber-300/10 text-amber-50/85'
+            : 'border-amber-300/50 bg-amber-50 text-amber-900'
+        }`;
+    const smallPillCls = isPixel
+      ? 'inline-flex items-center px-1.5 py-0.5 border border-[var(--px-ink)] bg-white text-[10px] font-bold text-[var(--px-ink)]'
+      : `inline-flex items-center rounded px-1.5 py-0.5 border text-[10px] font-semibold ${
+          isDark ? 'border-white/10 bg-white/5 text-white/70' : 'border-black/10 bg-black/5 text-zinc-600'
+        }`;
+    const comfyWorkflow = (provider.comfyuiConfig?.workflows?.[0] || { id: 'workflow-1', name: '默认工作流' }) as NonNullable<NonNullable<AdvancedProviderConfig['comfyuiConfig']>['workflows']>[number];
+    const comfyDraft = advancedComfyDrafts[provider.id] || {};
+    const setComfyDraft = (patch: { workflowJson?: string; fields?: string }) => {
+      setAdvancedComfyDrafts((prev) => ({ ...prev, [provider.id]: { ...(prev[provider.id] || {}), ...patch } }));
+    };
+    const updateComfyWorkflow = (patch: Record<string, any>) => {
+      updateAdvancedProviderNested(provider.id, 'comfyuiConfig', {
+        workflows: [{ ...comfyWorkflow, ...patch }],
+      });
+    };
+    const updateComfyWorkflowJson = (raw: string) => {
+      setComfyDraft({ workflowJson: raw });
+      try {
+        updateComfyWorkflow({ workflowJson: JSON.parse(raw) });
+        setAdvancedTestStatus((prev) => ({ ...prev, [provider.id]: { ok: true, message: '工作流 JSON 已解析' } }));
+      } catch {
+        setAdvancedTestStatus((prev) => ({ ...prev, [provider.id]: { ok: false, message: '工作流 JSON 格式不正确，修正后会自动保存' } }));
+      }
+    };
+    const updateComfyFields = (raw: string) => {
+      setComfyDraft({ fields: raw });
+      try {
+        const parsed = JSON.parse(raw || '[]');
+        if (!Array.isArray(parsed)) throw new Error('fields must be array');
+        updateComfyWorkflow({ fields: parsed });
+        setAdvancedTestStatus((prev) => ({ ...prev, [provider.id]: { ok: true, message: '参数映射已解析' } }));
+      } catch {
+        setAdvancedTestStatus((prev) => ({ ...prev, [provider.id]: { ok: false, message: '参数映射 JSON 需要是数组' } }));
+      }
+    };
+    const FormBlock = ({ title, note, children }: { title: string; note?: string; children: ReactNode }) => (
+      <section className={formBlockCls}>
+        <div className="space-y-1">
+          <div className={`text-xs font-black ${labelCls}`}>{title}</div>
+          {note && <p className={`text-[11px] leading-relaxed ${hintCls}`}>{note}</p>}
+        </div>
+        {children}
+      </section>
+    );
 
     return (
       <div className={sectionCls}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <label className={`flex items-center gap-2 text-xs font-bold ${labelCls}`}>
+        <div className="flex items-start gap-3 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-sm font-black ${labelCls}`}>{provider.label || protocolLabel}</span>
+              <span className={smallPillCls}>{protocolLabel}</span>
+              <span className={provider.enabled ? 'text-[11px] font-bold text-emerald-500' : `text-[11px] font-bold ${hintCls}`}>
+                {provider.enabled ? '已启用' : '未启用'}
+              </span>
+            </div>
+            <p className={`mt-1 text-[11px] leading-relaxed ${hintCls}`}>{guide?.subtitle}</p>
+          </div>
+          <label className={`flex items-center gap-2 text-xs font-bold shrink-0 ${labelCls}`}>
             <input
               type="checkbox"
               checked={!!provider.enabled}
               onChange={(e) => updateAdvancedProvider(provider.id, { enabled: e.target.checked })}
             />
-            启用
+            在节点中显示
           </label>
-          <span className={`text-[11px] ${hintCls}`}>{protocolLabel}</span>
           <button
             type="button"
             onClick={() => handleTestAdvancedProvider(provider)}
             disabled={!!advancedTestStatus[provider.id]?.loading}
             className={
               isPixel
-                ? 'ml-auto px-btn text-[11px] px-2 py-1'
-                : `ml-auto px-2 py-1 text-[11px] rounded border ${
+                ? 'px-btn text-[11px] px-2 py-1 shrink-0'
+                : `px-2 py-1 text-[11px] rounded border shrink-0 inline-flex items-center gap-1 ${
                     isDark ? 'border-white/10 hover:bg-white/10' : 'border-black/10 hover:bg-black/5'
                   }`
             }
           >
+            <TestTube2 size={12} />
             {advancedTestStatus[provider.id]?.loading ? '测试中...' : '测试连接'}
           </button>
         </div>
@@ -550,153 +671,233 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label className="space-y-1">
-            <span className={`text-[11px] ${labelCls}`}>显示名称</span>
-            <input
-              value={provider.label || ''}
-              onChange={(e) => updateAdvancedProvider(provider.id, { label: e.target.value })}
-              className={inputCls}
-            />
-          </label>
-          {!isJimeng && (
-            <label className="space-y-1">
-              <span className={`text-[11px] ${labelCls}`}>Base URL</span>
-              <input
-                value={provider.baseUrl || ''}
-                onChange={(e) => updateAdvancedProvider(provider.id, { baseUrl: e.target.value })}
-                className={inputCls}
-                placeholder={isComfy ? 'http://127.0.0.1:8188' : 'https://api.example.com/v1'}
-              />
-            </label>
-          )}
+        <div className={guideBoxCls}>
+          <div className="flex items-start gap-2">
+            <Info size={14} className="mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <div className="font-bold">这是什么？</div>
+              <p>{guide?.description}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {(guide?.nodeScopes || []).map((scope) => (
+                  <span key={scope} className={smallPillCls}>{scope}</span>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
 
+        <FormBlock
+          title="1. 基础信息"
+          note="显示名称只影响下拉菜单里的名字；关闭“在节点中显示”后，这个平台不会出现在图像 / 视频 / LLM 节点的高级来源里。"
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <label className="space-y-1">
+              <span className={`text-[11px] ${labelCls}`}>显示名称</span>
+              <input
+                value={provider.label || ''}
+                onChange={(e) => updateAdvancedProvider(provider.id, { label: e.target.value })}
+                className={fieldInputCls}
+                placeholder={protocolLabel}
+              />
+            </label>
+            {!isJimeng && (
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>{isComfy ? '默认实例地址' : 'Base URL'}</span>
+                <input
+                  value={provider.baseUrl || ''}
+                  onChange={(e) => updateAdvancedProvider(provider.id, { baseUrl: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder={guide?.baseUrlPlaceholder || 'https://api.example.com/v1'}
+                />
+              </label>
+            )}
+          </div>
+        </FormBlock>
+
         {!isComfy && !isJimeng && (
-          <label className="space-y-1 block">
-            <span className={`text-[11px] ${labelCls}`}>API Key / Token</span>
-            <input
-              type="password"
-              value={provider.apiKey || ''}
-              onChange={(e) => updateAdvancedProvider(provider.id, { apiKey: e.target.value })}
-              className={inputCls}
-              placeholder={provider.hasApiKey || provider.apiKey ? '留空或保留 **** 表示不覆盖后端密钥' : '请输入 API Key'}
-            />
-          </label>
+          <FormBlock title="2. 连接密钥" note={guide?.connectionHint}>
+            <label className="space-y-1 block">
+              <span className={`text-[11px] ${labelCls}`}>{guide?.keyLabel || 'API Key / Token'}</span>
+              <input
+                type="password"
+                value={provider.apiKey || ''}
+                onChange={(e) => updateAdvancedProvider(provider.id, { apiKey: e.target.value })}
+                className={fieldInputCls}
+                placeholder={provider.hasApiKey || provider.apiKey ? '留空或保留 **** 表示不覆盖后端密钥' : '请输入 API Key'}
+              />
+            </label>
+          </FormBlock>
         )}
 
         {isVolc && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="space-y-1">
-              <span className={`text-[11px] ${labelCls}`}>Project</span>
-              <input
-                value={provider.volcengineConfig?.project || ''}
-                onChange={(e) => updateAdvancedProviderNested(provider.id, 'volcengineConfig', { project: e.target.value })}
-                className={inputCls}
-              />
-            </label>
-            <label className="space-y-1">
-              <span className={`text-[11px] ${labelCls}`}>Region</span>
-              <input
-                value={provider.volcengineConfig?.region || ''}
-                onChange={(e) => updateAdvancedProviderNested(provider.id, 'volcengineConfig', { region: e.target.value })}
-                className={inputCls}
-              />
-            </label>
-            <label className="space-y-1">
-              <span className={`text-[11px] ${labelCls}`}>素材 AK</span>
-              <input
-                type="password"
-                value={provider.volcengineConfig?.accessKeyId || ''}
-                onChange={(e) => updateAdvancedProviderNested(provider.id, 'volcengineConfig', { accessKeyId: e.target.value })}
-                className={inputCls}
-                placeholder={provider.volcengineConfig?.hasAccessKeyId ? '留空保持不变' : '可选'}
-              />
-            </label>
-            <label className="space-y-1">
-              <span className={`text-[11px] ${labelCls}`}>素材 SK</span>
-              <input
-                type="password"
-                value={provider.volcengineConfig?.secretAccessKey || ''}
-                onChange={(e) => updateAdvancedProviderNested(provider.id, 'volcengineConfig', { secretAccessKey: e.target.value })}
-                className={inputCls}
-                placeholder={provider.volcengineConfig?.hasSecretAccessKey ? '留空保持不变' : '可选'}
-              />
-            </label>
-          </div>
+          <FormBlock
+            title="3. 火山高级项（可选）"
+            note="普通 Ark / Seedream / Seedance 调用通常只需要上面的 API Key。只有需要素材上传或特定项目隔离时，再补充这些字段。"
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>Project</span>
+                <input
+                  value={provider.volcengineConfig?.project || ''}
+                  onChange={(e) => updateAdvancedProviderNested(provider.id, 'volcengineConfig', { project: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder="可选，例如 default"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>Region</span>
+                <input
+                  value={provider.volcengineConfig?.region || ''}
+                  onChange={(e) => updateAdvancedProviderNested(provider.id, 'volcengineConfig', { region: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder="cn-beijing"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>素材 Access Key ID</span>
+                <input
+                  type="password"
+                  value={provider.volcengineConfig?.accessKeyId || ''}
+                  onChange={(e) => updateAdvancedProviderNested(provider.id, 'volcengineConfig', { accessKeyId: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder={provider.volcengineConfig?.hasAccessKeyId ? '留空保持不变' : '可选'}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>素材 Secret Access Key</span>
+                <input
+                  type="password"
+                  value={provider.volcengineConfig?.secretAccessKey || ''}
+                  onChange={(e) => updateAdvancedProviderNested(provider.id, 'volcengineConfig', { secretAccessKey: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder={provider.volcengineConfig?.hasSecretAccessKey ? '留空保持不变' : '可选'}
+                />
+              </label>
+            </div>
+          </FormBlock>
         )}
 
         {isComfy && (
-          <label className="space-y-1 block">
-            <span className={`text-[11px] ${labelCls}`}>实例地址列表</span>
-            <textarea
-              value={(provider.comfyuiConfig?.instances || [provider.baseUrl || '']).filter(Boolean).join('\n')}
-              onChange={(e) => updateAdvancedProviderNested(provider.id, 'comfyuiConfig', {
-                instances: parseAdvancedProviderModelText(e.target.value),
-              })}
-              className={textareaCls}
-              placeholder="http://127.0.0.1:8188"
-            />
-          </label>
+          <FormBlock title="2. ComfyUI 工作流" note={guide?.connectionHint}>
+            <label className="space-y-1 block">
+              <span className={`text-[11px] ${labelCls}`}>实例地址列表（一行一个）</span>
+              <textarea
+                value={(provider.comfyuiConfig?.instances || [provider.baseUrl || '']).filter(Boolean).join('\n')}
+                onChange={(e) => updateAdvancedProviderNested(provider.id, 'comfyuiConfig', {
+                  instances: parseAdvancedProviderModelText(e.target.value),
+                })}
+                className={textareaCls}
+                placeholder={guide?.baseUrlPlaceholder || 'http://127.0.0.1:8188'}
+              />
+            </label>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>工作流 ID</span>
+                <input
+                  value={comfyWorkflow.id || ''}
+                  onChange={(e) => updateComfyWorkflow({ id: e.target.value || 'workflow-1' })}
+                  className={fieldInputCls}
+                  placeholder="workflow-1"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>工作流名称</span>
+                <input
+                  value={comfyWorkflow.name || ''}
+                  onChange={(e) => updateComfyWorkflow({ name: e.target.value || '默认工作流' })}
+                  className={fieldInputCls}
+                  placeholder="默认工作流"
+                />
+              </label>
+            </div>
+            <label className="space-y-1 block">
+              <span className={`text-[11px] ${labelCls}`}>工作流 JSON（从 ComfyUI 导出的 API 格式）</span>
+              <textarea
+                value={comfyDraft.workflowJson ?? (comfyWorkflow.workflowJson ? JSON.stringify(comfyWorkflow.workflowJson, null, 2) : '')}
+                onChange={(e) => updateComfyWorkflowJson(e.target.value)}
+                className={`${textareaCls} min-h-[140px]`}
+                placeholder='粘贴 ComfyUI API workflow JSON，例如 {"1":{"class_type":"CLIPTextEncode","inputs":{"text":""}}}'
+              />
+              <p className={`text-[11px] ${hintCls}`}>不是普通前端 workflow 文件，需要在 ComfyUI 开启 dev mode 后导出的 API workflow。</p>
+            </label>
+            <label className="space-y-1 block">
+              <span className={`text-[11px] ${labelCls}`}>参数映射 JSON（可选，高级用户）</span>
+              <textarea
+                value={comfyDraft.fields ?? JSON.stringify(comfyWorkflow.fields || [], null, 2)}
+                onChange={(e) => updateComfyFields(e.target.value)}
+                className={textareaCls}
+                placeholder='[{"nodeId":"1","fieldName":"text","source":"prompt"}]'
+              />
+              <p className={`text-[11px] ${hintCls}`}>用于把节点 prompt、参考图等写入指定 ComfyUI 节点字段；不填时后端会尝试按常见字段自动写入。</p>
+            </label>
+          </FormBlock>
         )}
 
         {isJimeng && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="space-y-1 sm:col-span-2">
-              <span className={`text-[11px] ${labelCls}`}>dreamina 可执行路径</span>
-              <input
-                value={provider.jimengConfig?.executablePath || ''}
-                onChange={(e) => updateAdvancedProviderNested(provider.id, 'jimengConfig', { executablePath: e.target.value })}
-                className={inputCls}
-                placeholder="dreamina 或 C:\\path\\dreamina.exe"
-              />
-            </label>
-            <label className={`flex items-center gap-2 text-[11px] ${labelCls}`}>
-              <input
-                type="checkbox"
-                checked={!!provider.jimengConfig?.useWsl}
-                onChange={(e) => updateAdvancedProviderNested(provider.id, 'jimengConfig', { useWsl: e.target.checked })}
-              />
-              使用 WSL
-            </label>
-            <label className="space-y-1">
-              <span className={`text-[11px] ${labelCls}`}>WSL 发行版</span>
-              <input
-                value={provider.jimengConfig?.wslDistro || ''}
-                onChange={(e) => updateAdvancedProviderNested(provider.id, 'jimengConfig', { wslDistro: e.target.value })}
-                className={inputCls}
-              />
-            </label>
-          </div>
+          <FormBlock title="2. 本地 CLI" note={guide?.connectionHint}>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <label className="space-y-1 lg:col-span-2">
+                <span className={`text-[11px] ${labelCls}`}>dreamina 可执行路径</span>
+                <input
+                  value={provider.jimengConfig?.executablePath || ''}
+                  onChange={(e) => updateAdvancedProviderNested(provider.id, 'jimengConfig', { executablePath: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder="dreamina 或 C:\\path\\dreamina.exe"
+                />
+              </label>
+              <label className={`flex items-center gap-2 text-[11px] ${labelCls}`}>
+                <input
+                  type="checkbox"
+                  checked={!!provider.jimengConfig?.useWsl}
+                  onChange={(e) => updateAdvancedProviderNested(provider.id, 'jimengConfig', { useWsl: e.target.checked })}
+                />
+                CLI 装在 WSL 中
+              </label>
+              <label className="space-y-1">
+                <span className={`text-[11px] ${labelCls}`}>WSL 发行版</span>
+                <input
+                  value={provider.jimengConfig?.wslDistro || ''}
+                  onChange={(e) => updateAdvancedProviderNested(provider.id, 'jimengConfig', { wslDistro: e.target.value })}
+                  className={fieldInputCls}
+                  placeholder="例如 Ubuntu"
+                />
+              </label>
+            </div>
+          </FormBlock>
         )}
 
         {!isComfy && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label className="space-y-1">
-              <span className={`text-[11px] ${labelCls}`}>图像模型</span>
-              <textarea
-                value={stringifyAdvancedProviderModels(provider.imageModels)}
-                onChange={(e) => updateAdvancedProvider(provider.id, { imageModels: parseAdvancedProviderModelText(e.target.value) })}
-                className={textareaCls}
-              />
-            </label>
-            <label className="space-y-1">
-              <span className={`text-[11px] ${labelCls}`}>视频模型</span>
-              <textarea
-                value={stringifyAdvancedProviderModels(provider.videoModels)}
-                onChange={(e) => updateAdvancedProvider(provider.id, { videoModels: parseAdvancedProviderModelText(e.target.value) })}
-                className={textareaCls}
-              />
-            </label>
-            <label className="space-y-1">
-              <span className={`text-[11px] ${labelCls}`}>聊天模型</span>
-              <textarea
-                value={stringifyAdvancedProviderModels(provider.chatModels)}
-                onChange={(e) => updateAdvancedProvider(provider.id, { chatModels: parseAdvancedProviderModelText(e.target.value) })}
-                className={textareaCls}
-              />
-            </label>
-          </div>
+          <FormBlock title="3. 节点里可选的模型" note={guide?.modelHint}>
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
+              <label className="space-y-1 min-w-0">
+                <span className={`text-[11px] ${labelCls}`}>图像模型（一行一个）</span>
+                <textarea
+                  value={stringifyAdvancedProviderModels(provider.imageModels)}
+                  onChange={(e) => updateAdvancedProvider(provider.id, { imageModels: parseAdvancedProviderModelText(e.target.value) })}
+                  className={textareaCls}
+                  placeholder="例如 gpt-image-1"
+                />
+              </label>
+              <label className="space-y-1 min-w-0">
+                <span className={`text-[11px] ${labelCls}`}>视频模型（一行一个）</span>
+                <textarea
+                  value={stringifyAdvancedProviderModels(provider.videoModels)}
+                  onChange={(e) => updateAdvancedProvider(provider.id, { videoModels: parseAdvancedProviderModelText(e.target.value) })}
+                  className={textareaCls}
+                  placeholder={isJimeng ? '例如 seedance2.0fast_vip' : '例如 video-model-name'}
+                />
+              </label>
+              <label className="space-y-1 min-w-0">
+                <span className={`text-[11px] ${labelCls}`}>聊天模型（一行一个）</span>
+                <textarea
+                  value={stringifyAdvancedProviderModels(provider.chatModels)}
+                  onChange={(e) => updateAdvancedProvider(provider.id, { chatModels: parseAdvancedProviderModelText(e.target.value) })}
+                  className={textareaCls}
+                  placeholder={isJimeng ? '即梦 CLI 通常不用填写' : '例如 gpt-4o-mini'}
+                />
+              </label>
+            </div>
+          </FormBlock>
         )}
       </div>
     );
@@ -768,8 +969,8 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
       <div
         className={
           isPixel
-            ? 'w-full max-w-2xl mx-4 px-card overflow-hidden flex flex-col max-h-[90vh]'
-            : `w-full max-w-2xl mx-4 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] ${
+            ? `w-full ${advancedOpen ? 'max-w-4xl' : 'max-w-2xl'} mx-4 px-card overflow-hidden flex flex-col max-h-[90vh]`
+            : `w-full ${advancedOpen ? 'max-w-4xl' : 'max-w-2xl'} mx-4 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] ${
                 isDark ? 'bg-zinc-900 border border-white/10' : 'bg-white border border-black/10'
               }`
         }
@@ -899,28 +1100,29 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
               }
             >
               <ServerCog size={14} className={isPixel ? 'text-[var(--px-ink)]' : isDark ? 'text-white/70' : 'text-zinc-600'} />
-              <span className={`text-xs font-bold ${isPixel ? 'text-[var(--px-ink)]' : ''}`}>扩展 API 平台【高级/可选】</span>
-              <span
-                className={
-                  isPixel
-                    ? 'ml-1 px-1.5 py-0.5 text-[10px] border border-[var(--px-ink)] bg-white text-[var(--px-ink)]'
-                    : `ml-1 px-1.5 py-0.5 text-[10px] rounded ${
-                        advancedSummary.enabledCount > 0
-                          ? isDark
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                            : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                          : isDark
-                            ? 'bg-white/10 text-white/60 border border-white/10'
-                            : 'bg-black/5 text-zinc-500 border border-black/10'
-                      }`
-                }
-              >
-                启用 {advancedSummary.enabledCount}
+              <span className={`text-xs font-bold shrink-0 ${isPixel ? 'text-[var(--px-ink)]' : ''}`}>扩展 API 平台【高级/可选】</span>
+              <span className={`hidden sm:inline text-[11px] ${hintCls}`}>给高级用户接入第三方平台，默认不影响主流程</span>
+              <span className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
+                <span
+                  className={
+                    isPixel
+                      ? 'px-1.5 py-0.5 text-[10px] border border-[var(--px-ink)] bg-white text-[var(--px-ink)]'
+                      : `px-1.5 py-0.5 text-[10px] rounded border ${
+                          advancedSummary.enabledCount > 0
+                            ? isDark
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                              : 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                            : isDark
+                              ? 'bg-white/10 text-white/60 border-white/10'
+                              : 'bg-black/5 text-zinc-500 border-black/10'
+                        }`
+                  }
+                >
+                  已启用 {advancedSummary.enabledCount}/{advancedProvidersInput.length || 5}
+                </span>
+                <span className={`text-[10px] ${hintCls}`}>密钥 {advancedSummary.configuredKeyCount}</span>
               </span>
-              <span className={`text-[10px] ${hintCls}`}>Key {advancedSummary.configuredKeyCount}</span>
-              <span className={`text-[10px] ${advancedSummary.comfyuiConfigured ? 'text-emerald-500' : hintCls}`}>ComfyUI</span>
-              <span className={`text-[10px] ${advancedSummary.jimengConfigured ? 'text-emerald-500' : hintCls}`}>即梦 CLI</span>
-              <span className={`ml-auto flex items-center gap-1 text-[11px] ${hintCls}`}>
+              <span className={`flex items-center gap-1 text-[11px] ${hintCls}`}>
                 {advancedOpen ? '收起' : '展开'}
                 {advancedOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               </span>
@@ -932,14 +1134,15 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
             )}
             {advancedOpen && (
               <div className="mt-3 space-y-3">
-                <div className={`text-[11px] ${hintCls}`}>
-                  用于 ModelScope、火山引擎、本地 ComfyUI、即梦 CLI 和 OpenAI 兼容接口。只有平台启用并在节点里选择高级来源时才会使用。
+                <div className={`text-[11px] leading-relaxed ${hintCls}`}>
+                  这里不是必填项。它只用于 ModelScope、火山引擎、本地 ComfyUI、即梦 CLI 和 OpenAI 兼容接口；平台开启后，还需要在具体节点的“高级来源”里选择它才会生效。
+                  当前状态：已启用 {advancedSummary.enabledCount} 个，已配置密钥 {advancedSummary.configuredKeyCount} 个，ComfyUI {advancedSummary.comfyuiConfigured ? '已填写地址' : '未填写地址'}，即梦 CLI {advancedSummary.jimengConfigured ? '已填写路径' : '未填写路径'}。
                 </div>
                 {advancedProvidersInput.length === 0 ? (
                   <div className={`text-xs ${hintCls}`}>后端尚未返回扩展平台卡片，请先保存或刷新设置。</div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-[170px_1fr] gap-3">
-                    <div className="space-y-2">
+                  <div className="grid grid-cols-1 lg:grid-cols-[250px_minmax(0,1fr)] gap-3 items-start">
+                    <div className={`space-y-2 min-w-0 ${isPixel ? '' : 'lg:sticky lg:top-0'}`}>
                       {advancedProvidersInput.map((provider) => (
                         <button
                           key={provider.id}
@@ -947,8 +1150,8 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
                           onClick={() => setActiveAdvancedProviderId(provider.id)}
                           className={
                             isPixel
-                              ? `w-full text-left px-2 py-2 px-btn ${activeAdvancedProvider?.id === provider.id ? 'px-btn--mint' : ''}`
-                              : `w-full text-left px-2 py-2 rounded-md border text-xs transition ${
+                              ? `w-full !block text-left px-2 py-2 px-btn ${activeAdvancedProvider?.id === provider.id ? 'px-btn--mint' : ''}`
+                              : `w-full block text-left px-2 py-2 rounded-md border text-xs transition ${
                                   activeAdvancedProvider?.id === provider.id
                                     ? isDark
                                       ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-100'
@@ -959,17 +1162,22 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
                                 }`
                           }
                         >
-                          <div className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full ${provider.enabled ? 'bg-emerald-400' : 'bg-zinc-400'}`} />
-                            <span className="font-bold truncate">{provider.label || provider.id}</span>
+                          <div className="flex items-center gap-2 min-w-0 w-full">
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${provider.enabled ? 'bg-emerald-400' : 'bg-zinc-400'}`} />
+                            <span className="font-bold min-w-0 truncate">{ADVANCED_PROVIDER_LABELS[provider.protocol] || provider.label || provider.id}</span>
+                            <span className={`ml-auto text-[10px] shrink-0 ${provider.enabled ? 'text-emerald-500' : hintCls}`}>
+                              {provider.enabled ? '已启用' : '未启用'}
+                            </span>
                           </div>
-                          <div className={`mt-1 text-[10px] truncate ${hintCls}`}>
-                            {ADVANCED_PROVIDER_LABELS[provider.protocol] || provider.protocol}
+                          <div className={`mt-1 text-[10px] leading-snug ${hintCls}`}>
+                            {ADVANCED_PROVIDER_GUIDES[provider.protocol]?.nodeScopes.join(' / ') || provider.protocol}
                           </div>
                         </button>
                       ))}
                     </div>
-                    {activeAdvancedProvider && renderAdvancedProviderForm(activeAdvancedProvider)}
+                    <div className="min-w-0">
+                      {activeAdvancedProvider && renderAdvancedProviderForm(activeAdvancedProvider)}
+                    </div>
                   </div>
                 )}
               </div>

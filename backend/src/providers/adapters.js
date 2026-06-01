@@ -30,7 +30,52 @@ async function testProviderConnection(provider, options = {}) {
   return adapter.testProvider(provider, options);
 }
 
+async function generateImageWithProvider(provider, input = {}, options = {}) {
+  const adapter = getAdapterForProtocol(provider?.protocol);
+  if (!adapter?.generateImage) {
+    return {
+      ok: false,
+      code: 'unsupported_image_generation',
+      providerId: provider?.id || '',
+      protocol: provider?.protocol || '',
+      error: '该扩展平台暂不支持图像生成。',
+    };
+  }
+  return adapter.generateImage(provider, input, options);
+}
+
+async function generateChatWithProvider(provider, input = {}, options = {}) {
+  const adapter = getAdapterForProtocol(provider?.protocol);
+  if (!adapter?.generateChat) {
+    return {
+      ok: false,
+      code: 'unsupported_llm_generation',
+      providerId: provider?.id || '',
+      protocol: provider?.protocol || '',
+      error: '该扩展平台暂不支持 LLM 调用。',
+    };
+  }
+  return adapter.generateChat(provider, input, options);
+}
+
+async function generateVideoWithProvider(provider, input = {}, options = {}) {
+  const adapter = getAdapterForProtocol(provider?.protocol);
+  if (!adapter?.generateVideo) {
+    return {
+      ok: false,
+      code: 'unsupported_video_generation',
+      providerId: provider?.id || '',
+      protocol: provider?.protocol || '',
+      error: '该扩展平台暂不支持视频生成。',
+    };
+  }
+  return adapter.generateVideo(provider, input, options);
+}
+
 module.exports = {
+  generateChatWithProvider,
+  generateImageWithProvider,
+  generateVideoWithProvider,
   getAdapterForProtocol,
   testProviderConnection,
 };
