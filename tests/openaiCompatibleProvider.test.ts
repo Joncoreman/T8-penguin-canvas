@@ -52,6 +52,39 @@ test('OpenAI compatible chat posts to chat/completions and normalizes assistant 
   assert.equal(calls[0].body.temperature, 0.25);
 });
 
+test('OpenAI compatible chat preserves remote video_url multimodal parts', async () => {
+  const calls: any[] = [];
+  const provider = {
+    id: 'custom-openai',
+    protocol: 'openai-compatible',
+    baseUrl: 'https://api.example.com/v1',
+    apiKey: 'sk-secret',
+    chatModels: ['gpt-4o-mini'],
+  };
+
+  const result = await openaiCompatible.generateChat(provider, {
+    model: 'gpt-4o-mini',
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'describe motion' },
+        { type: 'video_url', video_url: { url: 'https://cdn.example.com/clip.mp4' } },
+      ],
+    }],
+    llmVideoMode: 'compressed-base64',
+  }, {
+    fetchImpl: async (url: string, init: any) => {
+      calls.push({ url, init, body: JSON.parse(init.body) });
+      return jsonResponse({ choices: [{ message: { content: 'moving' } }] });
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'moving');
+  assert.equal(calls[0].body.messages[0].content[1].type, 'video_url');
+  assert.equal(calls[0].body.messages[0].content[1].video_url.url, 'https://cdn.example.com/clip.mp4');
+});
+
 test('OpenAI compatible image generation normalizes url and b64_json results', async () => {
   const calls: any[] = [];
   const provider = {

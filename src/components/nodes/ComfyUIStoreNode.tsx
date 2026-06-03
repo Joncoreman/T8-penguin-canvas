@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { AlertCircle, ArrowLeft, Boxes, Loader2, Play, RefreshCw, Search, Workflow } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Boxes, Download, Loader2, Play, Plus, RefreshCw, Search, Settings, Trash2, Upload, Workflow } from 'lucide-react';
 import { PORT_COLOR } from '../../config/portTypes';
 import { COMFYUI_APP_MANIFEST } from '../../data/comfyuiAppManifest';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
@@ -14,12 +14,16 @@ import {
   COMFY_APP_MANIFEST_EVENT,
   comfyAppInputRequirements,
   defaultComfyAppParamValues,
+  deleteComfyApp,
+  deleteComfyAppCategory,
   filterComfyApps,
   getComfyProviderBaseUrl,
   getUserComfyAppManifest,
+  importComfyAppManifest,
   importComfyAppPayload,
   mergeComfyAppManifests,
-  saveComfyApp,
+  moveComfyAppToCategory,
+  saveComfyAppCategory,
   type ComfyAppDefinition,
 } from '../../utils/comfyuiApps';
 import {
@@ -50,6 +54,16 @@ function parseInputValue(kind: string, value: any) {
   return value ?? '';
 }
 
+function downloadJson(filename: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
   const update = useUpdateNodeData(id);
   const { theme, style } = useThemeStore();
@@ -59,11 +73,11 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
   const d = (data || {}) as any;
   const [manifest, setManifest] = useState(() => mergeComfyAppManifests(COMFYUI_APP_MANIFEST, getUserComfyAppManifest()));
   const [importStatus, setImportStatus] = useState('');
+  const refreshManifest = () => setManifest(mergeComfyAppManifests(COMFYUI_APP_MANIFEST, getUserComfyAppManifest()));
 
   useEffect(() => {
-    const refresh = () => setManifest(mergeComfyAppManifests(COMFYUI_APP_MANIFEST, getUserComfyAppManifest()));
-    window.addEventListener(COMFY_APP_MANIFEST_EVENT, refresh);
-    return () => window.removeEventListener(COMFY_APP_MANIFEST_EVENT, refresh);
+    window.addEventListener(COMFY_APP_MANIFEST_EVENT, refreshManifest);
+    return () => window.removeEventListener(COMFY_APP_MANIFEST_EVENT, refreshManifest);
   }, []);
 
   const advancedProviders = useApiKeysStore((s) => s.settings.advancedProviders);
@@ -76,6 +90,9 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
   const categoryId = d.comfyuiStoreCategoryId || COMFY_APP_ALL_CATEGORY_ID;
   const query = String(d.comfyuiStoreSearchQuery || '');
   const apps = useMemo(() => filterComfyApps(manifest, { categoryId, query }), [manifest, categoryId, query]);
+  const userManifest = useMemo(() => getUserComfyAppManifest(), [manifest]);
+  const userAppIds = useMemo(() => new Set(userManifest.apps.map((app) => app.id)), [userManifest]);
+  const userCategoryIds = useMemo(() => new Set(userManifest.categories.map((category) => category.id)), [userManifest]);
   const activeAppId = String(d.comfyuiStoreActiveAppId || '');
   const activeApp = activeAppId ? (manifest.apps.find((app) => app.id === activeAppId) || null) : null;
   const paramValues = {
@@ -149,13 +166,64 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
     error: '',
   });
 
+  const createCategory = () => {
+    const name = String(d.comfyuiStoreNewCategoryName || '').trim();
+    const rawId = String(d.comfyuiStoreNewCategoryId || '').trim();
+    if (!name) {
+      setImportStatus('请先填写分类名称。');
+      return;
+    }
+    const next = saveComfyAppCategory({ id: rawId || name, name });
+    setManifest(mergeComfyAppManifests(COMFYUI_APP_MANIFEST, next));
+    const created = next.categories.find((category) => category.name === name) || next.categories[next.categories.length - 1];
+    update({ comfyuiStoreNewCategoryName: '', comfyuiStoreNewCategoryId: '', comfyuiStoreCategoryId: created?.id || COMFY_APP_ALL_CATEGORY_ID, comfyuiStoreManageCategories: true });
+    setImportStatus(`已新建分类：${created?.name || name}`);
+  };
+
+  const removeCategory = (targetCategoryId: string) => {
+    const category = manifest.categories.find((item) => item.id === targetCategoryId);
+    if (!category) return;
+    if (!userCategoryIds.has(targetCategoryId)) {
+      setImportStatus('内置分类不能删除；可以新建自己的分类并把应用移过去。');
+      return;
+    }
+    if (!window.confirm(`删除分类「${category.name}」？其中应用会移动到默认分类。`)) return;
+    const next = deleteComfyAppCategory(targetCategoryId);
+    setManifest(mergeComfyAppManifests(COMFYUI_APP_MANIFEST, next));
+    if (categoryId === targetCategoryId) update({ comfyuiStoreCategoryId: COMFY_APP_ALL_CATEGORY_ID });
+    setImportStatus(`已删除分类：${category.name}`);
+  };
+
+  const moveAppCategory = (app: ComfyAppDefinition, nextCategoryId: string) => {
+    if (!userAppIds.has(app.id)) {
+      setImportStatus('内置应用不能直接改分类；请先导出后作为自定义应用导入。');
+      return;
+    }
+    const next = moveComfyAppToCategory(app.id, nextCategoryId);
+    setManifest(mergeComfyAppManifests(COMFYUI_APP_MANIFEST, next));
+    setImportStatus(`已移动应用「${app.title}」。`);
+  };
+
+  const removeApp = (app: ComfyAppDefinition) => {
+    if (!userAppIds.has(app.id)) {
+      setImportStatus('内置应用不能删除。');
+      return;
+    }
+    if (!window.confirm(`删除 ComfyUI 应用「${app.title}」？`)) return;
+    const next = deleteComfyApp(app.id);
+    setManifest(mergeComfyAppManifests(COMFYUI_APP_MANIFEST, next));
+    if (activeAppId === app.id) update({ comfyuiStoreActiveAppId: '', status: 'idle', error: '' });
+    setImportStatus(`已删除应用：${app.title}`);
+  };
+
   const handleImportFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
       try {
         const imported = importComfyAppPayload(JSON.parse(String(reader.result || '{}')));
-        for (const app of imported.apps) saveComfyApp(app, getUserComfyAppManifest());
-        setImportStatus(imported.apps.length ? `已导入 ${imported.apps.length} 个应用。` : '没有找到可导入应用。');
+        const next = importComfyAppManifest(imported);
+        setManifest(mergeComfyAppManifests(COMFYUI_APP_MANIFEST, next));
+        setImportStatus(imported.apps.length ? `已导入 ${imported.apps.length} 个应用、${imported.categories.length} 个分类。` : '没有找到可导入应用。');
       } catch (error: any) {
         setImportStatus(error?.message || '导入失败。');
       }
@@ -213,7 +281,7 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
   useRunTrigger(id, handleRun, 'image');
 
   return (
-    <div className="relative flex flex-col nodrag nowheel" style={rootStyle}>
+    <div className="relative flex flex-col nowheel" style={rootStyle}>
       <Handle type="target" position={Position.Left} style={{ ...handleStyle, background: PORT_COLOR.image, left: -6 }} />
       <Handle type="source" position={Position.Right} style={{ ...handleStyle, background: PORT_COLOR.image, right: -6 }} />
       <ResizableCorners
@@ -243,7 +311,7 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-auto p-3 space-y-3">
+      <div className="flex-1 min-h-0 overflow-auto p-3 space-y-3 nowheel">
         <div className="grid grid-cols-1 gap-2">
           <label className="space-y-1">
             <span className="text-[11px] font-bold" style={{ color: sub }}>ComfyUI 实例</span>
@@ -273,8 +341,26 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
                   placeholder="搜索 ComfyUI 应用"
                 />
               </div>
-              <label className={buttonCls} style={inputStyle}>
-                导入
+              <button
+                type="button"
+                className={buttonCls}
+                style={inputStyle}
+                onClick={() => update({ comfyuiStoreManageCategories: true })}
+                title="新建分类"
+              >
+                <Plus size={12} /> 新建
+              </button>
+              <button
+                type="button"
+                className={buttonCls}
+                style={inputStyle}
+                onClick={() => update({ comfyuiStoreManageCategories: !d.comfyuiStoreManageCategories })}
+                title="管理分类"
+              >
+                <Settings size={12} /> 分类
+              </button>
+              <label className={buttonCls} style={inputStyle} title="导入 ComfyUI 应用备份">
+                <Upload size={12} /> 导入
                 <input
                   type="file"
                   accept="application/json,.json"
@@ -286,7 +372,61 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
                   }}
                 />
               </label>
+              <button
+                type="button"
+                className={buttonCls}
+                style={inputStyle}
+                onClick={() => downloadJson(`t8-comfyui-apps-${new Date().toISOString().slice(0, 10)}.json`, getUserComfyAppManifest())}
+                title="导出本地自定义应用和分类"
+              >
+                <Download size={12} /> 导出
+              </button>
             </div>
+            {d.comfyuiStoreManageCategories && (
+              <div className="rounded border p-2 space-y-2" style={{ borderColor: border, background: isLight ? 'rgba(15,23,42,0.03)' : 'rgba(255,255,255,0.05)' }}>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <input
+                    value={d.comfyuiStoreNewCategoryName || ''}
+                    onChange={(e) => update({ comfyuiStoreNewCategoryName: e.target.value })}
+                    className={inputCls}
+                    style={inputStyle}
+                    placeholder="新分类名称"
+                  />
+                  <input
+                    value={d.comfyuiStoreNewCategoryId || ''}
+                    onChange={(e) => update({ comfyuiStoreNewCategoryId: e.target.value })}
+                    className={inputCls}
+                    style={inputStyle}
+                    placeholder="稳定 ID，可留空"
+                  />
+                </div>
+                <button type="button" className={buttonCls} style={{ ...inputStyle, borderColor: accent, color: accent }} onClick={createCategory}>
+                  <Plus size={12} /> 新建分类
+                </button>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {manifest.categories.map((category) => (
+                    <div key={category.id} className="flex items-center gap-1 rounded border px-2 py-1" style={{ borderColor: border }}>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[11px] font-bold">{category.name}</div>
+                        <div className="truncate text-[10px]" style={{ color: sub }}>
+                          {manifest.apps.filter((app) => app.categoryId === category.id).length} 个应用
+                          {!userCategoryIds.has(category.id) ? ' · 内置' : ''}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="nodrag nowheel inline-flex h-6 w-6 shrink-0 items-center justify-center rounded border"
+                        style={{ borderColor: 'rgba(248,113,113,0.45)', color: userCategoryIds.has(category.id) ? '#f87171' : sub, opacity: userCategoryIds.has(category.id) ? 1 : 0.55 }}
+                        title={userCategoryIds.has(category.id) ? '删除分类' : '内置分类不能删除'}
+                        onClick={() => removeCategory(category.id)}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
@@ -311,12 +451,16 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
             {apps.length ? (
               <div className="space-y-1.5">
                 {apps.map((app) => (
-                  <button
-                    type="button"
+                  <div
                     key={app.id}
-                    className="nodrag nowheel w-full rounded border p-2 text-left"
+                    role="button"
+                    tabIndex={0}
+                    className="nodrag nowheel w-full cursor-pointer rounded border p-2 text-left"
                     style={{ borderColor: border, background: isLight ? 'rgba(15,23,42,0.03)' : 'rgba(255,255,255,0.05)', color: text }}
                     onClick={() => selectApp(app)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') selectApp(app);
+                    }}
                   >
                     <div className="flex items-center gap-2">
                       <Workflow size={14} style={{ color: app.ui?.accent || accent }} />
@@ -325,7 +469,37 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
                         <div className="truncate text-[10px]" style={{ color: sub }}>{app.description || `${app.fields.length} 个字段`}</div>
                       </div>
                     </div>
-                  </button>
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <select
+                        value={app.categoryId}
+                        className={`${inputCls} flex-1`}
+                        style={inputStyle}
+                        title="设置应用分类"
+                        onClick={(event) => event.stopPropagation()}
+                        onChange={(event) => {
+                          event.stopPropagation();
+                          moveAppCategory(app, event.target.value);
+                        }}
+                        disabled={!userAppIds.has(app.id)}
+                      >
+                        {manifest.categories.map((category) => (
+                          <option key={category.id} value={category.id}>{category.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className={buttonCls}
+                        style={{ ...inputStyle, borderColor: 'rgba(248,113,113,0.45)', color: userAppIds.has(app.id) ? '#f87171' : sub, opacity: userAppIds.has(app.id) ? 1 : 0.55 }}
+                        title={userAppIds.has(app.id) ? '删除应用' : '内置应用不能删除'}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          removeApp(app);
+                        }}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
             ) : (
@@ -341,6 +515,29 @@ const ComfyUIStoreNode = ({ id, data, selected }: NodeProps) => {
               <div className="text-xs font-black">{activeApp.title}</div>
               <div className="mt-1 text-[10px]" style={{ color: sub }}>
                 需要：图片 {req.images} / 视频 {req.videos} / 音频 {req.audios} · 字段 {activeApp.fields.length}
+              </div>
+              <div className="mt-2 flex items-center gap-1.5">
+                <select
+                  value={activeApp.categoryId}
+                  className={`${inputCls} flex-1`}
+                  style={inputStyle}
+                  title="设置应用分类"
+                  disabled={!userAppIds.has(activeApp.id)}
+                  onChange={(event) => moveAppCategory(activeApp, event.target.value)}
+                >
+                  {manifest.categories.map((category) => (
+                    <option key={category.id} value={category.id}>{category.name}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className={buttonCls}
+                  style={{ ...inputStyle, borderColor: 'rgba(248,113,113,0.45)', color: userAppIds.has(activeApp.id) ? '#f87171' : sub, opacity: userAppIds.has(activeApp.id) ? 1 : 0.55 }}
+                  title={userAppIds.has(activeApp.id) ? '删除应用' : '内置应用不能删除'}
+                  onClick={() => removeApp(activeApp)}
+                >
+                  <Trash2 size={12} /> 删除
+                </button>
               </div>
             </div>
 

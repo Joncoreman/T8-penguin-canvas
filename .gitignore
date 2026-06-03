@@ -34,6 +34,16 @@ _*.log
 # Local project operating manual (do not publish)
 /skill.md
 
+# Local-only private billing/recharge overlay. Public GitHub releases must not
+# contain these modules, routes, UI components, or private patch files.
+/backend/src/routes/recharge.js
+/src/components/RechargeModal.tsx
+/src/private/recharge/**
+/backend/src/private/recharge/**
+/private/recharge/**
+/local-private/recharge/**
+/recharge.private.*
+
 # Local reference copy of external SS_tools project (do not publish binaries/assets)
 /SS_tools/
 

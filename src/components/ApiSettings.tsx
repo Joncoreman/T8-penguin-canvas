@@ -14,7 +14,9 @@ import {
 import {
   COMFY_FIELD_SOURCE_OPTIONS,
   analyzeComfyWorkflow,
-  compactComfyFields,
+  canonicalizeComfyFieldsByWorkflow,
+  filterComfyFieldsByExcludeRules,
+  parseComfyFieldExcludeRules,
   type ComfyFieldMapping,
 } from '../utils/comfyuiWorkflow';
 
@@ -277,7 +279,7 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
   const [activeAdvancedProviderId, setActiveAdvancedProviderId] = useState<string>('');
   const [advancedDirty, setAdvancedDirty] = useState(false);
   const [advancedTestStatus, setAdvancedTestStatus] = useState<Record<string, { loading?: boolean; ok?: boolean; message?: string }>>({});
-  const [advancedComfyDrafts, setAdvancedComfyDrafts] = useState<Record<string, { workflowJson?: string; fields?: string }>>({});
+  const [advancedComfyDrafts, setAdvancedComfyDrafts] = useState<Record<string, { workflowJson?: string; fields?: string; excludeRules?: string }>>({});
   const [cloudUploadOpen, setCloudUploadOpen] = useState(false);
   const [cloudUploadTargetsInput, setCloudUploadTargetsInput] = useState<CloudUploadTargetConfig[]>([]);
   const [activeCloudTargetId, setActiveCloudTargetId] = useState<string>('');
@@ -1069,11 +1071,20 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
     const comfyDraft = advancedComfyDrafts[provider.id] || {};
     const comfyWorkflowRaw = comfyDraft.workflowJson ?? (comfyWorkflow.workflowJson ? JSON.stringify(comfyWorkflow.workflowJson, null, 2) : '');
     const comfyWorkflowObject = tryParseJsonObject(comfyWorkflowRaw);
-    const comfyAnalysis = analyzeComfyWorkflow(comfyWorkflowObject || comfyWorkflow.workflowJson || null);
-    const comfyMappedFields = compactComfyFields(
-      (Array.isArray(comfyWorkflow.fields) && comfyWorkflow.fields.length ? comfyWorkflow.fields : comfyAnalysis.fields) as ComfyFieldMapping[],
+    const comfyWorkflowSource = comfyWorkflowObject || comfyWorkflow.workflowJson || null;
+    const comfyAnalysis = analyzeComfyWorkflow(comfyWorkflowSource);
+    const comfyExcludeRulesRaw = comfyDraft.excludeRules ?? parseComfyFieldExcludeRules((comfyWorkflow as any).excludeRules).join('\n');
+    const comfyExcludeRules = parseComfyFieldExcludeRules(comfyExcludeRulesRaw);
+    const comfyFilteredAnalysisFields = filterComfyFieldsByExcludeRules(comfyWorkflowSource, comfyAnalysis.fields, comfyExcludeRules);
+    const comfyExcludedFieldCount = Math.max(0, comfyAnalysis.fields.length - comfyFilteredAnalysisFields.length);
+    const comfyBaseMappedFields = (Array.isArray(comfyWorkflow.fields) && comfyWorkflow.fields.length
+      ? comfyWorkflow.fields
+      : comfyFilteredAnalysisFields) as ComfyFieldMapping[];
+    const comfyMappedFields = canonicalizeComfyFieldsByWorkflow(
+      comfyWorkflowSource,
+      filterComfyFieldsByExcludeRules(comfyWorkflowSource, comfyBaseMappedFields, comfyExcludeRules),
     );
-    const setComfyDraft = (patch: { workflowJson?: string; fields?: string }) => {
+    const setComfyDraft = (patch: { workflowJson?: string; fields?: string; excludeRules?: string }) => {
       setAdvancedComfyDrafts((prev) => ({ ...prev, [provider.id]: { ...(prev[provider.id] || {}), ...patch } }));
     };
     const updateComfyWorkflow = (patch: Record<string, any>) => {
@@ -1086,7 +1097,10 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
       try {
         const workflowJson = JSON.parse(raw);
         const analysis = analyzeComfyWorkflow(workflowJson);
-        const nextFields = compactComfyFields(analysis.fields);
+        const nextFields = canonicalizeComfyFieldsByWorkflow(
+          workflowJson,
+          filterComfyFieldsByExcludeRules(workflowJson, analysis.fields, comfyExcludeRules),
+        );
         updateComfyWorkflow({
           workflowJson,
           ...(nextFields.length ? { fields: nextFields } : {}),
@@ -1105,12 +1119,51 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
         setAdvancedTestStatus((prev) => ({ ...prev, [provider.id]: { ok: false, message: '工作流 JSON 格式不正确，修正后会自动保存' } }));
       }
     };
+    const updateComfyExcludeRules = (raw: string) => {
+      setComfyDraft({ excludeRules: raw });
+      const excludeRules = parseComfyFieldExcludeRules(raw);
+      const workflowJson = comfyWorkflowSource;
+      const currentFields = comfyAnalysis.fields.length
+        ? comfyAnalysis.fields
+        : (Array.isArray(comfyWorkflow.fields) ? comfyWorkflow.fields : []);
+      const fields = canonicalizeComfyFieldsByWorkflow(
+        workflowJson,
+        filterComfyFieldsByExcludeRules(workflowJson, currentFields as ComfyFieldMapping[], excludeRules),
+      );
+      updateComfyWorkflow({ excludeRules, fields });
+      setComfyDraft({ fields: JSON.stringify(fields, null, 2) });
+      setAdvancedTestStatus((prev) => ({
+        ...prev,
+        [provider.id]: {
+          ok: true,
+          message: excludeRules.length
+            ? `已设置 ${excludeRules.length} 条排除规则，当前映射保留 ${fields.length} 个字段`
+            : `已清空排除规则，当前映射保留 ${fields.length} 个字段`,
+        },
+      }));
+    };
+    const appendComfyExcludeRules = (items: string[]) => {
+      updateComfyExcludeRules([...parseComfyFieldExcludeRules(comfyExcludeRulesRaw), ...items].join('\n'));
+    };
+    const handleComfyWorkflowFile = (file: File) => {
+      const reader = new FileReader();
+      reader.onload = () => updateComfyWorkflowJson(String(reader.result || ''));
+      reader.onerror = () => setAdvancedTestStatus((prev) => ({
+        ...prev,
+        [provider.id]: { ok: false, message: '读取 workflow JSON 文件失败' },
+      }));
+      reader.readAsText(file, 'utf-8');
+    };
     const updateComfyFields = (raw: string) => {
       setComfyDraft({ fields: raw });
       try {
         const parsed = JSON.parse(raw || '[]');
         if (!Array.isArray(parsed)) throw new Error('fields must be array');
-        const fields = compactComfyFields(parsed as ComfyFieldMapping[]);
+        const workflowJson = comfyWorkflowSource;
+        const fields = canonicalizeComfyFieldsByWorkflow(
+          workflowJson,
+          filterComfyFieldsByExcludeRules(workflowJson, parsed as ComfyFieldMapping[], comfyExcludeRules),
+        );
         updateComfyWorkflow({ fields });
         setAdvancedTestStatus((prev) => ({ ...prev, [provider.id]: { ok: true, message: '参数映射已解析' } }));
       } catch {
@@ -1118,9 +1171,12 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
       }
     };
     const applyComfyAutoMapping = () => {
-      const workflowJson = comfyWorkflowObject || comfyWorkflow.workflowJson;
+      const workflowJson = comfyWorkflowSource;
       const analysis = analyzeComfyWorkflow(workflowJson || null);
-      const fields = compactComfyFields(analysis.fields);
+      const fields = canonicalizeComfyFieldsByWorkflow(
+        workflowJson || null,
+        filterComfyFieldsByExcludeRules(workflowJson || null, analysis.fields, comfyExcludeRules),
+      );
       updateComfyWorkflow({ fields });
       setComfyDraft({ fields: JSON.stringify(fields, null, 2) });
       setAdvancedTestStatus((prev) => ({
@@ -1128,14 +1184,19 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
         [provider.id]: {
           ok: fields.length > 0,
           message: fields.length
-            ? `已应用自动映射：${fields.length} 个字段`
+            ? `已应用自动映射：${fields.length} 个字段${comfyExcludeRules.length ? `，已按规则排除 ${analysis.fields.length - fields.length} 个` : ''}`
             : '没有识别到可自动映射的字段',
         },
       }));
     };
     const updateComfyField = (index: number, patch: Partial<ComfyFieldMapping>) => {
-      const nextFields = compactComfyFields(
-        comfyMappedFields.map((field, i) => (i === index ? { ...field, ...patch } : field)),
+      const nextFields = canonicalizeComfyFieldsByWorkflow(
+        comfyWorkflowSource,
+        filterComfyFieldsByExcludeRules(
+          comfyWorkflowSource,
+          comfyMappedFields.map((field, i) => (i === index ? { ...field, ...patch } : field)),
+          comfyExcludeRules,
+        ),
       );
       updateComfyWorkflow({ fields: nextFields });
       setComfyDraft({ fields: JSON.stringify(nextFields, null, 2) });
@@ -1423,7 +1484,29 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
               </label>
             </div>
             <label className="space-y-1 block">
-              <span className={`text-[11px] ${labelCls}`}>工作流 JSON（从 ComfyUI 导出的 API 格式）</span>
+              <div className="flex items-center justify-between gap-2">
+                <span className={`text-[11px] ${labelCls}`}>工作流 JSON（从 ComfyUI 导出的 API 格式）</span>
+                <label
+                  className={
+                    isPixel
+                      ? 't8-api-settings-secondary-btn px-btn text-[11px] px-2 py-1 shrink-0 cursor-pointer inline-flex items-center gap-1'
+                      : 't8-api-settings-secondary-btn px-2 py-1 text-[11px] rounded border shrink-0 cursor-pointer inline-flex items-center gap-1'
+                  }
+                  title="上传 ComfyUI API Workflow JSON 并自动映射"
+                >
+                  <FileUp size={12} /> 上传 JSON
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleComfyWorkflowFile(file);
+                      e.currentTarget.value = '';
+                    }}
+                  />
+                </label>
+              </div>
               <textarea
                 value={comfyWorkflowRaw}
                 onChange={(e) => updateComfyWorkflowJson(e.target.value)}
@@ -1432,12 +1515,50 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
               />
               <p className={`text-[11px] ${hintCls}`}>不是普通前端 workflow 文件，需要在 ComfyUI 开启 dev mode 后导出的 API workflow。</p>
             </label>
+            <label className="space-y-1 block">
+              <span className={`text-[11px] ${labelCls}`}>自动映射排除规则（可选）</span>
+              <textarea
+                value={comfyExcludeRulesRaw}
+                onChange={(e) => updateComfyExcludeRules(e.target.value)}
+                className={`${textareaCls} min-h-[72px]`}
+                placeholder={'每行一个：seed、steps、class:KSampler、CLIPTextEncode.text、#86.batch_size'}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => appendComfyExcludeRules(['seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise'])}
+                  className={isPixel ? 'px-btn text-[11px] px-2 py-1' : 'rounded border px-2 py-1 text-[11px]'}
+                >
+                  排除采样器参数
+                </button>
+                <button
+                  type="button"
+                  onClick={() => appendComfyExcludeRules(['model_name', 'ckpt_name', 'clip_name', 'vae_name', 'lora_name'])}
+                  className={isPixel ? 'px-btn text-[11px] px-2 py-1' : 'rounded border px-2 py-1 text-[11px]'}
+                >
+                  排除模型加载
+                </button>
+                <button
+                  type="button"
+                  onClick={() => appendComfyExcludeRules(['width', 'height', 'batch_size'])}
+                  className={isPixel ? 'px-btn text-[11px] px-2 py-1' : 'rounded border px-2 py-1 text-[11px]'}
+                >
+                  排除尺寸批量
+                </button>
+                <span className={`text-[10px] ${hintCls}`}>
+                  当前 {comfyExcludeRules.length} 条规则，已排除 {comfyExcludedFieldCount} 个自动识别字段。
+                </span>
+              </div>
+              <p className={`text-[11px] ${hintCls}`}>
+                支持 source/字段名/节点类名/节点编号，例如 source:cfg、field:width、class:KSampler、node:86、#86.width。
+              </p>
+            </label>
             <div className={guideBoxCls}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className={`text-xs font-black ${labelCls}`}>自动识别结果</div>
                   <p className={`mt-1 ${hintCls}`}>
-                    已识别 {comfyAnalysis.fields.length} 个可映射字段，图片输入 {comfyAnalysis.imageInputCount} 个，输出节点 {comfyAnalysis.outputCount} 个。
+                    已识别 {comfyAnalysis.fields.length} 个可映射字段，排除后保留 {comfyFilteredAnalysisFields.length} 个，图片输入 {comfyAnalysis.imageInputCount} 个，输出节点 {comfyAnalysis.outputCount} 个。
                   </p>
                   {comfyAnalysis.warnings.length > 0 && (
                     <div className="mt-2 space-y-1">

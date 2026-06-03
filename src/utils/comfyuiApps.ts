@@ -2,6 +2,7 @@ import type { AdvancedProviderConfig } from '../types/canvas';
 import {
   analyzeComfyWorkflow,
   compactComfyFields,
+  filterComfyFieldsByExcludeRules,
   type ComfyFieldMapping,
 } from './comfyuiWorkflow';
 
@@ -78,10 +79,11 @@ export const COMFY_APP_MANIFEST_EVENT = 'penguin:comfyui-app-manifest-updated';
 export const COMFY_APP_ALL_CATEGORY_ID = 'all';
 
 const DEFAULT_CATEGORY_ID = 'general';
-const TEXT_SOURCES = new Set(['prompt', 'negative']);
+const TEXT_SOURCES = new Set(['prompt', 'positive', 'negative']);
 const MEDIA_SOURCE_RE = /^(image|video|audio)(?:_|-)?\d+$/i;
 const EXPOSED_SOURCES = new Set([
   'prompt',
+  'positive',
   'negative',
   'width',
   'height',
@@ -103,7 +105,13 @@ const EXPOSED_SOURCES = new Set([
 
 export const COMFY_APP_SOURCE_LABELS: Record<string, string> = {
   prompt: '正向 Prompt',
+  positive: '正向 Prompt',
   negative: '负向 Prompt',
+  image1: '图片输入 1',
+  image2: '图片输入 2',
+  image3: '图片输入 3',
+  video1: '视频输入 1',
+  audio1: '音频输入 1',
   width: '宽度',
   height: '高度',
   batch_size: '批量数',
@@ -258,10 +266,11 @@ export function buildComfyAppFromWorkflow(options: {
   id?: string;
   categoryId?: string;
   description?: string;
+  excludeRules?: string[];
 }): ComfyAppDefinition {
   const title = cleanText(options.title, 'ComfyUI 工作流', 100);
   const analysis = analyzeComfyWorkflow(options.workflowJson);
-  const fields = compactComfyFields(analysis.fields);
+  const fields = compactComfyFields(filterComfyFieldsByExcludeRules(options.workflowJson, analysis.fields, options.excludeRules));
   const userParams = fields
     .filter(shouldExposeParam)
     .map((field) => {
@@ -372,6 +381,59 @@ export function saveUserComfyAppManifest(manifest: ComfyAppManifest) {
   window.dispatchEvent(new CustomEvent(COMFY_APP_MANIFEST_EVENT));
 }
 
+export function saveComfyAppCategory(
+  category: Partial<ComfyAppCategory>,
+  baseManifest?: ComfyAppManifest,
+): ComfyAppManifest {
+  const current = normalizeComfyAppManifest(baseManifest || getUserComfyAppManifest());
+  const id = cleanId(category.id || category.name, `category-${current.categories.length + 1}`);
+  const existing = current.categories.find((item) => item.id === id);
+  const nextCategory: ComfyAppCategory = {
+    id,
+    name: cleanText(category.name, existing?.name || id, 80),
+    description: cleanText(category.description, existing?.description || '', 200),
+    icon: cleanText(category.icon, existing?.icon || 'Boxes', 40),
+    order: Number.isFinite(category.order) ? Number(category.order) : (existing?.order ?? current.categories.length),
+  };
+  const next = normalizeComfyAppManifest({
+    ...current,
+    updatedAt: new Date().toISOString(),
+    categories: [
+      ...current.categories.filter((item) => item.id !== id),
+      nextCategory,
+    ],
+  });
+  saveUserComfyAppManifest(next);
+  return next;
+}
+
+export function deleteComfyAppCategory(
+  categoryId: string,
+  fallbackCategoryId = DEFAULT_CATEGORY_ID,
+  baseManifest?: ComfyAppManifest,
+): ComfyAppManifest {
+  const current = normalizeComfyAppManifest(baseManifest || getUserComfyAppManifest());
+  const targetId = cleanId(categoryId, '');
+  if (!targetId) return current;
+  const remainingCategories = current.categories.filter((category) => category.id !== targetId);
+  const fallback = remainingCategories.find((category) => category.id === fallbackCategoryId) || remainingCategories[0] || {
+    id: DEFAULT_CATEGORY_ID,
+    name: '我的工作流',
+    icon: 'Boxes',
+    order: 0,
+  };
+  const next = normalizeComfyAppManifest({
+    ...current,
+    updatedAt: new Date().toISOString(),
+    categories: remainingCategories.length ? remainingCategories : [fallback],
+    apps: current.apps.map((app) => (
+      app.categoryId === targetId ? { ...app, categoryId: fallback.id, updatedAt: new Date().toISOString() } : app
+    )),
+  });
+  saveUserComfyAppManifest(next);
+  return next;
+}
+
 export function saveComfyApp(app: ComfyAppDefinition, baseManifest?: ComfyAppManifest): ComfyAppManifest {
   const current = normalizeComfyAppManifest(baseManifest || getUserComfyAppManifest());
   const normalizedApp = normalizeComfyAppManifest({
@@ -398,19 +460,57 @@ export function saveComfyApp(app: ComfyAppDefinition, baseManifest?: ComfyAppMan
   return next;
 }
 
+export function deleteComfyApp(appId: string, baseManifest?: ComfyAppManifest): ComfyAppManifest {
+  const current = normalizeComfyAppManifest(baseManifest || getUserComfyAppManifest());
+  const id = cleanId(appId, '');
+  if (!id) return current;
+  const next = normalizeComfyAppManifest({
+    ...current,
+    updatedAt: new Date().toISOString(),
+    apps: current.apps.filter((app) => app.id !== id),
+  });
+  saveUserComfyAppManifest(next);
+  return next;
+}
+
+export function moveComfyAppToCategory(
+  appId: string,
+  categoryId: string,
+  baseManifest?: ComfyAppManifest,
+): ComfyAppManifest {
+  const current = normalizeComfyAppManifest(baseManifest || getUserComfyAppManifest());
+  const id = cleanId(appId, '');
+  const nextCategoryId = cleanId(categoryId, current.categories[0]?.id || DEFAULT_CATEGORY_ID);
+  const categoryExists = current.categories.some((category) => category.id === nextCategoryId);
+  const categories = categoryExists
+    ? current.categories
+    : [...current.categories, { id: nextCategoryId, name: nextCategoryId, icon: 'Boxes', order: current.categories.length }];
+  const apps = current.apps.map((app) => (
+    app.id === id ? { ...app, categoryId: nextCategoryId, updatedAt: new Date().toISOString() } : app
+  ));
+  const next = normalizeComfyAppManifest({
+    ...current,
+    updatedAt: new Date().toISOString(),
+    categories,
+    apps,
+  });
+  saveUserComfyAppManifest(next);
+  return next;
+}
+
 export function mergeComfyAppManifests(...manifests: Array<Partial<ComfyAppManifest> | null | undefined>): ComfyAppManifest {
   const categories: ComfyAppCategory[] = [];
-  const apps: ComfyAppDefinition[] = [];
+  const appMap = new Map<string, ComfyAppDefinition>();
   for (const manifest of manifests) {
     const normalized = normalizeComfyAppManifest(manifest);
     categories.push(...normalized.categories);
-    apps.push(...normalized.apps);
+    for (const app of normalized.apps) appMap.set(app.id, app);
   }
   return normalizeComfyAppManifest({
     schema: 't8-comfyui-app-manifest',
     version: 1,
     categories,
-    apps,
+    apps: Array.from(appMap.values()),
   });
 }
 
@@ -426,6 +526,27 @@ export function importComfyAppPayload(payload: unknown): ComfyAppManifest {
     return normalizeComfyAppManifest({ apps: [buildComfyAppFromWorkflow({ workflowJson: payload as Record<string, any> })] });
   }
   return normalizeComfyAppManifest(null);
+}
+
+export function importComfyAppManifest(
+  payload: unknown,
+  baseManifest?: ComfyAppManifest,
+): ComfyAppManifest {
+  const current = normalizeComfyAppManifest(baseManifest || getUserComfyAppManifest());
+  const imported = importComfyAppPayload(payload);
+  const appIds = new Set(imported.apps.map((app) => app.id));
+  const next = normalizeComfyAppManifest({
+    schema: 't8-comfyui-app-manifest',
+    version: Math.max(Number(current.version) || 1, Number(imported.version) || 1),
+    updatedAt: new Date().toISOString(),
+    categories: [...current.categories, ...imported.categories],
+    apps: [
+      ...current.apps.filter((app) => !appIds.has(app.id)),
+      ...imported.apps,
+    ],
+  });
+  saveUserComfyAppManifest(next);
+  return next;
 }
 
 export function filterComfyApps(

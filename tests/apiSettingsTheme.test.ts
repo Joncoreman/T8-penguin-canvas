@@ -57,3 +57,13 @@ test('ApiSettings Jimeng CLI panel explains install, login, and executable path'
   assert.match(apiSettingsSource, /C:\\Users\\&lt;用户名&gt;\\bin\\dreamina\.exe/);
   assert.match(apiSettingsSource, /测试连接/);
 });
+
+test('ApiSettings ComfyUI panel supports workflow JSON upload and auto-mapping exclude rules', () => {
+  assert.match(apiSettingsSource, /handleComfyWorkflowFile/);
+  assert.match(apiSettingsSource, /上传 JSON/);
+  assert.match(apiSettingsSource, /自动映射排除规则（可选）/);
+  assert.match(apiSettingsSource, /filterComfyFieldsByExcludeRules/);
+  assert.match(apiSettingsSource, /parseComfyFieldExcludeRules/);
+  assert.match(apiSettingsSource, /comfyExcludeRulesRaw/);
+  assert.match(apiSettingsSource, /排除采样器参数/);
+});

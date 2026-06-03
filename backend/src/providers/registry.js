@@ -330,6 +330,19 @@ function normalizeComfyFields(value) {
   return out.slice(0, 200);
 }
 
+function normalizeComfyExcludeRules(value) {
+  const rawItems = Array.isArray(value)
+    ? value
+    : String(value || '').split(/[\n,;，；]+/);
+  const out = [];
+  for (const raw of rawItems) {
+    const item = cleanText(raw, 120);
+    if (!item || out.includes(item)) continue;
+    out.push(item);
+  }
+  return out.slice(0, 200);
+}
+
 function normalizeVolcengineConfig(value, previous = {}) {
   const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
@@ -360,6 +373,8 @@ function normalizeComfyuiConfig(value) {
           if (workflowJson !== undefined) workflow.workflowJson = workflowJson;
           const fields = normalizeComfyFields(item.fields);
           if (fields.length) workflow.fields = fields;
+          const excludeRules = normalizeComfyExcludeRules(item.excludeRules || item.exclude_rules || item.excludedFields || item.excluded_fields);
+          if (excludeRules.length) workflow.excludeRules = excludeRules;
           return workflow;
         })
         .filter((item) => item && item.id && item.name)

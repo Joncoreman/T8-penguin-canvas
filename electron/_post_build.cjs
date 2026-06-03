@@ -5,8 +5,7 @@
 //   1. 检查 dist_electron/win-unpacked/resources/backend-enc/*.t8c 是否存在
 //   2. 检查 frontend/index.html 是否到位
 //   3. 强制移除任何意外混入的明文 backend/src/*.js (双保险)
-//   4. 检查充值私有配置/密钥没有混入用户分发包
-//   5. 输出最终产物清单
+//   4. 输出最终产物清单
 // ============================================================================
 'use strict';
 
@@ -111,61 +110,6 @@ function isSmallTextFile(p) {
   }
 }
 
-function checkNoRechargeSecrets() {
-  const rechargeSource = path.join(ROOT, 'backend', 'src', 'routes', 'recharge.js');
-  if (fs.existsSync(rechargeSource)) {
-    const src = fs.readFileSync(rechargeSource, 'utf-8');
-    if (/RECHARGE_DEFAULT_ENC\s*=\s*['"`]ZZENC1/.test(src)) {
-      failSecurity('source contains legacy RECHARGE_DEFAULT_ENC encrypted payload:', rechargeSource);
-    }
-    if (!/RECHARGE_DEFAULT_ENC\s*=\s*['"`]\s*['"`]/.test(src)) {
-      failSecurity('source RECHARGE_DEFAULT_ENC must stay an empty string before packaging:', rechargeSource);
-    }
-  }
-
-  const forbiddenFiles = [
-    path.join(RES, 'data', 'recharge.private.json'),
-    path.join(RES, 'recharge.private.json'),
-    path.join(RES, 'app', 'data', 'recharge.private.json'),
-    path.join(RES, 'app.asar.unpacked', 'data', 'recharge.private.json'),
-  ];
-  for (const p of forbiddenFiles) {
-    if (fs.existsSync(p)) {
-      failSecurity('private recharge config must never be shipped:', p);
-    }
-  }
-
-  const patterns = [
-    {
-      name: 'non-empty AGENT_HMAC_KEY JSON value',
-      re: /"AGENT_HMAC_KEY"\s*:\s*"[A-Za-z0-9+/_=-]{16,}"/,
-    },
-    {
-      name: 'non-empty DULUPAY_KEY JSON value',
-      re: /"DULUPAY_KEY"\s*:\s*"[A-Za-z0-9+/_=-]{16,}"/,
-    },
-    {
-      name: 'RECHARGE_AGENT_HMAC_KEY assignment',
-      re: /RECHARGE_AGENT_HMAC_KEY\s*=\s*['"]?[A-Za-z0-9+/_=-]{16,}/,
-    },
-    {
-      name: 'legacy encrypted recharge default',
-      re: /RECHARGE_DEFAULT_ENC\s*=\s*['"`]ZZENC1\\?n[A-Za-z0-9+/=]{20,}/,
-    },
-  ];
-
-  for (const p of walkFiles(RES).filter(isSmallTextFile)) {
-    const text = fs.readFileSync(p, 'utf-8');
-    for (const pat of patterns) {
-      if (pat.re.test(text)) {
-        failSecurity(`possible recharge secret in packaged text file (${pat.name}):`, p);
-      }
-    }
-  }
-
-  console.log('  ✅ recharge private config / HMAC not present in packaged resources');
-}
-
 function checkAiWatermarkRuntime() {
   const runtimeRoot = path.join(RES, 'tools', 'remove-ai-watermarks');
   const required = process.env.T8_REQUIRE_AI_WATERMARK_RUNTIME === '1';
@@ -188,6 +132,18 @@ function checkAiWatermarkRuntime() {
   if (required) failSecurity(message, runtimeRoot);
   console.log('  ⚠️ ', message);
   console.log('     Set T8_REQUIRE_AI_WATERMARK_RUNTIME=1 for user-release builds that must be offline/self-contained.');
+}
+
+function checkFfmpegRuntime() {
+  const runtimeRoot = path.join(RES, 'tools', 'ffmpeg');
+  const binary = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  const ffmpeg = path.join(runtimeRoot, binary);
+  if (!fs.existsSync(ffmpeg)) {
+    missingCount += 1;
+    bad(ffmpeg);
+    return;
+  }
+  ok(ffmpeg);
 }
 
 function checkNoRhToolboxMaker() {
@@ -236,7 +192,6 @@ function main() {
   checkFile(path.join(RES, 'backend-enc', 'routes', 'externalProviders.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'files.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'imageOps.t8c'));
-  checkFile(path.join(RES, 'backend-enc', 'routes', 'recharge.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'resources.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'themes.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'routes', 'eagle.t8c'));
@@ -248,6 +203,7 @@ function main() {
   checkFile(path.join(RES, 'backend-enc', 'providers', 'mediaResolver.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'providers', 'adapters.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'providers', 'openaiCompatible.t8c'));
+  checkFile(path.join(RES, 'backend-enc', 'providers', 'llmMedia.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'providers', 'modelscope.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'providers', 'volcengine.t8c'));
   checkFile(path.join(RES, 'backend-enc', 'providers', 'comfyui.t8c'));
@@ -274,11 +230,11 @@ function main() {
   console.log('\n[3] 清除可能混入的明文后端源码:');
   nukePlainBackend();
 
-  console.log('\n[4] 充值密钥分发安全检查:');
-  checkNoRechargeSecrets();
-
-  console.log('\n[5] 去AI水印 sidecar runtime:');
+  console.log('\n[4] 去AI水印 sidecar runtime:');
   checkAiWatermarkRuntime();
+
+  console.log('\n[5] ffmpeg sidecar runtime:');
+  checkFfmpegRuntime();
 
   console.log('\n[6] RH工具箱制作器分发检查:');
   checkNoRhToolboxMaker();

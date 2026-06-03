@@ -57,6 +57,8 @@ test('generateExternalLlm posts to external llm route and maps text to content',
     const body = JSON.parse(init.body);
     assert.equal(body.providerId, 'openai-compatible');
     assert.equal(body.model, 'gpt-4o-mini');
+    assert.equal(body.llmVideoMode, 'url');
+    assert.equal(body.messages[0].content[1].type, 'video_url');
     return jsonResponse({
       success: true,
       data: {
@@ -70,7 +72,8 @@ test('generateExternalLlm posts to external llm route and maps text to content',
     const result = await generateExternalLlm({
       providerId: 'openai-compatible',
       model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: 'hello' }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }, { type: 'video_url', video_url: { url: '/files/output/demo.mp4' } }] }],
+      llmVideoMode: 'url',
     });
 
     assert.equal(result.content, 'hello external');

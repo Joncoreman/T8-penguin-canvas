@@ -1,0 +1,498 @@
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const crypto = require('crypto');
+const { spawn } = require('child_process');
+const config = require('../config');
+const {
+  isDataUrl,
+  mediaRefToAbsoluteUrl,
+  mimeFromPath,
+  resolveMediaRef,
+} = require('./mediaResolver');
+
+const DEFAULT_BASE_URL = `http://127.0.0.1:${config.PORT}`;
+const DEFAULT_VIDEO_MODE = 'frames';
+const DEFAULT_VIDEO_MAX_DIMENSION = 720;
+const DEFAULT_VIDEO_MAX_BYTES = 8 * 1024 * 1024;
+const DEFAULT_VIDEO_CRF = 32;
+const DEFAULT_FFMPEG_TIMEOUT_MS = 120 * 1000;
+const DEFAULT_VIDEO_FRAME_COUNT = 12;
+const MAX_VIDEO_FRAME_COUNT = 60;
+
+function isRemoteUrl(value) {
+  return /^https?:\/\//i.test(String(value || '').trim());
+}
+
+function numberOr(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function clampInt(value, min, max, fallback) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function dataUrlInfo(value) {
+  const match = String(value || '').trim().match(/^data:([^;,]+);base64,(.+)$/i);
+  if (!match) return null;
+  return { mime: match[1] || 'application/octet-stream', base64: match[2] || '' };
+}
+
+function dataUrlByteLength(value) {
+  const info = dataUrlInfo(value);
+  return info ? Buffer.byteLength(info.base64, 'base64') : 0;
+}
+
+function repoRoot() {
+  return path.resolve(__dirname, '..', '..', '..');
+}
+
+function ffmpegBinaryName() {
+  return process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+}
+
+function executableExists(p) {
+  try {
+    return !!p && fs.existsSync(p) && fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function resolveBundledFfmpeg() {
+  const binary = ffmpegBinaryName();
+  const resRoot = String(process.env.T8PC_RES || '').trim();
+  const candidates = [
+    process.env.T8_FFMPEG_BIN,
+    resRoot && path.join(resRoot, 'tools', 'ffmpeg', binary),
+    resRoot && path.join(resRoot, 'tools', 'ffmpeg-runtime', binary),
+    path.join(repoRoot(), 'tools', 'ffmpeg-runtime', binary),
+    path.join(repoRoot(), 'tools', 'ffmpeg', binary),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    if (executableExists(candidate)) return candidate;
+  }
+  try {
+    const installer = require('@ffmpeg-installer/ffmpeg');
+    if (executableExists(installer.path)) return installer.path;
+  } catch {
+    // optional dev fallback only
+  }
+  return binary;
+}
+
+function tempFilePath(ext) {
+  const suffix = crypto.randomBytes(5).toString('hex');
+  return path.join(os.tmpdir(), `t8-llm-video-${Date.now()}-${suffix}.${ext || 'mp4'}`);
+}
+
+function fileDataUrl(filePath, mime = 'video/mp4') {
+  const buf = fs.readFileSync(filePath);
+  return `data:${mime};base64,${buf.toString('base64')}`;
+}
+
+function parseDurationSeconds(stderr) {
+  const match = String(stderr || '').match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/i);
+  if (!match) return 0;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(match[3]);
+  if (![hours, minutes, seconds].every(Number.isFinite)) return 0;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function probeVideoDurationSeconds(inputPath, options = {}) {
+  const ffmpeg = options.ffmpegPath || resolveBundledFfmpeg();
+  const timeoutMs = clampInt(options.ffmpegProbeTimeoutMs || options.ffmpegTimeoutMs, 5 * 1000, 60 * 1000, 15 * 1000);
+  return new Promise((resolve) => {
+    const child = spawn(ffmpeg, ['-hide_banner', '-i', inputPath], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { child.kill('SIGKILL'); } catch {}
+      resolve(0);
+    }, timeoutMs);
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk || '');
+      if (stderr.length > 12000) stderr = stderr.slice(-12000);
+    });
+    child.on('error', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(0);
+    });
+    child.on('close', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(parseDurationSeconds(stderr));
+    });
+  });
+}
+
+function formatFpsValue(durationSeconds, frameCount) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || frameCount <= 1) return '1';
+  const fps = Math.max(0.02, Math.min(30, frameCount / Math.max(durationSeconds, 0.2)));
+  return String(Number(fps.toFixed(6)));
+}
+
+function runFfmpeg(inputPath, outputPath, options = {}) {
+  const ffmpeg = options.ffmpegPath || resolveBundledFfmpeg();
+  const maxWidth = clampInt(options.videoMaxWidth, 128, 4096, DEFAULT_VIDEO_MAX_DIMENSION);
+  const maxHeight = clampInt(options.videoMaxHeight, 128, 4096, DEFAULT_VIDEO_MAX_DIMENSION);
+  const crf = clampInt(options.videoCrf, 18, 40, DEFAULT_VIDEO_CRF);
+  const timeoutMs = clampInt(options.ffmpegTimeoutMs, 10 * 1000, 20 * 60 * 1000, DEFAULT_FFMPEG_TIMEOUT_MS);
+  const args = [
+    '-y',
+    '-hide_banner',
+    '-i',
+    inputPath,
+    '-vf',
+    `scale=${maxWidth}:${maxHeight}:force_original_aspect_ratio=decrease`,
+    '-c:v',
+    'libx264',
+    '-pix_fmt',
+    'yuv420p',
+    '-preset',
+    'veryfast',
+    '-crf',
+    String(crf),
+    '-an',
+    '-movflags',
+    '+faststart',
+    outputPath,
+  ];
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpeg, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { child.kill('SIGKILL'); } catch {}
+      reject(new Error(`ffmpeg 压缩超时(${Math.round(timeoutMs / 1000)}s)`));
+    }, timeoutMs);
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk || '');
+      if (stderr.length > 4000) stderr = stderr.slice(-4000);
+    });
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0 && fs.existsSync(outputPath)) resolve(outputPath);
+      else reject(new Error(`ffmpeg 压缩失败(${code}): ${stderr.trim().slice(0, 600)}`));
+    });
+  });
+}
+
+async function runFfmpegExtractFrames(inputPath, outputDir, options = {}) {
+  const ffmpeg = options.ffmpegPath || resolveBundledFfmpeg();
+  const maxSize = clampInt(
+    options.videoFrameMaxSize || options.videoMaxWidth || options.videoMaxHeight,
+    128,
+    2048,
+    DEFAULT_VIDEO_MAX_DIMENSION,
+  );
+  const frameCount = clampInt(options.videoFrameCount, 1, MAX_VIDEO_FRAME_COUNT, DEFAULT_VIDEO_FRAME_COUNT);
+  const timeoutMs = clampInt(options.ffmpegTimeoutMs, 10 * 1000, 20 * 60 * 1000, DEFAULT_FFMPEG_TIMEOUT_MS);
+  const pattern = path.join(outputDir, 'frame_%03d.jpg');
+  const durationSeconds = await probeVideoDurationSeconds(inputPath, options);
+  const fpsValue = formatFpsValue(durationSeconds, frameCount);
+  const args = [
+    '-y',
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-i',
+    inputPath,
+    '-vf',
+    `fps=${fpsValue},scale=${maxSize}:${maxSize}:force_original_aspect_ratio=decrease`,
+    '-frames:v',
+    String(frameCount),
+    pattern,
+  ];
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpeg, args, { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { child.kill('SIGKILL'); } catch {}
+      reject(new Error(`ffmpeg 抽帧超时(${Math.round(timeoutMs / 1000)}s)`));
+    }, timeoutMs);
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk || '');
+      if (stderr.length > 4000) stderr = stderr.slice(-4000);
+    });
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0) resolve(pattern);
+      else reject(new Error(`ffmpeg 抽帧失败(${code}): ${stderr.trim().slice(0, 600)}`));
+    });
+  });
+}
+
+async function compressLocalVideoToDataUrl(inputPath, options = {}) {
+  const outPath = tempFilePath('mp4');
+  try {
+    await runFfmpeg(inputPath, outPath, options);
+    const maxBytes = numberOr(options.videoMaxBase64Bytes, DEFAULT_VIDEO_MAX_BYTES);
+    const size = fs.statSync(outPath).size;
+    if (size > maxBytes) throw new Error(`压缩后视频仍超过上限 ${Math.round(size / 1024 / 1024)}MB`);
+    return fileDataUrl(outPath, 'video/mp4');
+  } finally {
+    try { fs.rmSync(outPath, { force: true }); } catch {}
+  }
+}
+
+async function compressDataVideoToDataUrl(value, options = {}) {
+  const info = dataUrlInfo(value);
+  if (!info) return value;
+  const inputExt = info.mime.includes('webm') ? 'webm' : info.mime.includes('quicktime') ? 'mov' : 'mp4';
+  const inPath = tempFilePath(inputExt);
+  try {
+    fs.writeFileSync(inPath, Buffer.from(info.base64, 'base64'));
+    return await compressLocalVideoToDataUrl(inPath, options);
+  } finally {
+    try { fs.rmSync(inPath, { force: true }); } catch {}
+  }
+}
+
+function normalizeVideoMode(value) {
+  const text = String(value || '').trim().toLowerCase();
+  if (text === 'frames' || text === 'keyframes' || text === 'frame') return 'frames';
+  if (text === 'url') return 'url';
+  if (
+    text === 'base64' ||
+    text === 'native-base64' ||
+    text === 'native_base64' ||
+    text === 'compressed-base64' ||
+    text === 'compressed_base64' ||
+    text === 'video-base64' ||
+    text === 'video_base64'
+  ) return 'compressed-base64';
+  return DEFAULT_VIDEO_MODE;
+}
+
+function dataUrlToTempVideoFile(value) {
+  const info = dataUrlInfo(value);
+  if (!info || !/^video\//i.test(info.mime || '')) return '';
+  const inputExt = info.mime.includes('webm') ? 'webm' : info.mime.includes('quicktime') ? 'mov' : 'mp4';
+  const inPath = tempFilePath(inputExt);
+  fs.writeFileSync(inPath, Buffer.from(info.base64, 'base64'));
+  return inPath;
+}
+
+async function resolveVideoToLocalPath(value, options = {}) {
+  const text = String(value || '').trim();
+  if (!text) return { path: '', cleanup: '' };
+  if (isDataUrl(text)) {
+    const cleanup = dataUrlToTempVideoFile(text);
+    return { path: cleanup, cleanup };
+  }
+  if (
+    text.startsWith('/files/') ||
+    text.startsWith('/input/') ||
+    text.startsWith('/output/') ||
+    path.isAbsolute(text) ||
+    text.startsWith('file://')
+  ) {
+    const local = await resolveMediaRef(text, { target: 'local-path', baseUrl: options.baseUrl || DEFAULT_BASE_URL });
+    return { path: local.path, cleanup: '' };
+  }
+  return { path: '', cleanup: '' };
+}
+
+async function extractVideoFramesToDataUrls(value, options = {}) {
+  const frameDir = fs.mkdtempSync(path.join(os.tmpdir(), 't8-llm-video-frames-'));
+  let cleanupVideo = '';
+  try {
+    const resolved = await resolveVideoToLocalPath(value, options);
+    cleanupVideo = resolved.cleanup || '';
+    if (!resolved.path || !fs.existsSync(resolved.path)) return [];
+    await runFfmpegExtractFrames(resolved.path, frameDir, options);
+    const files = fs.readdirSync(frameDir)
+      .filter((name) => /\.(jpe?g|png)$/i.test(name))
+      .sort();
+    return files.map((name) => fileDataUrl(path.join(frameDir, name), 'image/jpeg'));
+  } catch (e) {
+    if (options.logFrameErrors) console.warn('[llmMedia] video frame extraction failed:', e?.message || e);
+    return [];
+  } finally {
+    try { fs.rmSync(frameDir, { recursive: true, force: true }); } catch {}
+    if (cleanupVideo) {
+      try { fs.rmSync(cleanupVideo, { force: true }); } catch {}
+    }
+  }
+}
+
+async function normalizeImageUrl(url, options = {}) {
+  const text = String(url || '').trim();
+  if (!text || isDataUrl(text) || isRemoteUrl(text)) return text;
+  if (text.startsWith('/files/') || text.startsWith('/input/') || text.startsWith('/output/')) {
+    const resolved = await resolveMediaRef(text, {
+      target: 'data-url',
+      baseUrl: options.baseUrl || DEFAULT_BASE_URL,
+    });
+    if (resolved.dataUrl) return resolved.dataUrl;
+    throw new Error(`本地图片读取失败: ${text}`);
+  }
+  return text;
+}
+
+async function normalizeVideoUrl(url, options = {}) {
+  const text = String(url || '').trim();
+  if (!text) return text;
+  const mode = normalizeVideoMode(options.videoMode);
+  const nativeMode = mode === 'frames' ? 'compressed-base64' : mode;
+  const baseUrl = options.baseUrl || DEFAULT_BASE_URL;
+  if (nativeMode === 'url') return mediaRefToAbsoluteUrl(text, { baseUrl });
+  if (isRemoteUrl(text)) return text;
+
+  const maxBytes = numberOr(options.videoMaxBase64Bytes, DEFAULT_VIDEO_MAX_BYTES);
+  if (isDataUrl(text)) {
+    if (!/^data:video\//i.test(text)) return text;
+    if (dataUrlByteLength(text) <= maxBytes) return text;
+    try {
+      return await compressDataVideoToDataUrl(text, { ...options, videoMaxBase64Bytes: maxBytes });
+    } catch {
+      return text;
+    }
+  }
+
+  if (text.startsWith('/files/') || text.startsWith('/input/') || text.startsWith('/output/') || path.isAbsolute(text) || text.startsWith('file://')) {
+    let local;
+    try {
+      local = await resolveMediaRef(text, { target: 'local-path', baseUrl });
+    } catch {
+      return mediaRefToAbsoluteUrl(text, { baseUrl });
+    }
+    try {
+      return await compressLocalVideoToDataUrl(local.path, { ...options, videoMaxBase64Bytes: maxBytes });
+    } catch {
+      const size = fs.existsSync(local.path) ? fs.statSync(local.path).size : Number.POSITIVE_INFINITY;
+      if (size <= maxBytes) return fileDataUrl(local.path, mimeFromPath(local.path, 'video/mp4'));
+      return mediaRefToAbsoluteUrl(text, { baseUrl });
+    }
+  }
+
+  return text;
+}
+
+async function videoPartToMessageParts(part, options = {}, index = 0) {
+  const videoRef = getMediaUrlPart(part, 'video');
+  if (!videoRef) return [part];
+  const value = videoRef.container?.[videoRef.key];
+  if (typeof value !== 'string' || !value) return [part];
+  const mode = normalizeVideoMode(options.videoMode);
+  if (mode === 'frames') {
+    const frames = await extractVideoFramesToDataUrls(value, options);
+    if (frames.length) {
+      const label = index > 0 ? `视频 ${index + 1}` : '视频';
+      return [
+        {
+          type: 'text',
+          text: `以下是${label}按整段视频时间顺序均匀抽取的 ${frames.length} 张关键帧，请结合这些连续画面理解视频内容。`,
+        },
+        ...frames.map((frame) => ({ type: 'image_url', image_url: { url: frame } })),
+      ];
+    }
+  }
+  const normalized = await normalizeVideoUrl(value, { ...options, videoMode: mode === 'frames' ? 'compressed-base64' : mode });
+  const cloned = JSON.parse(JSON.stringify(part));
+  const clonedRef = getMediaUrlPart(cloned, 'video');
+  if (clonedRef) clonedRef.container[clonedRef.key] = normalized;
+  return [cloned];
+}
+
+function getMediaUrlPart(part, kind) {
+  if (!part || typeof part !== 'object') return null;
+  if (kind === 'image') {
+    if (part.type === 'image_url' && part.image_url) return { container: part.image_url, key: 'url' };
+    if (part.type === 'image' && part.image_url) return { container: part.image_url, key: 'url' };
+  }
+  if (kind === 'video') {
+    if (part.type === 'video_url' && part.video_url) return { container: part.video_url, key: 'url' };
+    if (part.type === 'input_video' && part.video_url) return { container: part.video_url, key: 'url' };
+    if (part.type === 'input_video' && part.input_video) return { container: part.input_video, key: 'url' };
+  }
+  return null;
+}
+
+function normalizeOptions(input = {}, options = {}) {
+  const providerParams = input.providerParams || {};
+  const mb = Number(input.videoMaxBase64Mb ?? providerParams.videoMaxBase64Mb ?? options.videoMaxBase64Mb);
+  return {
+    baseUrl: options.baseUrl || input.baseUrl || DEFAULT_BASE_URL,
+    videoMode: normalizeVideoMode(input.llmVideoMode ?? input.videoMode ?? providerParams.llmVideoMode ?? options.videoMode),
+    videoMaxWidth: input.videoMaxWidth ?? providerParams.videoMaxWidth ?? options.videoMaxWidth ?? DEFAULT_VIDEO_MAX_DIMENSION,
+    videoMaxHeight: input.videoMaxHeight ?? providerParams.videoMaxHeight ?? options.videoMaxHeight ?? DEFAULT_VIDEO_MAX_DIMENSION,
+    videoCrf: input.videoCrf ?? providerParams.videoCrf ?? options.videoCrf ?? DEFAULT_VIDEO_CRF,
+    videoFrameCount: clampInt(input.videoFrameCount ?? providerParams.videoFrameCount ?? options.videoFrameCount, 1, MAX_VIDEO_FRAME_COUNT, DEFAULT_VIDEO_FRAME_COUNT),
+    videoFrameMaxSize: input.videoFrameMaxSize ?? providerParams.videoFrameMaxSize ?? options.videoFrameMaxSize,
+    videoMaxBase64Bytes: Number.isFinite(mb) && mb > 0
+      ? mb * 1024 * 1024
+      : (options.videoMaxBase64Bytes || DEFAULT_VIDEO_MAX_BYTES),
+    ffmpegPath: options.ffmpegPath,
+    ffmpegTimeoutMs: options.ffmpegTimeoutMs,
+  };
+}
+
+async function normalizeLlmMessageMedia(messages, inputOrOptions = {}, maybeOptions = {}) {
+  if (!Array.isArray(messages)) return messages;
+  const opts = normalizeOptions(inputOrOptions, maybeOptions);
+  const out = JSON.parse(JSON.stringify(messages));
+  for (const msg of out) {
+    if (!msg || !Array.isArray(msg.content)) continue;
+    const rebuilt = [];
+    let videoIndex = 0;
+    for (const part of msg.content) {
+      const imageRef = getMediaUrlPart(part, 'image');
+      if (imageRef) {
+        const value = imageRef.container?.[imageRef.key];
+        if (typeof value === 'string' && value) imageRef.container[imageRef.key] = await normalizeImageUrl(value, opts);
+        rebuilt.push(part);
+        continue;
+      }
+      const videoRef = getMediaUrlPart(part, 'video');
+      if (videoRef) {
+        const parts = await videoPartToMessageParts(part, opts, videoIndex);
+        rebuilt.push(...parts);
+        videoIndex += 1;
+        continue;
+      }
+      rebuilt.push(part);
+    }
+    msg.content = rebuilt;
+  }
+  return out;
+}
+
+module.exports = {
+  DEFAULT_VIDEO_MAX_BYTES,
+  extractVideoFramesToDataUrls,
+  normalizeLlmMessageMedia,
+  resolveBundledFfmpeg,
+};
