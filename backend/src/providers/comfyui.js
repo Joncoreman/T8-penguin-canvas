@@ -106,6 +106,15 @@ function mediaRefForSource(source, input, kind) {
   return String(values[index] || '').trim();
 }
 
+function inputOrProviderParam(input, ...keys) {
+  const providerParams = input?.providerParams && typeof input.providerParams === 'object' ? input.providerParams : {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(input || {}, key)) return input[key];
+    if (Object.prototype.hasOwnProperty.call(providerParams, key)) return providerParams[key];
+  }
+  return undefined;
+}
+
 async function uploadImageToComfy(baseUrl, imageRef, options = {}) {
   if (!imageRef) return '';
   let buffer = null;
@@ -156,8 +165,14 @@ async function sourceValue(source, input, size, context = {}) {
   if (videoRef) return videoRef;
   const audioRef = mediaRefForSource(key, input, 'audio');
   if (audioRef) return audioRef;
-  if (key === 'prompt' || key === 'positive') return String(input.prompt || '');
-  if (key === 'negative') return String(input.negativePrompt || input.negative || '');
+  if (key === 'prompt' || key === 'positive') {
+    const prompt = inputOrProviderParam(input, 'prompt', 'positive');
+    return prompt === undefined ? '' : String(prompt);
+  }
+  if (key === 'negative') {
+    const negative = inputOrProviderParam(input, 'negativePrompt', 'negative');
+    return negative === undefined ? undefined : String(negative);
+  }
   if (key === 'width') return size.width;
   if (key === 'height') return size.height;
   if (key === 'batch_size') {
@@ -238,6 +253,153 @@ function inferWorkflowFields(prompt) {
   return fields;
 }
 
+function compactWorkflowFields(fields) {
+  const out = [];
+  const seen = new Set();
+  for (const field of Array.isArray(fields) ? fields : []) {
+    if (!field || typeof field !== 'object') continue;
+    const nodeId = String(field.nodeId || field.node || '').trim();
+    const fieldName = String(field.fieldName || field.input || field.name || '').trim();
+    if (!nodeId || !fieldName) continue;
+    const key = `${nodeId}::${fieldName}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const hasValue = Object.prototype.hasOwnProperty.call(field, 'value');
+    const rawSource = String(field.source || '').trim();
+    const source = rawSource || (hasValue ? 'fixed' : fieldName);
+    const next = { nodeId, fieldName, source };
+    if (source === 'fixed' && hasValue) next.value = field.value;
+    out.push(next);
+  }
+  return out;
+}
+
+function clipTextRoleMap(prompt) {
+  const roles = new Map();
+  for (const [, node] of Object.entries(prompt || {})) {
+    if (!node || typeof node !== 'object' || !node.inputs || typeof node.inputs !== 'object') continue;
+    const positive = Array.isArray(node.inputs.positive) ? String(node.inputs.positive[0] || '').trim() : '';
+    const negative = Array.isArray(node.inputs.negative) ? String(node.inputs.negative[0] || '').trim() : '';
+    if (positive) roles.set(positive, 'prompt');
+    if (negative) roles.set(negative, 'negative');
+  }
+  return roles;
+}
+
+function isPromptLikeSource(source, fieldName) {
+  return ['prompt', 'positive', 'negative', 'text'].includes(source) || source === fieldName;
+}
+
+function canonicalizeWorkflowFields(prompt, fields) {
+  const compacted = compactWorkflowFields(fields);
+  const sourceFields = compacted.length ? compacted : inferWorkflowFields(prompt);
+  const roles = clipTextRoleMap(prompt);
+  const out = [];
+  const seen = new Set();
+  let hasPromptField = false;
+  let correctedPromptToNegative = false;
+  for (const field of sourceFields) {
+    const nodeId = String(field.nodeId || '').trim();
+    const fieldName = String(field.fieldName || '').trim();
+    if (!nodeId || !fieldName) continue;
+    const next = { ...field, nodeId, fieldName };
+    const node = prompt?.[nodeId];
+    const classType = String(node?.class_type || '').toLowerCase();
+    const role = roles.get(nodeId);
+    const source = String(next.source || fieldName || '').trim();
+    if (role && classType.includes('cliptextencode') && fieldName === 'text' && isPromptLikeSource(source, fieldName)) {
+      next.source = role === 'prompt' ? 'prompt' : 'negative';
+      if (role === 'negative' && ['prompt', 'positive', 'text'].includes(source)) correctedPromptToNegative = true;
+    }
+    const key = `${next.nodeId}::${next.fieldName}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (next.source === 'prompt' || next.source === 'positive') hasPromptField = true;
+    out.push(next);
+  }
+  if (!hasPromptField && (!compacted.length || correctedPromptToNegative)) {
+    const detectedPrompt = inferWorkflowFields(prompt).find((field) => (
+      (field.source === 'prompt' || field.source === 'positive') &&
+      !seen.has(`${field.nodeId}::${field.fieldName}`)
+    ));
+    if (detectedPrompt) out.push(detectedPrompt);
+  }
+  return out;
+}
+
+function parseExcludeRules(value) {
+  const rawItems = Array.isArray(value)
+    ? value
+    : String(value || '').split(/[\n,;，；]+/);
+  const out = [];
+  for (const raw of rawItems) {
+    const item = String(raw || '').trim();
+    if (!item || out.includes(item)) continue;
+    out.push(item.slice(0, 120));
+  }
+  return out.slice(0, 200);
+}
+
+function shouldExcludeWorkflowField(prompt, field, rules) {
+  const excludeRules = parseExcludeRules(rules);
+  if (!excludeRules.length || !field) return false;
+  const nodeId = String(field.nodeId || '').trim();
+  const fieldName = String(field.fieldName || '').trim();
+  const source = String(field.source || fieldName || '').trim();
+  const node = prompt?.[nodeId] || {};
+  const classType = String(node.class_type || '').trim();
+  const title = String(node?._meta?.title || node?.title || classType || '').trim();
+  const normalize = (value) => String(value || '').trim().toLowerCase();
+  const exactTokens = new Set([
+    normalize(source),
+    normalize(fieldName),
+    normalize(nodeId),
+    normalize(`#${nodeId}`),
+    normalize(`${nodeId}.${fieldName}`),
+    normalize(`#${nodeId}.${fieldName}`),
+    normalize(`${classType}.${fieldName}`),
+    normalize(`${classType}.${source}`),
+    normalize(title),
+    normalize(classType),
+  ].filter(Boolean));
+  const searchable = [
+    nodeId,
+    `#${nodeId}`,
+    fieldName,
+    source,
+    classType,
+    title,
+    `${nodeId}.${fieldName}`,
+    `#${nodeId}.${fieldName}`,
+    `${classType}.${fieldName}`,
+    `${classType}.${source}`,
+  ].filter(Boolean).join(' ').toLowerCase();
+  for (const rawRule of excludeRules) {
+    const rule = normalize(rawRule);
+    if (!rule) continue;
+    const prefixed = rule.match(/^(source|field|class|node|title)\s*:\s*(.+)$/);
+    if (prefixed) {
+      const [, kind, value] = prefixed;
+      const target = normalize(value);
+      if (kind === 'source' && normalize(source) === target) return true;
+      if (kind === 'field' && normalize(fieldName) === target) return true;
+      if (kind === 'class' && normalize(classType).includes(target)) return true;
+      if (kind === 'node' && (normalize(nodeId) === target || normalize(`#${nodeId}`) === target)) return true;
+      if (kind === 'title' && normalize(title).includes(target)) return true;
+      continue;
+    }
+    if (exactTokens.has(rule) || searchable.includes(rule)) return true;
+  }
+  return false;
+}
+
+function filterWorkflowFields(prompt, fields, rules) {
+  const excludeRules = parseExcludeRules(rules);
+  const sourceFields = Array.isArray(fields) ? fields : [];
+  if (!excludeRules.length) return sourceFields;
+  return sourceFields.filter((field) => !shouldExcludeWorkflowField(prompt, field, excludeRules));
+}
+
 async function patchByFields(prompt, fields, input, size, context = {}) {
   if (!Array.isArray(fields)) return;
   for (const field of fields) {
@@ -258,10 +420,23 @@ function patchByHeuristics(prompt, input, size, skips = {}) {
   const providerParams = input.providerParams && typeof input.providerParams === 'object' ? input.providerParams : {};
   const seedCandidate = Object.prototype.hasOwnProperty.call(providerParams, 'seed') ? providerParams.seed : input.seed;
   const seedValue = Number(seedCandidate);
+  const roles = clipTextRoleMap(prompt);
+  let fallbackPromptNode = null;
+  for (const [nodeId, node] of Object.entries(prompt || {})) {
+    if (!node || typeof node !== 'object' || !node.inputs || typeof node.inputs !== 'object') continue;
+    const classType = String(node.class_type || '').toLowerCase();
+    if (!classType.includes('cliptextencode') || typeof node.inputs.text === 'undefined') continue;
+    const role = roles.get(String(nodeId));
+    if (role === 'prompt') {
+      fallbackPromptNode = node;
+      break;
+    }
+    if (!role && !fallbackPromptNode) fallbackPromptNode = node;
+  }
   for (const node of Object.values(prompt)) {
     if (!node || typeof node !== 'object' || !node.inputs || typeof node.inputs !== 'object') continue;
     const classType = String(node.class_type || '').toLowerCase();
-    if (!skips.text && !promptPatched && classType.includes('cliptextencode') && typeof node.inputs.text !== 'undefined') {
+    if (!skips.text && !promptPatched && node === fallbackPromptNode && classType.includes('cliptextencode') && typeof node.inputs.text !== 'undefined') {
       node.inputs.text = String(input.prompt || '');
       promptPatched = true;
     }
@@ -278,18 +453,25 @@ async function patchWorkflow(workflow, input = {}, context = {}) {
   const prompt = cloneWorkflow(workflow?.workflowJson || workflow?.workflow || workflow?.raw || workflow);
   if (!prompt) return null;
   const size = parseSize(input.size || `${input.width || 1024}x${input.height || 1024}`);
-  const fields = Array.isArray(workflow?.fields) && workflow.fields.length ? workflow.fields : inferWorkflowFields(prompt);
+  const baseFields = Array.isArray(workflow?.fields) && workflow.fields.length ? workflow.fields : inferWorkflowFields(prompt);
+  const canonicalFields = canonicalizeWorkflowFields(prompt, baseFields);
+  const fields = filterWorkflowFields(prompt, canonicalFields, workflow?.excludeRules);
   await patchByFields(prompt, fields, input, size, context);
   const mapped = (fieldName, sources = []) => fields.some((field) => {
     const name = String(field?.fieldName || field?.input || field?.name || '').trim();
     const source = String(field?.source || '').trim();
     return name === fieldName || sources.includes(source);
   });
+  const blockedByMappingOrExclude = (fieldName, sources = []) => canonicalFields.some((field) => {
+    const name = String(field?.fieldName || field?.input || field?.name || '').trim();
+    const source = String(field?.source || '').trim();
+    return name === fieldName || sources.includes(source);
+  });
   patchByHeuristics(prompt, input, size, {
-    text: mapped('text', ['prompt', 'positive', 'negative']),
-    width: mapped('width', ['width']),
-    height: mapped('height', ['height']),
-    seed: mapped('seed', ['seed']) || mapped('noise_seed', ['seed']),
+    text: mapped('text', ['prompt', 'positive', 'negative']) || blockedByMappingOrExclude('text', ['prompt', 'positive', 'negative']),
+    width: mapped('width', ['width']) || blockedByMappingOrExclude('width', ['width']),
+    height: mapped('height', ['height']) || blockedByMappingOrExclude('height', ['height']),
+    seed: mapped('seed', ['seed']) || mapped('noise_seed', ['seed']) || blockedByMappingOrExclude('seed', ['seed']) || blockedByMappingOrExclude('noise_seed', ['seed']),
   });
   return prompt;
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
   "version": "1.9.5",
-  "lastUpdated": "2026-06-03-comfyui-field-mapping-hotfix",
+  "lastUpdated": "2026-06-03-public-github-safety",
   "packaging": {
     "description": "Electron NSIS 桌面端打包链路(v1.2.1 起标准化, 严禁未明确指令主动打包)。完整产物拓扑: app.asar(electron/{main,loader,preload}.cjs + node_modules) + app.asar.unpacked(node_modules/sharp + @img) + resources/backend-enc/*.t8c(extraResources, asar 外) + resources/frontend(extraResources, asar 外)。前端版本号由 vite define 注入 __APP_VERSION__、Sidebar 左下角自动同步。",
     "scripts": {
@@ -20,18 +20,36 @@
     "semverVersion": "1.9.5",
     "versionNote": "v1.3.0 起统一采用 semver 三段阶段号 x.y.z；当前源码为 v1.9.5：扩展 API 平台继续作为高级可选入口，ModelScope 图像生成新增 LoRA 管理与节点内多选，默认 LoRA 列表从 Infinite-Canvas 同步；ModelScope LLM 继续走 /v1/chat/completions、Bearer Key 规范化和长任务超时；本地 ComfyUI 接入新增 API Workflow 自动识别、可视化字段映射、LoadImage 上游图片自动上传、ComfyUI 分类、ComfyUI超市与ComfyUI应用制作工具，并热修 fields 映射里非 fixed 来源残留旧 value 覆盖运行时 Prompt / 上游图片 / 宽高的问题；去AI水印桥接同步上游 remove-ai-watermarks 0.8.7，隐形水印保护开关改为 opt-in，强度留空由上游按来源自适应；新增 RH工具箱只读运行节点和开发态 RH工具箱制作器，制作器仅在 Vite dev 环境出现，生产/Electron 包必须由后置检查拦截；新增第九套官方主题「足球小将风格」，使用原创绿茵球场、蓝白 10 号球衣、比分牌、小地图和足球传球连线动效，并完成 Captain Tsubasa / Japan 3:2 Brazil 标题牌居中与新球衣 logo 资产替换；素材右键新增云端上传目标入口，首版支持腾讯云 COS 与阿里云 OSS 真实上传，百度网盘和夸克网盘保留配置占位；除 LLM 外，图像、视频、SD2.0/Seedance、音频/Suno 及扩展图像/视频平台、批量运行、循环器等待统一不低于 3600 秒。默认主流程仍保持贞贞工坊 / RunningHub / LLM 独立 Key 不变。",
     "installer": "本次为源码发布，未重新打包 Electron；上一实测安装包为 dist_electron/T8-PenguinCanvas-Setup-1.9.3.exe。如需离线用户包，必须把 tools/remove-ai-watermarks-runtime sidecar runtime 同步到 remove-ai-watermarks 0.8.7+ 后再执行 npm run dist。",
+    "publicReleasePolicy": {
+      "github": "GitHub 公开源码只保留通用画布、生成节点、扩展平台、资源库、主题、ComfyUI/RH 工具箱、云端上传等能力；本地私有计费/支付/充值能力不得进入公开仓库。",
+      "neverStage": [
+        "roadmap.md",
+        "skill.md",
+        "backend/src/routes/recharge.js",
+        "src/components/RechargeModal.tsx",
+        "src/private/recharge/**",
+        "backend/src/private/recharge/**",
+        "private/recharge/**",
+        "local-private/recharge/**",
+        "recharge.private.*",
+        "data/recharge*.json",
+        "backend/data/recharge*.json"
+      ],
+      "prePushScan": "每次推送前必须检查 staged 文件不包含 roadmap.md、skill.md、RechargeModal、/api/recharge、/pay、RECHARGE、DULUPAY、AGENT_HMAC 或中文充值相关实现；本地开发和打包若需要私有能力，只能通过 .gitignore 覆盖层或私有补丁恢复。"
+    },
     "checklist": [
       "运行 npm run encrypt 前确认已 npm install bytenode 且使用 Electron 内置 Node",
       "backend/src/ 任何文件修改后必须重新 npm run encrypt 再打包",
       "main.cjs 的窗口标题 / log 窗口 / IPC version 三处版本号，以及 backend/src/config.js APP_VERSION 必须与 package.json 同步",
-      "_post_build.cjs 验证后端 .t8c 必存在: server/config + routes/{canvas,settings,proxy,externalProviders,files,imageOps,recharge,resources,themes,eagle,aiWatermark,cloudUploads} + providers/{registry,mediaResolver,adapters,openaiCompatible,modelscope,volcengine,comfyui,jimengCli} + cloudUploads/{settings,uploader} + tools/aiWatermark/{runner,media} + utils/duckPayload",
+      "_post_build.cjs 验证后端 .t8c 必存在: server/config + routes/{canvas,settings,proxy,externalProviders,files,imageOps,resources,themes,eagle,aiWatermark,cloudUploads} + providers/{registry,mediaResolver,llmMedia,adapters,openaiCompatible,modelscope,volcengine,comfyui,jimengCli} + cloudUploads/{settings,uploader} + tools/aiWatermark/{runner,media} + utils/duckPayload",
+      "_post_build.cjs 必须验证 providers/llmMedia.t8c 与 resources/tools/ffmpeg/ffmpeg.exe；LLM 视频输入默认使用内置 ffmpeg sidecar 按整段视频均匀抽取可配置数量的关键帧发送给 LLM，native-base64 / compressed-base64 模式才缩放压缩后转原生 video_url Base64，用户包不得依赖系统 PATH 自带 ffmpeg",
       "_post_build.cjs 验证 resources/frontend/index.html + assets/ 必存在",
       "_post_build.cjs 必须让 src/assets/theme-music/*.mp3 / *.mid 经 Vite 输出到 resources/frontend/assets，主题音乐默认静音且随前端资源一起打包",
       "_post_build.cjs 必须检查 resources/tools/remove-ai-watermarks sidecar runtime slot；普通源码构建缺少 runtime 时只警告，正式用户包设置 T8_REQUIRE_AI_WATERMARK_RUNTIME=1 后缺少 remove-ai-watermarks.exe / Scripts/remove-ai-watermarks.exe / python.exe 等入口必须失败",
       "_post_build.cjs 必须检查 RH工具箱制作器不得进入用户包；resources/frontend 内若出现 RHToolboxMakerNode、RH工具箱制作器 或 rh-toolbox-maker，打包后置检查必须失败",
       "去AI水印 full runtime 不提交 Git；如需离线用户包，先把 Python/Torch/remove-ai-watermarks[gpu,detect,trustmark,lama] sidecar 放入 tools/remove-ai-watermarks-runtime，再执行 npm run dist",
       "_post_build.cjs 自动清除任何意外混入的 resources/{app,backend}/src 明文目录",
-      "_post_build.cjs 必须拦截源码中的非空 RECHARGE_DEFAULT_ENC，以及 resources 中的 data/recharge.private.json、非空 AGENT_HMAC_KEY / DULUPAY_KEY、RECHARGE_DEFAULT_ENC 可逆密文；用户分发包不得携带充值 agent HMAC",
+      "GitHub 公开推送必须排除 roadmap.md、skill.md 与所有本地私有计费/支付/充值实现；执行 git add 前后都要用 publicReleasePolicy.prePushScan 的关键字检查 staged diff",
       "打包完成后必须实测启动 win-unpacked/T8-PenguinCanvas.exe 检查日志: 环境=production / 数据目录=AppData/t8-penguin-canvas / GET / 200",
       "打包成功后不上传 dist_electron 和 build 目录到 git (已在 .gitignore)"
     ]
@@ -1992,6 +2010,18 @@
         "公开版本同步到 1.9.5：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub；本次只推源码，不打包 Electron。",
         "验证通过 node --test tests/comfyuiProvider.test.ts、node --test tests/advancedProviders.test.ts、node --test tests/advancedProviderFrontend.test.ts tests/apiSettingsTheme.test.ts tests/comfyuiProvider.test.ts tests/advancedProviders.test.ts、全量 node --test tests/*.test.ts 与 npm run build。"
       ]
+    },
+    "phase135": {
+      "label": "LLM 视频输入增强与 GitHub 公开发布安全收口 (v1.9.5-public)",
+      "status": "complete",
+      "items": [
+        "LLM 节点视频传入改为可选关键帧数量：默认 12 张、最高 60 张，后端通过内置 ffmpeg 按整段视频均匀抽帧；原视频 Base64 / 压缩 Base64 模式保持原生 video_url，不再被静默改成 6 张关键帧。",
+        "backend/src/providers/llmMedia.js 成为贞贞 LLM 与扩展平台 OpenAI 兼容 LLM 的统一多模态媒体归一化入口，避免视频、图片、URL 与 /files 本地路径在不同 LLM 通道行为分裂。",
+        "项目内置 tools/ffmpeg-runtime/ffmpeg.exe，并由 package.json extraResources 复制到 Electron resources/tools/ffmpeg；_post_build.cjs 校验 providers/llmMedia.t8c 与 ffmpeg.exe，用户包不依赖系统 PATH。",
+        "GitHub 公开源码安全收口：公开版本移除顶部充值入口、RechargeModal 前端组件、/api/recharge 与 /pay 后端挂载、后端充值路由源码及前端 recharge API；本地私有能力只能作为 .gitignore 覆盖层或私有补丁存在。",
+        "features.json.packaging.publicReleasePolicy 与本地 skill.md 已记录推送规则：默认不 stage / commit / push roadmap.md、skill.md 或任何私有计费/支付/充值实现，推送前必须检查 staged 文件列表和 staged diff。",
+        "验证通过：node --test tests/*.test.ts（169/169）与 npm run build；build 仅保留既有 react-vendor empty chunk 与大 chunk 提示。"
+      ]
     }
   },
   "categories": {
@@ -2827,7 +2857,7 @@
         "POST /api/proxy/image — 图像生成(贞贞工坊,自动转存)",
         "POST /api/proxy/image/fal/submit — FAL Queue 提交(gpt-image-2-fal / nano-banana-pro-fal,同步返 images[] 或异步返 requestId+responseUrl)",
         "GET /api/proxy/image/fal/query?requestId&endpoint&responseUrl — FAL 任务轮询(HTTP 非200 时 IN_QUEUE/IN_PROGRESS 视为 pending,完成 images[] 转存)",
-        "POST /api/proxy/llm — LLM Chat(独立 Key, 支持 stream:true SSE 透传, content 支持多模态 text+image_url 数组, temperature 0~2, max_tokens 100~128000)",
+        "POST /api/proxy/llm — LLM Chat(独立 Key, 支持 stream:true SSE 透传；content 支持多模态 text+image_url+video_url 数组；视频默认由内置 ffmpeg 按整段视频均匀抽取可配置数量关键帧并转 image_url dataURL 发送；native-base64 / compressed-base64 发送压缩原视频 Base64，URL 模式转绝对 URL；有视频时强制非流式；temperature 0~2, max_tokens 100~128000)",
         "POST /api/proxy/mj/imagine — Midjourney imagine(speed_map: turbo/fast/relax → mj-turbo/mj-fast/mj-relax;payload 严格对齐 runMJ:base64Array+prompt+remix+ar/no/c/s/iw/sw/cw/sv/seed)",
         "GET /api/proxy/mj/task/:id?speed= — Midjourney 轮询;code===1 成功、status==='SUCCESS' 取 image_url(主图)+image_urls(JSON string 解析为 4 张)",
         "POST /api/proxy/mj/upload — Midjourney sref/oref 参考图上传(上游 mj/submit/upload-discord-images,返 result[0]/result 作为 URL)",
@@ -2844,17 +2874,6 @@
         "POST /api/proxy/external/image — v1.8.4 扩展平台图像生成，支持 OpenAI 兼容、ModelScope、火山 Seedream、即梦 CLI、ComfyUI 工作流，输出转存 /files/output",
         "POST /api/proxy/external/video — v1.8.4 扩展平台视频生成，支持 OpenAI 兼容、火山 Seedance、即梦 CLI，输出转存 /files/output",
         "POST /api/proxy/external/llm — v1.8.4 扩展平台 LLM 调用，支持 OpenAI 兼容、ModelScope、火山方舟聊天格式"
-      ],
-      "recharge": [
-        "GET /api/recharge/config — 充值代理配置状态(不返回密钥)",
-        "GET/POST/DELETE /api/recharge/binding — 绑定/解绑网站用户 ID",
-        "GET /api/recharge/plans — 算力充值正式档位(20/30/50/100/200/300/500 CP)",
-        "POST /api/recharge/order/create — 创建支付订单",
-        "GET /api/recharge/order/:orderId — 查询本地订单状态",
-        "GET /api/recharge/order/:orderId/check — 主动向支付代理查单并尝试转移算力",
-        "POST /api/recharge/order/:orderId/retry — 对 transfer_failed 订单重试转移",
-        "GET /api/recharge/orders — 本机订单记录",
-        "GET/POST /pay/notify + GET /pay/return — 支付通知/回跳入口"
       ]
     }
   },

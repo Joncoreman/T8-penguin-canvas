@@ -195,6 +195,7 @@ router.post('/llm', async (req, res) => {
     }
     const result = await generateChatWithProvider(resolved.provider, req.body || {}, {
       timeoutMs: Number(req.body?.timeoutMs) || undefined,
+      baseUrl: `http://127.0.0.1:${config.PORT}`,
     });
     return resultResponse(res, result, resolved.provider);
   } catch (e) {

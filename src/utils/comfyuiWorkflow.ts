@@ -46,6 +46,12 @@ export interface ComfyWorkflowAnalysis {
   warnings: string[];
 }
 
+export interface CanonicalizeComfyFieldsOptions {
+  addMissingPromptField?: boolean;
+}
+
+export type ComfyFieldExcludeRule = string;
+
 export const COMFY_FIELD_SOURCE_OPTIONS: Array<{ value: ComfyFieldSource; label: string; hint?: string }> = [
   { value: 'prompt', label: '正向 Prompt' },
   { value: 'negative', label: '负向 Prompt' },
@@ -238,5 +244,160 @@ export function compactComfyFields(fields: Array<ComfyFieldMapping | ComfyDetect
     if (source === 'fixed' && hasValue) next.value = field.value;
     out.push(next);
   }
+  return out;
+}
+
+function isClipTextField(node: any, fieldName: string): boolean {
+  return classTypeOf(node).toLowerCase().includes('cliptextencode') && fieldName === 'text';
+}
+
+function isPromptLikeSource(source: string, fieldName: string): boolean {
+  return ['prompt', 'positive', 'negative', 'text'].includes(source) || source === fieldName;
+}
+
+function fieldKey(field: ComfyFieldMapping): string {
+  return `${field.nodeId}::${field.fieldName}`;
+}
+
+export function parseComfyFieldExcludeRules(value: unknown): ComfyFieldExcludeRule[] {
+  const rawItems = Array.isArray(value)
+    ? value
+    : String(value || '').split(/[\n,;，；]+/);
+  const out: string[] = [];
+  for (const raw of rawItems) {
+    const item = String(raw || '').trim();
+    if (!item || out.includes(item)) continue;
+    out.push(item.slice(0, 120));
+  }
+  return out.slice(0, 200);
+}
+
+function normalizeRuleText(value: unknown): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function fuzzyContains(value: string, needle: string): boolean {
+  return !!needle && !!value && value.includes(needle);
+}
+
+export function shouldExcludeComfyField(
+  workflow: unknown,
+  field: ComfyFieldMapping | ComfyDetectedField,
+  rules: unknown,
+): boolean {
+  const excludeRules = parseComfyFieldExcludeRules(rules);
+  if (!excludeRules.length || !field) return false;
+  const entries = entriesOfWorkflow(workflow);
+  const nodes = new Map(entries);
+  const nodeId = String(field.nodeId || '').trim();
+  const fieldName = String(field.fieldName || '').trim();
+  const source = String(field.source || fieldName || '').trim();
+  const node = nodes.get(nodeId);
+  const classType = String((field as ComfyDetectedField).classType || classTypeOf(node) || '').trim();
+  const title = String((field as ComfyDetectedField).nodeTitle || (node ? nodeTitle(nodeId, node) : '')).trim();
+  const label = String((field as ComfyDetectedField).label || `${title} #${nodeId} · ${fieldName}`).trim();
+  const exactTokens = new Set([
+    normalizeRuleText(source),
+    normalizeRuleText(fieldName),
+    normalizeRuleText(nodeId),
+    normalizeRuleText(`#${nodeId}`),
+    normalizeRuleText(`${nodeId}.${fieldName}`),
+    normalizeRuleText(`#${nodeId}.${fieldName}`),
+    normalizeRuleText(`${classType}.${fieldName}`),
+    normalizeRuleText(`${classType}.${source}`),
+    normalizeRuleText(title),
+    normalizeRuleText(classType),
+  ].filter(Boolean));
+  const searchable = normalizeRuleText([
+    nodeId,
+    `#${nodeId}`,
+    fieldName,
+    source,
+    classType,
+    title,
+    label,
+    `${nodeId}.${fieldName}`,
+    `#${nodeId}.${fieldName}`,
+    `${classType}.${fieldName}`,
+    `${classType}.${source}`,
+  ].filter(Boolean).join(' '));
+
+  for (const rawRule of excludeRules) {
+    const rule = normalizeRuleText(rawRule);
+    if (!rule) continue;
+    const prefixed = rule.match(/^(source|field|class|node|title)\s*:\s*(.+)$/);
+    if (prefixed) {
+      const [, kind, value] = prefixed;
+      const target = normalizeRuleText(value);
+      if (!target) continue;
+      if (kind === 'source' && normalizeRuleText(source) === target) return true;
+      if (kind === 'field' && normalizeRuleText(fieldName) === target) return true;
+      if (kind === 'class' && fuzzyContains(normalizeRuleText(classType), target)) return true;
+      if (kind === 'node' && (normalizeRuleText(nodeId) === target || normalizeRuleText(`#${nodeId}`) === target)) return true;
+      if (kind === 'title' && fuzzyContains(normalizeRuleText(title), target)) return true;
+      continue;
+    }
+    if (exactTokens.has(rule) || fuzzyContains(searchable, rule)) return true;
+  }
+  return false;
+}
+
+export function filterComfyFieldsByExcludeRules<T extends ComfyFieldMapping | ComfyDetectedField>(
+  workflow: unknown,
+  fields: T[] | undefined,
+  rules: unknown,
+): T[] {
+  const excludeRules = parseComfyFieldExcludeRules(rules);
+  const sourceFields = Array.isArray(fields) ? fields : [];
+  if (!excludeRules.length) return sourceFields.slice();
+  return sourceFields.filter((field) => !shouldExcludeComfyField(workflow, field, excludeRules));
+}
+
+export function canonicalizeComfyFieldsByWorkflow(
+  workflow: unknown,
+  fields: Array<ComfyFieldMapping | ComfyDetectedField> | undefined,
+  options: CanonicalizeComfyFieldsOptions = {},
+): ComfyFieldMapping[] {
+  const entries = entriesOfWorkflow(workflow);
+  const nodes = new Map(entries);
+  const clipTextRoles = buildClipTextRoleMap(entries);
+  const out: ComfyFieldMapping[] = [];
+  const seen = new Set<string>();
+  let hasPromptField = false;
+  const compactedFields = compactComfyFields(fields);
+  const sourceFields = compactedFields.length
+    ? compactedFields
+    : compactComfyFields(analyzeComfyWorkflow(workflow).fields);
+  let correctedPromptToNegative = false;
+
+  for (const field of sourceFields) {
+    const next: ComfyFieldMapping = { ...field };
+    const node = nodes.get(next.nodeId);
+    const source = String(next.source || next.fieldName || '').trim();
+    const role = clipTextRoles.get(next.nodeId);
+    if (node && role && isClipTextField(node, next.fieldName) && isPromptLikeSource(source, next.fieldName)) {
+      next.source = role === 'prompt' ? 'prompt' : 'negative';
+      if (role === 'negative' && ['prompt', 'positive', 'text'].includes(source)) {
+        correctedPromptToNegative = true;
+      }
+    }
+    const key = fieldKey(next);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (next.source === 'prompt' || next.source === 'positive') hasPromptField = true;
+    out.push(next);
+  }
+
+  const shouldAddMissingPrompt = options.addMissingPromptField === true
+    || (options.addMissingPromptField !== false && (!compactedFields.length || correctedPromptToNegative));
+  if (shouldAddMissingPrompt && entries.length && !hasPromptField) {
+    const detectedPrompt = analyzeComfyWorkflow(workflow).fields.find((field) => (
+      (field.source === 'prompt' || field.source === 'positive') && !seen.has(fieldKey(field))
+    ));
+    if (detectedPrompt) {
+      out.push(compactComfyFields([detectedPrompt])[0]);
+    }
+  }
+
   return out;
 }

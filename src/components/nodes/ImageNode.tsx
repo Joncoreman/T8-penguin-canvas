@@ -58,6 +58,7 @@ import {
   normalizeExcludedMaterialIds,
 } from '../../utils/materialExclusion';
 import { COMFY_APP_SOURCE_LABELS } from '../../utils/comfyuiApps';
+import { canonicalizeComfyFieldsByWorkflow } from '../../utils/comfyuiWorkflow';
 
 /**
  * ImageNode - 图像生成(ZhenzhenMagic)
@@ -68,6 +69,49 @@ import { COMFY_APP_SOURCE_LABELS } from '../../utils/comfyuiApps';
 const IMAGE_POLL_TIMEOUT_SECONDS = 3600;
 const minPollCountForTimeout = (intervalMs: number) =>
   Math.ceil((IMAGE_POLL_TIMEOUT_SECONDS * 1000) / Math.max(1, intervalMs));
+const COMFY_NUMERIC_FIELD_SOURCES = new Set([
+  'width',
+  'height',
+  'batch_size',
+  'seed',
+  'steps',
+  'cfg',
+  'denoise',
+  'strength_model',
+  'strength_clip',
+]);
+const COMFY_NODE_FIELD_SOURCES = new Set([
+  'prompt',
+  'positive',
+  'negative',
+  'width',
+  'height',
+  'batch_size',
+  'seed',
+  'steps',
+  'cfg',
+  'sampler_name',
+  'scheduler',
+  'denoise',
+  'model_name',
+  'ckpt_name',
+  'clip_name',
+  'vae_name',
+  'lora_name',
+  'strength_model',
+  'strength_clip',
+  'image1',
+  'image2',
+  'image3',
+  'video1',
+  'audio1',
+]);
+const COMFY_IMAGE_SOURCE_RE = /^image(?:_|-)?(\d+)$/i;
+const comfyFieldSource = (field: any) => String(field?.source || field?.fieldName || '').trim();
+const comfyImageSourceIndex = (source: string) => {
+  const match = source.match(COMFY_IMAGE_SOURCE_RE);
+  return match ? Math.max(1, Number(match[1]) || 1) : 0;
+};
 
 const ImageNode = ({ id, data, selected }: NodeProps) => {
   const update = useUpdateNodeData(id);
@@ -111,37 +155,32 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
   const comfyWorkflow = isComfyExternal
     ? providerSelection.provider?.comfyuiConfig?.workflows?.find((workflow) => workflow.id === externalProviderModel || workflow.name === externalProviderModel)
     : undefined;
+  const comfyWorkflowFields = useMemo(() => {
+    if (!isComfyExternal || !comfyWorkflow) return [];
+    return canonicalizeComfyFieldsByWorkflow(comfyWorkflow.workflowJson, comfyWorkflow.fields || []);
+  }, [isComfyExternal, comfyWorkflow]);
   const comfyRequiredImageCount = isComfyExternal
-    ? (comfyWorkflow?.fields || []).filter((field: any) => /^image\d+$/i.test(String(field?.source || ''))).length
+    ? comfyWorkflowFields.filter((field: any) => COMFY_IMAGE_SOURCE_RE.test(String(field?.source || ''))).length
     : 0;
   const comfyParamFields = useMemo(() => {
     if (!isComfyExternal || !comfyWorkflow) return [];
-    const allowed = new Set([
-      'width',
-      'height',
-      'batch_size',
-      'seed',
-      'steps',
-      'cfg',
-      'sampler_name',
-      'scheduler',
-      'denoise',
-      'model_name',
-      'ckpt_name',
-      'clip_name',
-      'vae_name',
-      'lora_name',
-      'strength_model',
-      'strength_clip',
-    ]);
     const seen = new Set<string>();
-    return (comfyWorkflow.fields || []).filter((field: any) => {
-      const source = String(field?.source || field?.fieldName || '').trim();
-      if (!allowed.has(source) || seen.has(source)) return false;
-      seen.add(source);
+    return comfyWorkflowFields.filter((field: any) => {
+      const source = comfyFieldSource(field);
+      const key = `${field?.nodeId || ''}:${field?.fieldName || ''}:${source}`;
+      if (!COMFY_NODE_FIELD_SOURCES.has(source) || seen.has(key)) return false;
+      seen.add(key);
       return true;
     });
-  }, [isComfyExternal, comfyWorkflow]);
+  }, [isComfyExternal, comfyWorkflow, comfyWorkflowFields]);
+  const comfyHasPromptField = useMemo(
+    () => comfyParamFields.some((field: any) => ['prompt', 'positive'].includes(comfyFieldSource(field))),
+    [comfyParamFields],
+  );
+  const comfyImageInputFields = useMemo(
+    () => comfyParamFields.filter((field: any) => COMFY_IMAGE_SOURCE_RE.test(comfyFieldSource(field))),
+    [comfyParamFields],
+  );
   const modelscopeLoras = useMemo(
     () => modelscopeLorasForModel(providerSelection.provider, externalProviderModel),
     [providerSelection.provider, externalProviderModel],
@@ -165,7 +204,7 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
     return value ?? '';
   };
   const comfyValueForSource = (source: string) => {
-    const field = comfyParamFields.find((item: any) => String(item?.source || item?.fieldName || '') === source);
+    const field = comfyParamFields.find((item: any) => comfyFieldSource(item) === source);
     return providerParams[source] ?? (field ? comfyFieldDefault(field) : '');
   };
   const comfyNumberForSource = (source: string, fallback = 0) => {
@@ -382,9 +421,15 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
     setError(null);
     const { prompt: upstreamPrompt, images: upstreamImages } = collectUpstream();
     const resolvedLocalPrompt = resolveMediaMentions(localPrompt, promptMentions, mentionMaterials);
-    const finalPrompt = (upstreamPrompt || resolvedLocalPrompt || '').trim();
+    const comfyProviderPrompt = isComfyExternal
+      ? String(providerParams.prompt ?? providerParams.positive ?? '').trim()
+      : '';
+    const resolvedComfyPrompt = isComfyExternal
+      ? resolveMediaMentions(comfyProviderPrompt || localPrompt, promptMentions, mentionMaterials)
+      : '';
+    const finalPrompt = (upstreamPrompt || (isComfyExternal ? resolvedComfyPrompt : resolvedLocalPrompt) || '').trim();
     const src = `image:${id.slice(0, 6)}`;
-    if (!finalPrompt) {
+    if (!finalPrompt && (!isComfyExternal || comfyHasPromptField)) {
       setError('未连接 text 节点也未填写 prompt');
       logBus.error('生成中止: 缺少 prompt', src);
       return;
@@ -419,6 +464,13 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
         } else {
           delete externalProviderParams.loras;
         }
+        const externalNegativePrompt = isComfyExternal
+          ? String(
+              externalProviderParams.negativePrompt
+              ?? externalProviderParams.negative
+              ?? '',
+            ).trim()
+          : '';
         logBus.info(
           `扩展平台提交: ${providerSelection.provider.label || providerSelection.provider.id} · ${providerModel}${loraLog} · size=${size} · 参考图=${allRefs.length}`,
           src,
@@ -430,6 +482,8 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
           prompt: finalPrompt,
           size,
           images: allRefs,
+          negativePrompt: externalNegativePrompt || undefined,
+          negative: externalNegativePrompt || undefined,
           n: Math.max(1, Math.min(4, Number(d?.providerParams?.n || 1))),
           providerParams: externalProviderParams,
         });
@@ -917,25 +971,113 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
                       <span className="text-[10px] text-cyan-200/80">{comfyParamFields.length} 项</span>
                     </div>
                     <div className="text-[10px] leading-relaxed text-white/45">
-                      {comfyRequiredImageCount > 0
-                        ? `此工作流需要 ${comfyRequiredImageCount} 张上游/本地参考图；当前已准备 ${orderedImages.length} 张。`
-                        : '此工作流未声明必需图片，通常会按 Prompt、尺寸和 Seed 自动注入。'}
+                      {[
+                        comfyHasPromptField ? 'Prompt 会按此处字段注入到 workflow' : '此工作流未声明 Prompt 字段',
+                        comfyRequiredImageCount > 0
+                          ? `需要 ${comfyRequiredImageCount} 张图片；当前 ${orderedImages.length} 张`
+                          : '未声明图片输入',
+                      ].join('；')}
                     </div>
                     {comfyRequiredImageCount > orderedImages.length && (
                       <div className="text-[10px] text-amber-200">
-                        请连接上传素材或在参考图区域添加图片，否则 ComfyUI 的 LoadImage 字段会缺失。
+                        请连接上传素材或在 ComfyUI 输入素材区添加图片，否则对应 LoadImage 字段会缺失。
                       </div>
                     )}
                     {comfyParamFields.length > 0 ? (
                       <div className="grid grid-cols-2 gap-2">
                         {comfyParamFields.map((field: any) => {
-                          const source = String(field?.source || field?.fieldName || '').trim();
+                          const source = comfyFieldSource(field);
                           const label = COMFY_APP_SOURCE_LABELS[source] || source;
+                          const target = field?.nodeId && field?.fieldName ? `#${field.nodeId}.${field.fieldName}` : '';
                           const value = providerParams[source] ?? comfyFieldDefault(field);
-                          const isNumber = ['width', 'height', 'batch_size', 'seed', 'steps', 'cfg', 'denoise', 'strength_model', 'strength_clip'].includes(source);
+                          const isNumber = COMFY_NUMERIC_FIELD_SOURCES.has(source);
+                          if (source === 'prompt' || source === 'positive') {
+                            const promptValue = localPrompt || String(providerParams[source] ?? providerParams.prompt ?? '');
+                            return (
+                              <label key={`${field.nodeId}-${field.fieldName}-${source}`} className="space-y-1 col-span-2">
+                                <span className="flex items-center justify-between gap-2 text-[10px] text-white/55">
+                                  <span>{label}</span>
+                                  {target && <span className="text-cyan-200/50">{target}</span>}
+                                </span>
+                                <MentionPromptInput
+                                  value={promptValue}
+                                  mentions={promptMentions}
+                                  materials={mentionMaterials}
+                                  onChange={(nextValue, mentions) => {
+                                    const nextParams = {
+                                      ...providerParams,
+                                      [source]: nextValue,
+                                      prompt: nextValue,
+                                    };
+                                    update({ prompt: nextValue, promptMentions: mentions, providerParams: nextParams });
+                                  }}
+                                  placeholder={String(comfyFieldDefault(field) || '填写 ComfyUI 正向 Prompt')}
+                                  isDark={isDark}
+                                  isPixel={isPixel}
+                                  className="w-full min-h-[68px] resize-y rounded bg-white/5 border border-white/10 px-2 py-1 text-[11px] text-white outline-none focus:border-cyan-300/60 placeholder:text-white/30"
+                                />
+                                {orderedTexts.length > 0 && (
+                                  <span className="block text-[10px] text-amber-200/80">
+                                    已连接 {orderedTexts.length} 条上游文本，运行时会优先使用上游文本。
+                                  </span>
+                                )}
+                              </label>
+                            );
+                          }
+                          if (source === 'negative') {
+                            const negativeValue = String(providerParams.negative ?? providerParams.negativePrompt ?? '');
+                            return (
+                              <label key={`${field.nodeId}-${field.fieldName}-${source}`} className="space-y-1 col-span-2">
+                                <span className="flex items-center justify-between gap-2 text-[10px] text-white/55">
+                                  <span>{label}</span>
+                                  {target && <span className="text-cyan-200/50">{target}</span>}
+                                </span>
+                                <textarea
+                                  value={negativeValue}
+                                  onChange={(e) => patchProviderParams({ negative: e.target.value, negativePrompt: e.target.value })}
+                                  placeholder={String(comfyFieldDefault(field) || '填写 ComfyUI 负向 Prompt')}
+                                  rows={3}
+                                  style={{ background: '#18181b', color: '#ffffff' }}
+                                  className="w-full rounded border border-white/10 px-2 py-1 text-[11px] outline-none focus:border-cyan-300/60 placeholder:text-white/30"
+                                />
+                              </label>
+                            );
+                          }
+                          const imageSlot = comfyImageSourceIndex(source);
+                          if (imageSlot > 0) {
+                            const imageMaterial = orderedImages[imageSlot - 1];
+                            return (
+                              <div key={`${field.nodeId}-${field.fieldName}-${source}`} className="col-span-2 rounded border border-white/10 bg-black/10 p-2">
+                                <div className="flex items-center justify-between gap-2 text-[10px] text-white/55">
+                                  <span>{label}</span>
+                                  {target && <span className="text-cyan-200/50">{target}</span>}
+                                </div>
+                                <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-white/60">
+                                  <span>{imageMaterial ? `使用第 ${imageSlot} 张图片：${imageMaterial.label || imageMaterial.url}` : `等待第 ${imageSlot} 张图片`}</span>
+                                  <button
+                                    type="button"
+                                    onClick={handlePickFile}
+                                    className="nodrag rounded border border-cyan-300/30 px-2 py-1 text-cyan-100 hover:bg-cyan-300/10"
+                                  >
+                                    添加图片
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          }
+                          if (source === 'video1' || source === 'audio1') {
+                            return (
+                              <div key={`${field.nodeId}-${field.fieldName}-${source}`} className="col-span-2 rounded border border-amber-300/20 bg-amber-400/10 p-2 text-[10px] text-amber-100">
+                                {label} {target ? `(${target})` : ''} 已映射，但图像节点当前仅提交文本和图片输入；如需视频/音频工作流，后续应放到对应节点入口。
+                              </div>
+                            );
+                          }
                           return (
                             <label key={`${field.nodeId}-${field.fieldName}-${source}`} className="space-y-1">
-                              <span className="block text-[10px] text-white/55">{label}</span>
+                              <span className="flex items-center justify-between gap-2 text-[10px] text-white/55">
+                                <span>{label}</span>
+                                {target && <span className="text-cyan-200/50">{target}</span>}
+                              </span>
                               <input
                                 type={isNumber ? 'number' : 'text'}
                                 value={String(value ?? '')}
@@ -957,6 +1099,32 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
                       <div className="text-[10px] text-amber-200">
                         当前工作流没有保存字段映射，请到 API 设置中点“自动映射”，或使用 ComfyUI应用制作工具重新导入 workflow。
                       </div>
+                    )}
+                    {(comfyImageInputFields.length > 0 || orderedTexts.length > 0 || excludedUpstreamCount > 0) && (
+                      <MaterialPreviewSection
+                        texts={orderedTexts}
+                        images={orderedImages}
+                        order={materialOrder}
+                        onReorder={setMaterialOrder}
+                        onRemoveLocal={handleRemoveLocalMaterial}
+                        onExcludeUpstream={handleExcludeUpstreamMaterial}
+                        excludedCount={excludedUpstreamCount}
+                        onRestoreExcluded={handleRestoreExcludedMaterials}
+                        selected={!!selected}
+                        isDark={isDark}
+                        isPixel={isPixel}
+                        groups={comfyImageInputFields.length > 0 ? ['text', 'image'] : ['text']}
+                        title="ComfyUI 输入素材 · 上游+本地"
+                        imageUploadAction={
+                          comfyImageInputFields.length > 0 && refImages.length < maxRefs
+                            ? {
+                                onClick: handlePickFile,
+                                title: '上传 ComfyUI 输入图',
+                                remaining: maxRefs - refImages.length,
+                              }
+                            : undefined
+                        }
+                      />
                     )}
                   </div>
                 )}
@@ -1483,7 +1651,7 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
         )}
 
         {/* 上游素材聚合预览区 (新机制) - 本地上传 + 上游接入统一呈现, 可拖动排序 */}
-        {(isExternalSelected || modelDef.supportsReference) && (
+        {(!isComfyExternal && (isExternalSelected || modelDef.supportsReference)) && (
           <MaterialPreviewSection
             texts={orderedTexts}
             images={orderedImages}
@@ -1529,7 +1697,7 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
         />
 
         {/* 本地 prompt(优先取上游) */}
-        <div>
+        {!isComfyExternal && <div>
           <label className="text-[10px] text-white/50 block mb-1">本地 Prompt(可选,优先取上游 text)</label>
           <MentionPromptInput
             value={localPrompt}
@@ -1541,7 +1709,7 @@ const ImageNode = ({ id, data, selected }: NodeProps) => {
             isPixel={isPixel}
             className="w-full h-14 resize-none rounded bg-white/5 border border-white/10 px-2 py-1 text-[11px] text-white outline-none focus:border-white/30 placeholder:text-white/30"
           />
-        </div>
+        </div>}
 
         {/* 生成按钮(包含异步进度) */}
         <button

@@ -1,4 +1,5 @@
 const { resolveMediaRef } = require('./mediaResolver');
+const { normalizeLlmMessageMedia } = require('./llmMedia');
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
@@ -214,9 +215,26 @@ async function generateChat(provider, input = {}, options = {}) {
     return { ok: false, code: 'missing_prompt', providerId: provider.id, protocol: provider.protocol, error: '请输入要发送给 LLM 的内容。' };
   }
 
+  let normalizedMessages;
+  try {
+    normalizedMessages = await normalizeLlmMessageMedia(messages, input, {
+      baseUrl: options.baseUrl,
+      ffmpegPath: options.ffmpegPath,
+      ffmpegTimeoutMs: options.ffmpegTimeoutMs,
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      code: 'invalid_multimodal_reference',
+      providerId: provider.id,
+      protocol: provider.protocol,
+      error: e?.message || 'LLM 多模态素材预处理失败。',
+    };
+  }
+
   const body = {
     model,
-    messages,
+    messages: normalizedMessages,
   };
   if (input.temperature != null) body.temperature = Number(input.temperature);
   if (input.maxTokens != null) body.max_tokens = Number(input.maxTokens);

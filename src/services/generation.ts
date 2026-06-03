@@ -394,11 +394,12 @@ export async function uploadMjImage(file: File, speed: MjSpeed = 'fast'): Promis
 }
 
 // LLM
-// content 支持多模态:字符串 或 [{type:'text',text} | {type:'image_url',image_url:{url}}]
+// content 支持多模态:字符串 或 [{type:'text',text} | {type:'image_url',image_url:{url}} | {type:'video_url',video_url:{url}}]
 // (对齐 gpt-image-2-web _doSendChat 多模态格式, index.html L8106~L8123)
 export type LlmContentPart =
   | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string } };
+  | { type: 'image_url'; image_url: { url: string } }
+  | { type: 'video_url'; video_url: { url: string } };
 
 export interface LlmMessage {
   role: 'system' | 'user' | 'assistant';
@@ -410,6 +411,14 @@ export interface GenerateLlmRequest {
   messages: LlmMessage[];
   temperature?: number;
   max_tokens?: number;
+  /** 视频传入方式：frames 默认用内置 ffmpeg 抽关键帧；native-base64 发送压缩原视频；url 转绝对 URL。 */
+  llmVideoMode?: 'frames' | 'native-base64' | 'compressed-base64' | 'url';
+  videoMaxWidth?: number;
+  videoMaxHeight?: number;
+  videoMaxBase64Mb?: number;
+  videoCrf?: number;
+  /** 关键帧模式下抽取的帧数，后端会按视频时长均匀抽取。 */
+  videoFrameCount?: number;
   /** 流式开关;默认 false(非流式) */
   stream?: boolean;
 }

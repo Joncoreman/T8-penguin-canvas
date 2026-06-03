@@ -55,7 +55,7 @@ export const NODE_PORTS: Record<string, NodePorts> = {
   //   audio → reference_audio
   seedance: { inputs: ['text', 'image', 'video', 'audio'], outputs: ['video'] },
   audio: { inputs: ['text', 'audio'], outputs: ['audio'] },
-  llm: { inputs: ['text', 'image'], outputs: ['text'] },
+  llm: { inputs: ['text', 'image', 'video'], outputs: ['text'] },
 
   // ========== RH ==========
   runninghub: { inputs: ['text', 'image', 'video', 'audio', 'config'], outputs: ['image', 'video'] },

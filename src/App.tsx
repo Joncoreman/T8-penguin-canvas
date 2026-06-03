@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Moon, Settings, Sun, Wifi, WifiOff, Sparkles, Cloud, ExternalLink, Copy, Check, Gift, Heart, Youtube, PlayCircle, Bell, Wand2, Globe, MessageCircle, CalendarDays, Rocket, Key, Gem, Library, Palette, Skull, Sailboat } from 'lucide-react';
+import { Moon, Settings, Sun, Wifi, WifiOff, Sparkles, Cloud, ExternalLink, Copy, Check, Gift, Heart, Youtube, PlayCircle, Bell, Wand2, Globe, MessageCircle, CalendarDays, Rocket, Key, Library, Palette, Skull, Sailboat } from 'lucide-react';
 import { useThemeStore } from './stores/theme';
 import { useApiKeysStore } from './stores/apiKeys';
 import { useShortcutStore } from './stores/shortcuts';
 import Sidebar from './components/Sidebar';
 import Canvas, { type AddNodeFn, type InsertWorkflowFn } from './components/Canvas';
 import ApiSettingsModal from './components/ApiSettings';
-import RechargeModal from './components/RechargeModal';
 import ResourceLibraryDrawer from './components/ResourceLibraryDrawer';
 import MaterialContextMenu from './components/MaterialContextMenu';
 import ThemeTemplateManager from './components/ThemeTemplateManager';
@@ -164,7 +163,6 @@ function App() {
   );
   const [backendStatus, setBackendStatus] = useState<'checking' | 'ok' | 'error'>('checking');
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [rechargeOpen, setRechargeOpen] = useState(false);
   const [resourceOpen, setResourceOpen] = useState(false);
   const [themeManagerOpen, setThemeManagerOpen] = useState(false);
   // 「在线画布」推广浮层开关 + 容器 ref(用于点击外部关闭)
@@ -1273,22 +1271,6 @@ function App() {
             <span className="text-[11px] truncate">{currentTemplate.name}</span>
           </button>
           <button
-            onClick={() => setRechargeOpen(true)}
-            className={
-              isPixel
-                ? 'px-btn px-btn--sm px-btn--yellow'
-                : `flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors border ${
-                    isDark
-                      ? 'bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20'
-                      : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
-                  }`
-            }
-            title="算力充值"
-          >
-            <Gem size={14} />
-            <span className="text-[11px]">充值</span>
-          </button>
-          <button
             onClick={() => setResourceOpen(true)}
             className={
               isPixel
@@ -1339,7 +1321,6 @@ function App() {
 
       {/* API 设置弹窗 */}
       <ApiSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <RechargeModal open={rechargeOpen} onClose={() => setRechargeOpen(false)} />
       <ThemeTemplateManager open={themeManagerOpen} onClose={() => setThemeManagerOpen(false)} />
       <ResourceLibraryDrawer
         open={resourceOpen}

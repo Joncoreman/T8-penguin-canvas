@@ -11,6 +11,7 @@ const multer = require('multer');
 const config = require('../config');
 const { getWhitePng } = require('../utils/whitePng');
 const { tryDecodeDuckPayload } = require('../utils/duckPayload');
+const { normalizeLlmMessageMedia } = require('../providers/llmMedia');
 
 const router = express.Router();
 
@@ -1137,9 +1138,16 @@ router.post('/mj/upload', async (req, res) => {
 });
 
 // ========== POST /api/proxy/llm — LLM Chat(独立 Key) ==========
-// body: { model, messages, temperature?, max_tokens?, stream? }
-//   - messages[i].content 支持 string 或 多模态数组 [{type:'text',text} | {type:'image_url',image_url:{url}}]
-//   - stream=true → 透传上游 SSE(text/event-stream) 到前端
+function hasLlmVideoParts(messages) {
+  if (!Array.isArray(messages)) return false;
+  return messages.some((msg) => Array.isArray(msg?.content) && msg.content.some((part) => (
+    part?.type === 'video_url' || part?.type === 'input_video' || !!part?.video_url || !!part?.input_video
+  )));
+}
+
+// body: { model, messages, temperature?, max_tokens?, stream?, llmVideoMode? }
+//   - messages[i].content 支持 string 或 多模态数组 [{type:'text',text} | {type:'image_url',image_url:{url}} | {type:'video_url',video_url:{url}}]
+//   - stream=true → 透传上游 SSE(text/event-stream) 到前端；有视频时强制非流式，避免网关丢多模态附件
 //   - 完全对齐 gpt-image-2-web _doSendChat (index.html L8128~L8305)
 router.post('/llm', async (req, res) => {
   const settings = loadRawSettings();
@@ -1150,15 +1158,19 @@ router.post('/llm', async (req, res) => {
   if (!model || !messages) {
     return res.status(400).json({ success: false, error: 'model 和 messages 必填' });
   }
+  const inputHadVideos = hasLlmVideoParts(messages);
 
-  // 预处理 messages 中的 image_url:将本地 /files/* 路径转成 base64 dataURL,
-  // 避免上游 LLM 服务拿着 'base64:/files/input/xxx.png' 报 convert_request_failed。
-  // 对齐 gpt-image-2-web chat 多模态参考图预处理思路。
+  // 预处理 messages 中的 image_url / video_url:
+  //   - 图片: 本地 /files/* 转 base64 dataURL
+  //   - 视频: 默认用项目内置 ffmpeg 抽关键帧转 image_url；或按用户选择发送原视频 Base64 / URL
+  // 避免上游 LLM 服务拿着本地相对路径报 convert_request_failed。
   let normalizedMessages;
   try {
-    normalizedMessages = await normalizeLlmMessageImages(messages);
+    normalizedMessages = await normalizeLlmMessageMedia(messages, req.body || {}, {
+      baseUrl: `http://127.0.0.1:${config.PORT}`,
+    });
   } catch (e) {
-    return res.status(400).json({ success: false, error: e.message || '参考图预处理失败' });
+    return res.status(400).json({ success: false, error: e.message || '多模态素材预处理失败' });
   }
 
   const upstream = `${config.ZHENZHEN_BASE_URL}/v1/chat/completions`;
@@ -1167,7 +1179,7 @@ router.post('/llm', async (req, res) => {
     messages: normalizedMessages,
     temperature: temperature ?? 0.7,
     max_tokens: max_tokens ?? 4096,
-    stream: !!stream,
+    stream: !!stream && !inputHadVideos,
   };
 
   try {

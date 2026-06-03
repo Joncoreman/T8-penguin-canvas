@@ -1,16 +1,23 @@
-import { memo, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { CheckCircle2, Clipboard, Download, FileJson, Save, Upload, XCircle } from 'lucide-react';
+import { CheckCircle2, Clipboard, Download, FileJson, RotateCcw, Save, Upload, XCircle } from 'lucide-react';
 import { PORT_COLOR } from '../../config/portTypes';
 import { COMFYUI_APP_MANIFEST } from '../../data/comfyuiAppManifest';
 import { useThemeStore } from '../../stores/theme';
 import {
   COMFY_APP_SOURCE_LABELS,
+  COMFY_APP_MANIFEST_EVENT,
   buildComfyAppFromWorkflow,
+  getUserComfyAppManifest,
+  mergeComfyAppManifests,
   normalizeComfyAppManifest,
   saveComfyApp,
 } from '../../utils/comfyuiApps';
-import { analyzeComfyWorkflow } from '../../utils/comfyuiWorkflow';
+import {
+  analyzeComfyWorkflow,
+  filterComfyFieldsByExcludeRules,
+  parseComfyFieldExcludeRules,
+} from '../../utils/comfyuiWorkflow';
 import { useUpdateNodeData } from './useUpdateNodeData';
 import ResizableCorners from './ResizableCorners';
 
@@ -48,14 +55,24 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
   const isPixel = style === 'pixel';
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [status, setStatus] = useState('');
+  const [libraryManifest, setLibraryManifest] = useState(() => mergeComfyAppManifests(COMFYUI_APP_MANIFEST, getUserComfyAppManifest()));
 
   const d = (data || {}) as any;
   const size = d.size && typeof d.size.w === 'number' ? d.size : { w: 720, h: 620 };
   const workflowRaw = String(d.comfyMakerWorkflowRaw || '');
   const workflowJson = useMemo(() => parseWorkflow(workflowRaw), [workflowRaw]);
   const analysis = useMemo(() => analyzeComfyWorkflow(workflowJson || null), [workflowJson]);
-  const categories = useMemo(() => normalizeComfyAppManifest(COMFYUI_APP_MANIFEST).categories, []);
-  const app = useMemo(() => (
+  const excludeRulesRaw = String(d.comfyMakerExcludeRules || '');
+  const excludeRules = useMemo(() => parseComfyFieldExcludeRules(excludeRulesRaw), [excludeRulesRaw]);
+  const filteredAnalysisFields = useMemo(
+    () => filterComfyFieldsByExcludeRules(workflowJson || null, analysis.fields, excludeRules),
+    [workflowJson, analysis.fields, excludeRules],
+  );
+  const excludedFieldCount = Math.max(0, analysis.fields.length - filteredAnalysisFields.length);
+  const hiddenParamKeys: string[] = Array.isArray(d.comfyMakerHiddenParamKeys) ? d.comfyMakerHiddenParamKeys : [];
+  const hiddenParamKeySet = useMemo(() => new Set(hiddenParamKeys), [hiddenParamKeys]);
+  const categories = useMemo(() => normalizeComfyAppManifest(libraryManifest).categories, [libraryManifest]);
+  const rawApp = useMemo(() => (
     workflowJson
       ? buildComfyAppFromWorkflow({
         workflowJson,
@@ -63,9 +80,21 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
         id: d.comfyMakerAppId || '',
         categoryId: d.comfyMakerCategoryId || categories[0]?.id || 'general',
         description: d.comfyMakerDescription || '',
+        excludeRules,
       })
       : null
-  ), [workflowJson, d.comfyMakerTitle, d.comfyMakerAppId, d.comfyMakerCategoryId, d.comfyMakerDescription, categories]);
+  ), [workflowJson, d.comfyMakerTitle, d.comfyMakerAppId, d.comfyMakerCategoryId, d.comfyMakerDescription, excludeRules, categories]);
+  const app = useMemo(() => (
+    rawApp
+      ? { ...rawApp, userParams: rawApp.userParams.filter((param) => !hiddenParamKeySet.has(param.key)) }
+      : null
+  ), [rawApp, hiddenParamKeySet]);
+
+  useEffect(() => {
+    const refresh = () => setLibraryManifest(mergeComfyAppManifests(COMFYUI_APP_MANIFEST, getUserComfyAppManifest()));
+    window.addEventListener(COMFY_APP_MANIFEST_EVENT, refresh);
+    return () => window.removeEventListener(COMFY_APP_MANIFEST_EVENT, refresh);
+  }, []);
 
   const bg = isPixel ? 'var(--px-surface)' : isLight ? '#ffffff' : 'rgba(15, 23, 42, 0.96)';
   const text = isPixel ? 'var(--px-ink)' : isLight ? '#0f172a' : '#e5f7fb';
@@ -86,8 +115,8 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
     boxShadow: isPixel ? '3px 3px 0 var(--px-ink)' : 'var(--t8-node-shadow, 0 12px 30px rgba(0,0,0,0.28))',
   };
   const inputCls = isPixel
-    ? 'px-input w-full text-xs px-2 py-1'
-    : 'w-full rounded border px-2 py-1 text-xs outline-none';
+    ? 'px-input nodrag nowheel w-full text-xs px-2 py-1'
+    : 'nodrag nowheel w-full rounded border px-2 py-1 text-xs outline-none';
   const inputStyle: CSSProperties = isPixel
     ? {}
     : {
@@ -96,12 +125,27 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
       color: text,
     };
   const btnCls = isPixel
-    ? 'px-btn text-[11px] px-2 py-1 inline-flex items-center justify-center gap-1'
-    : 'rounded border px-2 py-1 text-[11px] inline-flex items-center justify-center gap-1';
+    ? 'px-btn nodrag nowheel text-[11px] px-2 py-1 inline-flex items-center justify-center gap-1'
+    : 'nodrag nowheel rounded border px-2 py-1 text-[11px] inline-flex items-center justify-center gap-1';
 
   const setRaw = (raw: string) => {
-    update({ comfyMakerWorkflowRaw: raw });
+    update({ comfyMakerWorkflowRaw: raw, comfyMakerHiddenParamKeys: [] });
     setStatus('');
+  };
+
+  const setExcludeRules = (raw: string) => {
+    update({ comfyMakerExcludeRules: raw, comfyMakerHiddenParamKeys: [] });
+    setStatus('已更新排除规则，自动识别结果会按规则过滤。');
+  };
+
+  const appendExcludeRules = (items: string[]) => {
+    setExcludeRules([...excludeRules, ...items].join('\n'));
+  };
+
+  const hideParam = (key: string) => {
+    if (hiddenParamKeySet.has(key)) return;
+    update({ comfyMakerHiddenParamKeys: [...hiddenParamKeys, key] });
+    setStatus('已从新手参数面板移除，保存到超市时不会包含这个参数。');
   };
 
   const handleFile = (file: File) => {
@@ -142,7 +186,7 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
   }, null, 2) : '';
 
   return (
-    <div style={rootStyle} className="relative nodrag nowheel">
+    <div style={rootStyle} className="relative nowheel">
       <div className="flex items-center gap-2 border-b px-4 py-3" style={{ borderColor: border }}>
         <div className="flex h-8 w-8 items-center justify-center rounded border" style={{ borderColor: accent, color: accent }}>
           <FileJson size={18} />
@@ -158,7 +202,7 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
         </button>
       </div>
 
-      <div className="h-[calc(100%-58px)] overflow-auto p-3 space-y-3">
+      <div className="h-[calc(100%-58px)] overflow-auto p-3 space-y-3 nowheel">
         <div className="grid grid-cols-2 gap-2">
           <label className="space-y-1">
             <span className="text-[11px] font-bold" style={{ color: sub }}>应用名称</span>
@@ -217,13 +261,56 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
           </span>
         </label>
 
+        <label className="block space-y-1">
+          <span className="text-[11px] font-bold" style={{ color: sub }}>自动映射排除规则（可选）</span>
+          <textarea
+            value={excludeRulesRaw}
+            onChange={(e) => setExcludeRules(e.target.value)}
+            className={`${inputCls} min-h-[68px] resize-y font-mono leading-relaxed`}
+            style={inputStyle}
+            placeholder={'每行一个：seed、steps、class:KSampler、CLIPTextEncode.text、#86.batch_size'}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={btnCls}
+              style={inputStyle}
+              onClick={() => appendExcludeRules(['seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise'])}
+            >
+              排除采样器参数
+            </button>
+            <button
+              type="button"
+              className={btnCls}
+              style={inputStyle}
+              onClick={() => appendExcludeRules(['model_name', 'ckpt_name', 'clip_name', 'vae_name', 'lora_name'])}
+            >
+              排除模型加载
+            </button>
+            <button
+              type="button"
+              className={btnCls}
+              style={inputStyle}
+              onClick={() => appendExcludeRules(['width', 'height', 'batch_size'])}
+            >
+              排除尺寸批量
+            </button>
+            <span className="text-[10px]" style={{ color: sub }}>
+              {excludeRules.length} 条规则 · 已排除 {excludedFieldCount} 个字段
+            </span>
+          </div>
+          <span className="block text-[10px]" style={{ color: sub }}>
+            支持 source/字段名/节点类名/节点编号，例如 source:cfg、field:width、class:KSampler、node:86、#86.width。
+          </span>
+        </label>
+
         <div className="rounded border p-2" style={{ borderColor: border, background: isLight ? 'rgba(14,165,233,0.06)' : 'rgba(103,232,249,0.08)' }}>
           <div className="flex items-center gap-2">
             {workflowJson ? <CheckCircle2 size={14} color="#22c55e" /> : <XCircle size={14} color="#f87171" />}
             <span className="text-xs font-black">自动识别结果</span>
           </div>
           <div className="mt-1 text-[11px]" style={{ color: sub }}>
-            字段 {analysis.fields.length} 个 · 图片输入 {analysis.imageInputCount} · 视频输入 {analysis.videoInputCount} · 音频输入 {analysis.audioInputCount} · 输出节点 {analysis.outputCount}
+            字段 {analysis.fields.length} 个 · 排除后 {filteredAnalysisFields.length} 个 · 图片输入 {analysis.imageInputCount} · 视频输入 {analysis.videoInputCount} · 音频输入 {analysis.audioInputCount} · 输出节点 {analysis.outputCount}
           </div>
           {analysis.warnings.slice(0, 3).map((warning, index) => (
             <div key={index} className="mt-1 text-[10px] text-amber-500">{warning}</div>
@@ -232,17 +319,46 @@ const ComfyUIAppMakerNode = ({ id, data, selected }: NodeProps) => {
 
         {app && (
           <div className="space-y-2">
-            <div className="text-xs font-black">新手参数面板预览</div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-black">新手参数面板预览</div>
+              {hiddenParamKeys.length > 0 && (
+                <button
+                  type="button"
+                  className={btnCls}
+                  style={inputStyle}
+                  onClick={() => update({ comfyMakerHiddenParamKeys: [] })}
+                  title="恢复全部已移除参数"
+                >
+                  <RotateCcw size={11} /> 恢复 {hiddenParamKeys.length}
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-1.5">
               {app.userParams.map((param) => (
                 <div key={param.key} className="rounded border px-2 py-1" style={{ borderColor: border }}>
-                  <div className="truncate text-[11px] font-bold">{param.label}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1 truncate text-[11px] font-bold">{param.label}</div>
+                    <button
+                      type="button"
+                      className="nodrag nowheel inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border text-[10px]"
+                      style={{ borderColor: 'rgba(248,113,113,0.45)', color: '#f87171', background: isLight ? 'rgba(248,113,113,0.08)' : 'rgba(248,113,113,0.12)' }}
+                      title="移除此参数"
+                      onClick={() => hideParam(param.key)}
+                    >
+                      ×
+                    </button>
+                  </div>
                   <div className="truncate text-[10px]" style={{ color: sub }}>
                     {COMFY_APP_SOURCE_LABELS[param.source] || param.source} · {param.kind} · 默认 {String(param.defaultValue ?? '空').slice(0, 28)}
                   </div>
                 </div>
               ))}
             </div>
+            {rawApp && app.userParams.length === 0 && (
+              <div className="rounded border px-2 py-1 text-[11px]" style={{ borderColor: border, color: sub }}>
+                已移除全部可编辑参数。保存后这个应用仍会按 workflow 固定字段运行。
+              </div>
+            )}
           </div>
         )}
 
