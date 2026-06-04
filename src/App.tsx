@@ -1,15 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Moon, Settings, Sun, Wifi, WifiOff, Sparkles, Cloud, ExternalLink, Copy, Check, Gift, Heart, Youtube, PlayCircle, Bell, Wand2, Globe, MessageCircle, CalendarDays, Rocket, Key, Library, Palette, Skull, Sailboat } from 'lucide-react';
 import { useThemeStore } from './stores/theme';
 import { useApiKeysStore } from './stores/apiKeys';
 import { useShortcutStore } from './stores/shortcuts';
 import Sidebar from './components/Sidebar';
-import Canvas, { type AddNodeFn, type InsertWorkflowFn } from './components/Canvas';
-import ApiSettingsModal from './components/ApiSettings';
-import ResourceLibraryDrawer from './components/ResourceLibraryDrawer';
+import type { AddNodeFn, InsertWorkflowFn } from './components/Canvas';
 import AppUpdaterButton from './components/AppUpdaterButton';
 import MaterialContextMenu from './components/MaterialContextMenu';
-import ThemeTemplateManager from './components/ThemeTemplateManager';
 import ErrorBoundary from './components/ErrorBoundary';
 import { RHToolsProvider } from './providers/RHToolsProvider';
 import * as api from './services/api';
@@ -21,6 +18,11 @@ import { materialSetItemsToData, type MaterialSetKind, type MaterialSetItem } fr
 import { workflowManifestToFragment } from './utils/workflowResource';
 import { matchesAnyShortcut } from './utils/keyboardShortcuts';
 import { portraitResourceToNodeData } from './utils/portraitResource';
+
+const Canvas = lazy(() => import('./components/Canvas'));
+const ApiSettingsModal = lazy(() => import('./components/ApiSettings'));
+const ResourceLibraryDrawer = lazy(() => import('./components/ResourceLibraryDrawer'));
+const ThemeTemplateManager = lazy(() => import('./components/ThemeTemplateManager'));
 
 // vite.config 注入的编译期常量（与 package.json 同步），勿硬编码 v1.x.x
 declare const __APP_VERSION__: string;
@@ -91,6 +93,21 @@ async function workflowResourceToFragment(item: ResourceItem) {
   const res = await fetch(item.fileUrl);
   if (!res.ok) throw new Error(`读取工作流资源失败: HTTP ${res.status}`);
   return workflowManifestToFragment(await res.json());
+}
+
+function CanvasBootFallback({ isPixel, isDark }: { isPixel: boolean; isDark: boolean }) {
+  return (
+    <div
+      className={`flex-1 min-w-0 flex items-center justify-center ${
+        isPixel ? 'px-panel' : isDark ? 'bg-zinc-950 text-zinc-400' : 'bg-zinc-50 text-zinc-500'
+      }`}
+      style={{ background: 'var(--t8-bg-app)', color: 'var(--t8-text-muted)' }}
+    >
+      <div className={isPixel ? 'px-panel px-panel--small px-title text-xs' : 'text-xs font-medium'}>
+        正在加载画布...
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -1215,7 +1232,7 @@ function App() {
             <Palette size={14} />
             <span className="text-[11px] truncate">{currentTemplate.name}</span>
           </button>
-<button
+          <button
             onClick={() => setResourceOpen(true)}
             className={
               isPixel
@@ -1261,18 +1278,26 @@ function App() {
       <div className="flex-1 flex overflow-hidden">
         <Sidebar onAddNode={handleAddNode} />
         <ErrorBoundary fallbackTitle="画布渲染出错了，已被错误边界捕获">
-          <Canvas onAddNodeRef={addNodeRef} onInsertWorkflowRef={insertWorkflowRef} />
+          <Suspense fallback={<CanvasBootFallback isPixel={isPixel} isDark={isDark} />}>
+            <Canvas onAddNodeRef={addNodeRef} onInsertWorkflowRef={insertWorkflowRef} />
+          </Suspense>
         </ErrorBoundary>
       </div>
 
       {/* API 设置弹窗 */}
-      <ApiSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <ThemeTemplateManager open={themeManagerOpen} onClose={() => setThemeManagerOpen(false)} />
-      <ResourceLibraryDrawer
-        open={resourceOpen}
-        onClose={() => setResourceOpen(false)}
-        onInsertMaterial={handleInsertResource}
-      />
+      <Suspense fallback={null}>
+        {settingsOpen && <ApiSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />}
+        {themeManagerOpen && (
+          <ThemeTemplateManager open={themeManagerOpen} onClose={() => setThemeManagerOpen(false)} />
+        )}
+        {resourceOpen && (
+          <ResourceLibraryDrawer
+            open={resourceOpen}
+            onClose={() => setResourceOpen(false)}
+            onInsertMaterial={handleInsertResource}
+          />
+        )}
+      </Suspense>
       <MaterialContextMenu />
     </div>
     </RHToolsProvider>

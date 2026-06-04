@@ -305,6 +305,22 @@ function defaultCategories() {
   return out;
 }
 
+function isLegacyPanoramaCategoryName(name) {
+  const n = safeText(name).toLowerCase().replace(/\s+/g, '');
+  return n === '3d全景' || n === '全景' || n === 'vr全景' || n === '720全景';
+}
+
+function isLegacyPanoramaImageItem(item, legacyCategoryIds) {
+  const categoryId = safeText(item?.categoryId);
+  if (legacyCategoryIds.has(categoryId)) return true;
+  const title = safeText(item?.title || item?.originalName).toLowerCase();
+  if (/3d全景|全景贴图|720vr|panorama/.test(title)) return true;
+  const tags = Array.isArray(item?.tags)
+    ? item.tags.map((tag) => safeText(tag).toLowerCase().replace(/\s+/g, ''))
+    : [];
+  return tags.some((tag) => ['3d全景', '全景', 'panorama', 'vr', '720vr'].includes(tag));
+}
+
 function normalizeDb(raw) {
   const db = raw && typeof raw === 'object' ? raw : {};
   const defaults = defaultCategories();
@@ -331,12 +347,20 @@ function normalizeDb(raw) {
   const normalizedCategories = Array.from(catMap.values())
     .sort((a, b) => a.kind.localeCompare(b.kind) || (a.order || 0) - (b.order || 0))
     .map((c, idx) => ({ ...c, order: Number.isFinite(Number(c.order)) ? c.order : idx }));
-  const catIds = new Set(normalizedCategories.map((c) => c.id));
+  const categoryKindById = new Map(normalizedCategories.map((c) => [c.id, c.kind]));
+  const legacyPanoramaCategoryIds = new Set(
+    normalizedCategories
+      .filter((c) => c.kind === 'image' && isLegacyPanoramaCategoryName(c.name))
+      .map((c) => c.id),
+  );
   const normalizedItems = [];
   const seen = new Set();
 
   for (const item of items) {
-    const kind = normalizeKind(item?.kind);
+    let kind = normalizeKind(item?.kind);
+    if (kind === 'image' && isLegacyPanoramaImageItem(item, legacyPanoramaCategoryIds)) {
+      kind = 'panorama';
+    }
     const id = safeText(item?.id, genId('res')).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 96) || genId('res');
     if (!kind || seen.has(id)) continue;
     const fileRel = safeText(item?.fileRel);
@@ -352,7 +376,8 @@ function normalizeDb(raw) {
     const workflowPreview = kind === 'workflow' ? normalizeWorkflowTopologyPreview(item?.workflowPreview) : null;
     seen.add(id);
     const fallbackCat = `${kind}_uncategorized`;
-    const categoryId = catIds.has(item?.categoryId) ? item.categoryId : fallbackCat;
+    const requestedCategoryId = safeText(item?.categoryId);
+    const categoryId = categoryKindById.get(requestedCategoryId) === kind ? requestedCategoryId : fallbackCat;
     normalizedItems.push({
       id,
       kind,
@@ -381,11 +406,16 @@ function normalizeDb(raw) {
     });
   }
 
+  const usedCategoryIds = new Set(normalizedItems.map((item) => item.categoryId));
+  const finalCategories = normalizedCategories.filter((cat) => (
+    !(cat.kind === 'image' && legacyPanoramaCategoryIds.has(cat.id) && !usedCategoryIds.has(cat.id))
+  ));
+
   return {
     schema: 't8-resource-library',
     version: 1,
     updatedAt: safeText(db.updatedAt, new Date().toISOString()),
-    categories: normalizedCategories,
+    categories: finalCategories,
     items: normalizedItems,
   };
 }

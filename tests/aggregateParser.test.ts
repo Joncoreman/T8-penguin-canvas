@@ -22,7 +22,7 @@ test('aggregate parser node is registered in toolbox with media ports', () => {
   assert.match(registry, /type:\s*'aggregate-parser'[\s\S]*label:\s*'聚合解析'[\s\S]*category:\s*'toolbox'/);
   assert.match(ports, /'aggregate-parser':\s*\{\s*inputs:\s*\['text'\],\s*outputs:\s*\['text',\s*'image',\s*'video',\s*'audio'\]\s*\}/);
   assert.match(types, /\|\s*'aggregate-parser'/);
-  assert.match(canvas, /import AggregateParserNode from '\.\/nodes\/AggregateParserNode'/);
+  assert.match(canvas, /const AggregateParserNode = lazyCanvasNode\(\(\) => import\('\.\/nodes\/AggregateParserNode'\)/);
   assert.match(canvas, /'aggregate-parser':\s*AggregateParserNode/);
   assert.match(canvas, /'aggregate-parser':\s*\{[\s\S]*aggregateParserAcceptedCompliance:\s*false/);
   assert.match(canvas, /'cinematic',\s*'video-motion',\s*'multi-angle-visual',\s*'portrait-master',\s*'pose-master',\s*'aggregate-parser'/);
@@ -42,6 +42,65 @@ test('aggregate parser frontend enforces compliance and friendly controls', () =
   assert.match(source, /ParseHub/);
   assert.match(source, /解析无水印地址/);
   assert.match(source, /代理 \/ Cookie/);
+  assert.match(source, /授权助手/);
+  assert.match(source, /normalizeCookieInput/);
+  assert.match(source, /handleSaveAuth/);
+  assert.match(source, /handleLoadSavedAuth/);
+  assert.match(source, /desktopAuthAvailable/);
+  assert.match(source, /浏览器手动模式/);
+  assert.match(source, /桌面自动模式/);
+  assert.match(source, /127\.0\.0\.1 页面不能跨站读取/);
+  assert.match(source, /要自动获取，请使用 Electron 桌面端/);
+  assert.match(source, /打开平台官网/);
+  assert.match(source, /检查已粘贴 Cookie/);
+  assert.match(source, /保存授权/);
+  assert.match(source, /载入授权/);
+  assert.match(source, /onPointerDown=\{\(e\) => e\.stopPropagation\(\)\}/);
+  assert.match(source, /网页登录后本节点仍无法自动读取 Cookie/);
+  assert.match(source, /手动 Cookie 格式看起来可用/);
+  assert.match(source, /要自动检测，请在 Electron 桌面端打开画布/);
+  assert.match(source, /粘贴 Cookie 后可直接用于本次解析，无需保存/);
+  assert.match(source, /没有桌面端本机授权库/);
+  assert.match(source, /noticeText = message \|\| savedError/);
+  assert.doesNotMatch(source, /disabled=\{authBusy \|\| !authProfile\}/);
+  assert.doesNotMatch(source, /disabled=\{authBusy \|\| !authProfile \|\| !savedAuth \|\| !electronParseAuth\?\.load\}/);
+  assert.match(source, /aggregateParserCookie:\s*''/);
+  assert.doesNotMatch(source, /onChange=\{\(e\) => update\(\{ aggregateParserCookie: e\.target\.value \}\)\}/);
+});
+
+test('aggregate parser auth helper profiles and Electron IPC are wired', () => {
+  const helper = read('src/utils/parseAuth.ts');
+  const service = read('src/services/parseHub.ts');
+  const preload = read('electron/preload.cjs');
+  const main = read('electron/main.cjs');
+  const viteEnv = read('src/vite-env.d.ts');
+  const features = read('features.json');
+
+  assert.match(helper, /PARSE_AUTH_PROFILES/);
+  assert.match(helper, /detectParseAuthProfile/);
+  assert.match(helper, /normalizeCookieInput/);
+  assert.match(helper, /cookiePairsFromNetscape/);
+  assert.match(service, /class AggregateParserApiError extends Error/);
+  assert.match(service, /nextAction/);
+  assert.match(preload, /parseAuth/);
+  assert.match(preload, /t8pc:parse-auth:login/);
+  assert.match(preload, /t8pc:parse-auth:get-cookie/);
+  assert.match(preload, /t8pc:parse-auth:list-saved/);
+  assert.match(preload, /t8pc:parse-auth:save/);
+  assert.match(preload, /t8pc:parse-auth:load/);
+  assert.match(preload, /t8pc:parse-auth:clear/);
+  assert.match(main, /PARSE_AUTH_PARTITION = 'persist:t8-parsehub-auth'/);
+  assert.match(main, /session\.fromPartition\(PARSE_AUTH_PARTITION\)/);
+  assert.match(main, /safeStorage/);
+  assert.match(main, /schema:\s*'t8-parsehub-auth'/);
+  assert.match(main, /encryptParseAuthCookie/);
+  assert.match(main, /isParseAuthAllowedUrl/);
+  assert.match(main, /ipcMain\.handle\('t8pc:parse-auth:login'/);
+  assert.match(main, /ipcMain\.handle\('t8pc:parse-auth:save'/);
+  assert.match(main, /ipcMain\.handle\('t8pc:parse-auth:load'/);
+  assert.match(viteEnv, /parseAuth\?:/);
+  assert.match(features, /聚合解析授权体验/);
+  assert.match(features, /本机授权库/);
 });
 
 test('aggregate parser backend is mounted and packaged', () => {
@@ -54,6 +113,7 @@ test('aggregate parser backend is mounted and packaged', () => {
   assert.match(server, /const parseHubRouter = require\('\.\/routes\/parseHub'\)/);
   assert.match(server, /app\.use\('\/api\/parsehub', parseHubRouter\)/);
   assert.match(route, /acceptedCompliance !== true/);
+  assert.match(route, /classifyParseHubError/);
   assert.match(route, /runParseHubBridge/);
   assert.match(postBuild, /routes', 'parseHub\.t8c'/);
   assert.match(postBuild, /utils', 'parseHubBridge\.t8c'/);
@@ -63,6 +123,21 @@ test('aggregate parser backend is mounted and packaged', () => {
   const resources = pkg.build.extraResources.map((item: any) => `${item.from}->${item.to}`);
   assert.ok(resources.includes('tools/parsehub-bridge->tools/parsehub-bridge'));
   assert.ok(resources.includes('tools/parsehub-pythonlibs->tools/parsehub-pythonlibs'));
+});
+
+test('parsehub bridge classifies errors for actionable UI hints', () => {
+  const login = parseHubBridge.classifyParseHubError(new Error('403 login required cookie expired'));
+  assert.equal(login.code, 'login_required');
+  assert.equal(login.status, 401);
+  assert.match(login.hint, /授权助手|Cookie/);
+
+  const timeout = parseHubBridge.classifyParseHubError(new Error('ParseHub 解析超时，请稍后重试或检查代理/Cookie'));
+  assert.equal(timeout.code, 'parsehub_timeout');
+  assert.equal(timeout.status, 504);
+
+  const unsupported = parseHubBridge.classifyParseHubError(new Error('UnknownPlatform unsupported'));
+  assert.equal(unsupported.code, 'unsupported_platform');
+  assert.equal(unsupported.status, 400);
 });
 
 test('normalizeParseHubResult extracts remote and live-photo media links', () => {

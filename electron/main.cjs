@@ -8,13 +8,13 @@
 //   5. 打包模式数据目录指向 app.getPath('userData') 而非项目目录
 // ============================================================================
 
-const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, session, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
 const { spawn } = require('child_process');
 
-const APP_VERSION = '2.0.1';
+const APP_VERSION = '2.0.2';
 const UPDATE_DISABLED_MESSAGE = '开发模式不会检查 GitHub Release 更新';
 
 // 允许在 Linux/某些机型上规避 GPU 沙盒导致的启动延迟
@@ -43,6 +43,22 @@ let updaterState = {
   updatedAt: null,
 };
 
+const PARSE_AUTH_PARTITION = 'persist:t8-parsehub-auth';
+const PARSE_AUTH_PROFILES = [
+  { id: 'douyin', label: '抖音', authUrl: 'https://www.douyin.com/', domains: ['douyin.com', 'iesdouyin.com'] },
+  { id: 'tiktok', label: 'TikTok', authUrl: 'https://www.tiktok.com/', domains: ['tiktok.com'] },
+  { id: 'xiaohongshu', label: '小红书', authUrl: 'https://www.xiaohongshu.com/', domains: ['xiaohongshu.com', 'xhslink.com'] },
+  { id: 'bilibili', label: 'Bilibili', authUrl: 'https://www.bilibili.com/', domains: ['bilibili.com', 'b23.tv'] },
+  { id: 'weibo', label: '微博', authUrl: 'https://weibo.com/', domains: ['weibo.com', 'weibo.cn'] },
+  { id: 'kuaishou', label: '快手', authUrl: 'https://www.kuaishou.com/', domains: ['kuaishou.com', 'gifshow.com'] },
+  { id: 'youtube', label: 'YouTube', authUrl: 'https://www.youtube.com/', domains: ['youtube.com', 'youtu.be', 'google.com'] },
+  { id: 'twitter', label: 'X / Twitter', authUrl: 'https://x.com/', domains: ['x.com', 'twitter.com'] },
+  { id: 'instagram', label: 'Instagram', authUrl: 'https://www.instagram.com/', domains: ['instagram.com'] },
+  { id: 'facebook', label: 'Facebook', authUrl: 'https://www.facebook.com/', domains: ['facebook.com', 'fb.watch'] },
+  { id: 'threads', label: 'Threads', authUrl: 'https://www.threads.net/', domains: ['threads.net'] },
+  { id: 'tieba', label: '贴吧', authUrl: 'https://tieba.baidu.com/', domains: ['tieba.baidu.com'] },
+];
+
 function isSafeExternalUrl(url) {
   try {
     const u = new URL(String(url || ''));
@@ -59,6 +75,361 @@ function openExternalUrl(url) {
   return shell.openExternal(url)
     .then(() => ({ success: true }))
     .catch((e) => ({ success: false, message: e && e.message ? e.message : String(e) }));
+}
+
+function getParseAuthProfile(profileId) {
+  const id = String(profileId || '').trim();
+  return PARSE_AUTH_PROFILES.find((profile) => profile.id === id) || null;
+}
+
+function hostnameMatchesDomain(hostname, domain) {
+  const host = String(hostname || '').toLowerCase().replace(/^www\./, '');
+  const cleanDomain = String(domain || '').toLowerCase().replace(/^www\./, '');
+  return host === cleanDomain || host.endsWith(`.${cleanDomain}`);
+}
+
+function isParseAuthAllowedUrl(url, profile) {
+  try {
+    const parsed = new URL(String(url || ''));
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    return profile.domains.some((domain) => hostnameMatchesDomain(parsed.hostname, domain));
+  } catch (_) {
+    return false;
+  }
+}
+
+function parseAuthSession() {
+  return session.fromPartition(PARSE_AUTH_PARTITION);
+}
+
+async function openParseAuthWindow(profileId) {
+  const profile = getParseAuthProfile(profileId);
+  if (!profile) {
+    return { success: false, message: '未知平台，无法打开授权窗口' };
+  }
+  if (!app.isReady()) {
+    return { success: false, message: '应用尚未初始化完成，请稍后再试' };
+  }
+
+  const authWindow = new BrowserWindow({
+    width: 1120,
+    height: 820,
+    minWidth: 860,
+    minHeight: 640,
+    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+    modal: false,
+    show: true,
+    title: `${profile.label} 授权登录`,
+    backgroundColor: '#111111',
+    webPreferences: {
+      partition: PARSE_AUTH_PARTITION,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  authWindow.removeMenu();
+
+  authWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isParseAuthAllowedUrl(url, profile)) {
+      authWindow.loadURL(url).catch((error) => {
+        dbgLog(`[parse-auth] load popup url failed: ${normalizeError(error)}`);
+      });
+    } else if (isSafeExternalUrl(url)) {
+      void openExternalUrl(url);
+    }
+    return { action: 'deny' };
+  });
+
+  authWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    if (isParseAuthAllowedUrl(targetUrl, profile)) return;
+    event.preventDefault();
+    if (isSafeExternalUrl(targetUrl)) {
+      void openExternalUrl(targetUrl);
+    }
+  });
+
+  try {
+    await authWindow.loadURL(profile.authUrl);
+    return { success: true, message: `已打开 ${profile.label} 官方登录窗口，请登录后回到节点点击“检测授权”` };
+  } catch (error) {
+    return { success: false, message: normalizeError(error) };
+  }
+}
+
+function cookieUrlFor(cookie) {
+  const domain = String(cookie.domain || '').replace(/^\./, '');
+  if (!domain) return '';
+  const protocol = cookie.secure ? 'https:' : 'http:';
+  const cookiePath = String(cookie.path || '/');
+  return `${protocol}//${domain}${cookiePath.startsWith('/') ? cookiePath : `/${cookiePath}`}`;
+}
+
+function summarizeCookie(cookieText, cookies, profile) {
+  const expires = cookies
+    .map((item) => Number(item.expirationDate || 0))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((a, b) => a - b)[0];
+  return {
+    profileId: profile.id,
+    label: profile.label,
+    cookie: cookieText,
+    count: cookies.length,
+    length: cookieText.length,
+    expiresAt: expires ? new Date(expires * 1000).toISOString() : null,
+    domains: Array.from(new Set(cookies.map((item) => String(item.domain || '').replace(/^\./, '')).filter(Boolean))).slice(0, 8),
+  };
+}
+
+function parseAuthStorePath() {
+  return path.join(getUserDataDir(), 'data', 'parsehub-auth.json');
+}
+
+function defaultParseAuthStore() {
+  return {
+    schema: 't8-parsehub-auth',
+    version: 1,
+    records: {},
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function readParseAuthStore() {
+  const file = parseAuthStorePath();
+  if (!fs.existsSync(file)) return defaultParseAuthStore();
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    if (!data || data.schema !== 't8-parsehub-auth' || typeof data.records !== 'object') {
+      return defaultParseAuthStore();
+    }
+    return {
+      ...defaultParseAuthStore(),
+      ...data,
+      records: data.records || {},
+    };
+  } catch (_) {
+    return defaultParseAuthStore();
+  }
+}
+
+function writeParseAuthStore(store) {
+  const file = parseAuthStorePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const next = {
+    ...store,
+    schema: 't8-parsehub-auth',
+    version: 1,
+    updatedAt: new Date().toISOString(),
+  };
+  const temp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(next, null, 2), 'utf-8');
+  fs.renameSync(temp, file);
+}
+
+function normalizeCookieTextForStore(value) {
+  const text = String(value || '')
+    .replace(/\r?\n/g, '; ')
+    .replace(/;\s*;/g, ';')
+    .trim()
+    .replace(/^;+|;+$/g, '');
+  if (!text) return '';
+  if (text.length > 12000) {
+    throw new Error('Cookie 过长，请删掉无关字段后再保存');
+  }
+  if (!/(^|;\s*)[^=;\s]+=[^;]+/.test(text)) {
+    throw new Error('Cookie 格式不正确，请粘贴 name=value; name2=value2 格式');
+  }
+  return text;
+}
+
+function ensureParseAuthEncryption() {
+  if (!safeStorage || !safeStorage.isEncryptionAvailable()) {
+    throw new Error('当前系统加密能力不可用，已拒绝明文保存 Cookie；可继续仅本次解析使用');
+  }
+}
+
+function encryptParseAuthCookie(cookieText) {
+  ensureParseAuthEncryption();
+  return safeStorage.encryptString(cookieText).toString('base64');
+}
+
+function decryptParseAuthCookie(record) {
+  ensureParseAuthEncryption();
+  return safeStorage.decryptString(Buffer.from(String(record.cookieEnc || ''), 'base64'));
+}
+
+function maskParseAuthRecord(record) {
+  return {
+    profileId: record.profileId,
+    label: record.label,
+    saved: true,
+    encrypted: record.encoding === 'electron-safeStorage:v1',
+    savedAt: record.savedAt || null,
+    updatedAt: record.updatedAt || record.savedAt || null,
+    expiresAt: record.expiresAt || null,
+    length: Number(record.length || 0),
+    count: Number(record.count || 0),
+    domains: Array.isArray(record.domains) ? record.domains.slice(0, 8) : [],
+  };
+}
+
+function countCookiePairs(cookieText) {
+  return String(cookieText || '')
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => /^[^=;\s]+=[^;]+/.test(part))
+    .length;
+}
+
+async function listSavedParseAuth(profileId) {
+  const store = readParseAuthStore();
+  const id = String(profileId || '').trim();
+  const records = Object.values(store.records || {})
+    .filter((record) => record && (!id || record.profileId === id))
+    .map(maskParseAuthRecord);
+  return { success: true, data: { records, encryptionAvailable: !!(safeStorage && safeStorage.isEncryptionAvailable()) } };
+}
+
+async function saveParseAuthRecord(profileId, cookieText, meta = {}) {
+  const profile = getParseAuthProfile(profileId);
+  if (!profile) {
+    return { success: false, message: '未知平台，无法保存授权 Cookie' };
+  }
+  let normalized = '';
+  try {
+    normalized = normalizeCookieTextForStore(cookieText);
+    const now = new Date().toISOString();
+    const store = readParseAuthStore();
+    const previous = store.records?.[profile.id] || null;
+    const domains = Array.isArray(meta?.domains) && meta.domains.length
+      ? meta.domains.map((item) => String(item || '').replace(/^\./, '')).filter(Boolean).slice(0, 8)
+      : profile.domains;
+    const record = {
+      profileId: profile.id,
+      label: profile.label,
+      domains,
+      encoding: 'electron-safeStorage:v1',
+      cookieEnc: encryptParseAuthCookie(normalized),
+      length: normalized.length,
+      count: Number(meta?.count || 0) || countCookiePairs(normalized),
+      expiresAt: meta?.expiresAt || null,
+      savedAt: previous?.savedAt || now,
+      updatedAt: now,
+    };
+    writeParseAuthStore({
+      ...store,
+      records: {
+        ...(store.records || {}),
+        [profile.id]: record,
+      },
+    });
+    return { success: true, data: maskParseAuthRecord(record), message: `${profile.label} 授权已加密保存到本机` };
+  } catch (error) {
+    return { success: false, message: normalizeError(error) };
+  }
+}
+
+async function loadParseAuthRecord(profileId) {
+  const profile = getParseAuthProfile(profileId);
+  if (!profile) {
+    return { success: false, message: '未知平台，无法读取本机授权' };
+  }
+  try {
+    const store = readParseAuthStore();
+    const record = store.records?.[profile.id];
+    if (!record) {
+      return { success: false, message: `本机没有保存 ${profile.label} 授权` };
+    }
+    const cookie = decryptParseAuthCookie(record);
+    if (!cookie) {
+      return { success: false, message: `${profile.label} 授权为空，请重新登录保存` };
+    }
+    return {
+      success: true,
+      data: {
+        ...maskParseAuthRecord(record),
+        cookie,
+      },
+      message: `已载入 ${profile.label} 本机授权`,
+    };
+  } catch (error) {
+    return { success: false, message: normalizeError(error) };
+  }
+}
+
+function removeSavedParseAuthRecord(profileId) {
+  const profile = getParseAuthProfile(profileId);
+  if (!profile) return 0;
+  const store = readParseAuthStore();
+  if (!store.records?.[profile.id]) return 0;
+  const nextRecords = { ...(store.records || {}) };
+  delete nextRecords[profile.id];
+  writeParseAuthStore({ ...store, records: nextRecords });
+  return 1;
+}
+
+async function getParseAuthCookie(profileId) {
+  const profile = getParseAuthProfile(profileId);
+  if (!profile) {
+    return { success: false, message: '未知平台，无法读取授权 Cookie' };
+  }
+  const ses = parseAuthSession();
+  const all = [];
+  for (const domain of profile.domains) {
+    const variants = [domain, `.${domain}`];
+    for (const variant of variants) {
+      try {
+        const cookies = await ses.cookies.get({ domain: variant });
+        all.push(...cookies);
+      } catch (_) {}
+    }
+  }
+  const seen = new Set();
+  const cookies = all.filter((cookie) => {
+    if (!cookie?.name || !cookie?.value) return false;
+    const domainOk = profile.domains.some((domain) => hostnameMatchesDomain(cookie.domain, domain));
+    if (!domainOk) return false;
+    const key = `${cookie.domain}\0${cookie.path}\0${cookie.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const cookieText = cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
+  if (!cookieText) {
+    return { success: false, message: `还没有读取到 ${profile.label} Cookie，请先在授权窗口登录官方账号` };
+  }
+  return { success: true, data: summarizeCookie(cookieText, cookies, profile) };
+}
+
+async function clearParseAuthCookie(profileId) {
+  const profile = getParseAuthProfile(profileId);
+  if (!profile) {
+    return { success: false, message: '未知平台，无法清除授权 Cookie' };
+  }
+  const ses = parseAuthSession();
+  const all = [];
+  for (const domain of profile.domains) {
+    try {
+      all.push(...await ses.cookies.get({ domain }));
+      all.push(...await ses.cookies.get({ domain: `.${domain}` }));
+    } catch (_) {}
+  }
+  let removed = 0;
+  for (const cookie of all) {
+    if (!profile.domains.some((domain) => hostnameMatchesDomain(cookie.domain, domain))) continue;
+    const url = cookieUrlFor(cookie);
+    if (!url || !cookie.name) continue;
+    try {
+      await ses.cookies.remove(url, cookie.name);
+      removed += 1;
+    } catch (_) {}
+  }
+  const savedRemoved = removeSavedParseAuthRecord(profile.id);
+  return {
+    success: true,
+    data: { profileId: profile.id, label: profile.label, removed, savedRemoved },
+    message: `已清除 ${profile.label} 授权缓存${savedRemoved ? '和本机授权库' : ''}`,
+  };
 }
 
 // ---------- 路径解析 (开发/打包双模式) ----------
@@ -448,6 +819,12 @@ ipcMain.handle('t8pc:get-info', () => ({
 }));
 
 ipcMain.handle('t8pc:open-external', async (_event, url) => openExternalUrl(url));
+ipcMain.handle('t8pc:parse-auth:login', async (_event, profileId) => openParseAuthWindow(profileId));
+ipcMain.handle('t8pc:parse-auth:get-cookie', async (_event, profileId) => getParseAuthCookie(profileId));
+ipcMain.handle('t8pc:parse-auth:list-saved', async (_event, profileId) => listSavedParseAuth(profileId));
+ipcMain.handle('t8pc:parse-auth:save', async (_event, profileId, cookieText, meta) => saveParseAuthRecord(profileId, cookieText, meta));
+ipcMain.handle('t8pc:parse-auth:load', async (_event, profileId) => loadParseAuthRecord(profileId));
+ipcMain.handle('t8pc:parse-auth:clear', async (_event, profileId) => clearParseAuthCookie(profileId));
 ipcMain.handle('t8pc:updater:status', () => emitUpdaterStatus());
 ipcMain.handle('t8pc:updater:check', async () => checkForUpdatesByUser());
 ipcMain.handle('t8pc:updater:download', async () => downloadAvailableUpdate());

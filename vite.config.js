@@ -6,6 +6,16 @@ import path from 'path';
 export default defineConfig({
     plugins: [react()],
     assetsInclude: ['**/*.mid'],
+    optimizeDeps: {
+        include: [
+            '@xyflow/react',
+            'lucide-react',
+            'react',
+            'react-dom',
+            'react-dom/client',
+            'zustand',
+        ],
+    },
     resolve: {
         alias: {
             '@': path.resolve(__dirname, './src'),
@@ -15,6 +25,16 @@ export default defineConfig({
         port: 11422,
         strictPort: true,
         host: '127.0.0.1',
+        warmup: {
+            clientFiles: [
+                './src/main.tsx',
+                './src/App.tsx',
+                './src/components/Canvas.tsx',
+                './src/components/nodes/ImageNode.tsx',
+                './src/components/nodes/UploadNode.tsx',
+                './src/components/nodes/OutputNode.tsx',
+            ],
+        },
         proxy: {
             // 后端 API 代理
             '/api': {
@@ -50,7 +70,7 @@ export default defineConfig({
         },
     },
     define: {
-        __APP_VERSION__: JSON.stringify('2.0.1'),
+        __APP_VERSION__: JSON.stringify('2.0.2'),
         __APP_NAME__: JSON.stringify('T8-penguin-canvas'),
     },
 });

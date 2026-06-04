@@ -129,6 +129,81 @@ function normalizeOptionalSecret(value, max, label) {
   return clampText(value, max, label);
 }
 
+function classifyParseHubError(error) {
+  const message = String(error?.message || error || '').trim() || 'ParseHub 解析失败';
+  const lower = message.toLowerCase();
+  if (/确认内容来源合法|compliance/i.test(message)) {
+    return {
+      code: 'compliance_required',
+      status: 400,
+      hint: '请先勾选合规确认。',
+      nextAction: 'accept_compliance',
+    };
+  }
+  if (/缺少|请粘贴|分享内容|过长/i.test(message)) {
+    return {
+      code: 'invalid_input',
+      status: 400,
+      hint: '请复制完整分享文案、短链或作品链接后重试。',
+      nextAction: 'edit_input',
+    };
+  }
+  if (/unknownplatform|unsupported|不支持/i.test(message)) {
+    return {
+      code: 'unsupported_platform',
+      status: 400,
+      hint: '当前平台暂未被 ParseHub 支持，或链接格式无法识别。',
+      nextAction: 'copy_full_share_text',
+    };
+  }
+  if (/timeout|超时|timed out/i.test(lower)) {
+    return {
+      code: 'parsehub_timeout',
+      status: 504,
+      hint: '请稍后重试；如果平台访问慢，检查代理和登录态。',
+      nextAction: 'retry_or_check_proxy_cookie',
+    };
+  }
+  if (/cookie|login|required|auth|unauthorized|forbidden|401|403|登录|授权/i.test(lower)) {
+    return {
+      code: 'login_required',
+      status: 401,
+      hint: '该内容可能需要登录态。请使用授权助手重新登录，或手动粘贴最新 Cookie。',
+      nextAction: 'refresh_cookie',
+    };
+  }
+  if (/rate|limit|too many|频繁|风控|captcha|verify|验证/i.test(lower)) {
+    return {
+      code: 'rate_limited',
+      status: 429,
+      hint: '平台可能触发限流或验证，请稍后重试，必要时更换网络或重新授权。',
+      nextAction: 'wait_and_retry',
+    };
+  }
+  if (/proxy|network|connection|tls|ssl|dns|timeout|代理|网络/i.test(lower)) {
+    return {
+      code: 'proxy_required',
+      status: 502,
+      hint: '请检查网络、代理地址和目标平台是否可访问。',
+      nextAction: 'check_proxy',
+    };
+  }
+  if (/private|permission|not allowed|无权限|私密/i.test(lower)) {
+    return {
+      code: 'private_content',
+      status: 403,
+      hint: '请确认当前账号确实有权访问该内容，且平台允许保存。',
+      nextAction: 'check_content_permission',
+    };
+  }
+  return {
+    code: 'parsehub_failed',
+    status: 500,
+    hint: '请检查分享内容、平台支持状态、Cookie 和代理设置。',
+    nextAction: 'check_input_runtime',
+  };
+}
+
 function parseJsonOutput(stdout, stderr) {
   const text = String(stdout || '').trim();
   if (!text) {
@@ -415,6 +490,7 @@ module.exports = {
   SUPPORTED_PLATFORM_HINTS,
   normalizeResolveInput,
   normalizeOptionalSecret,
+  classifyParseHubError,
   normalizeParseHubResult,
   resolveBridgeScript,
   resolvePythonCandidates,

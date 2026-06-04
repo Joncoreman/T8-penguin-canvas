@@ -188,10 +188,14 @@ export default function ResourceLibraryDrawer({ open, onClose, onInsertMaterial 
     ]);
     const nextCats = resultData<ResourceCategory[]>(catRes);
     const nextItems = resultData<ResourceItem[]>(itemRes);
-    if (nextCats) setCategories(nextCats);
-    if (nextItems) setItems(nextItems);
+    const filteredCats = nextCats ? nextCats.filter((cat) => cat.kind === kind) : null;
+    const filteredItems = nextItems ? nextItems.filter((item) => item.kind === kind) : null;
+    if (filteredCats) setCategories(filteredCats);
+    if (filteredItems) setItems(filteredItems);
     if (!nextCats || !nextItems) {
       setMsg((catRes as any)?.error || (itemRes as any)?.error || '资源库加载失败');
+    } else if (kind === 'panorama' && nextCats.length > 0 && filteredCats?.length === 0) {
+      setMsg('后端尚未加载全景资源类型，请重启开发后端后再打开资源库。');
     }
     setLoading(false);
   }, [open, kind, categoryId, q, favoriteOnly]);

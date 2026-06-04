@@ -52,12 +52,33 @@ export interface AggregateParserResolvePayload {
   acceptedCompliance: boolean;
 }
 
+export class AggregateParserApiError extends Error {
+  code?: string;
+  hint?: string;
+  nextAction?: string;
+  status?: number;
+
+  constructor(message: string, options: { code?: string; hint?: string; nextAction?: string; status?: number } = {}) {
+    super(message);
+    this.name = 'AggregateParserApiError';
+    this.code = options.code;
+    this.hint = options.hint;
+    this.nextAction = options.nextAction;
+    this.status = options.status;
+  }
+}
+
 const BASE = '/api/parsehub';
 
 async function readJson<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data?.success === false) {
-    throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
+    throw new AggregateParserApiError(data?.error || data?.message || `HTTP ${res.status}`, {
+      code: data?.code,
+      hint: data?.hint,
+      nextAction: data?.nextAction,
+      status: res.status,
+    });
   }
   return data;
 }

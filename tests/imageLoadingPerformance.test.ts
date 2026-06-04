@@ -15,6 +15,8 @@ test('local canvas image previews use cached backend thumbnails', () => {
   assert.match(smartImage, /loading = 'lazy'/);
   assert.match(smartImage, /decoding = 'async'/);
   assert.match(smartImage, /data-full-src=\{src\}/);
+  assert.match(smartImage, /IntersectionObserver/);
+  assert.match(smartImage, /rootMargin:\s*'720px 720px'/);
   assert.match(smartImage, /setFallback\(true\)/);
 
   assert.match(mediaPreview, /\/api\/files\/thumbnail\?size=\$\{safeSize\}&url=/);
@@ -22,8 +24,22 @@ test('local canvas image previews use cached backend thumbnails', () => {
 
   assert.match(filesRoute, /router\.get\('\/thumbnail'/);
   assert.match(filesRoute, /sharp\(sourcePath/);
+  assert.match(filesRoute, /thumbnailInflight/);
+  assert.match(filesRoute, /MAX_THUMBNAIL_JOBS/);
   assert.match(filesRoute, /Cache-Control', 'public, max-age=31536000, immutable'/);
   assert.match(filesRoute, /THUMBNAILS_DIR/);
+});
+
+test('initial canvas boot keeps heavy nodes behind lazy boundaries', () => {
+  const app = read('../src/App.tsx');
+  const canvas = read('../src/components/Canvas.tsx');
+
+  assert.match(app, /const Canvas = lazy\(\(\) => import\('\.\/components\/Canvas'\)\)/);
+  assert.match(app, /CanvasBootFallback/);
+  assert.match(canvas, /function lazyCanvasNode/);
+  assert.match(canvas, /const Panorama3DNode = lazyCanvasNode\(\(\) => import\('\.\/nodes\/Panorama3DNode'\)/);
+  assert.match(canvas, /const ImageNode = lazyCanvasNode\(\(\) => import\('\.\/nodes\/ImageNode'\)/);
+  assert.doesNotMatch(canvas, /import ImageNode from '\.\/nodes\/ImageNode'/);
 });
 
 test('high-traffic node previews render through SmartImage', () => {

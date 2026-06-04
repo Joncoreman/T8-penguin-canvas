@@ -1,7 +1,7 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "2.0.1",
-  "lastUpdated": "2026-06-04-prompt-editor-source-release-v201",
+  "version": "2.0.2",
+  "lastUpdated": "2026-06-04-aggregate-parser-auth-electron-release-v202",
   "packaging": {
     "description": "Electron NSIS 桌面端打包链路(v1.2.1 起标准化, 严禁未明确指令主动打包)。完整产物拓扑: app.asar(electron/{main,loader,preload}.cjs + node_modules) + app.asar.unpacked(node_modules/sharp + @img) + resources/backend-enc/*.t8c(extraResources, asar 外) + resources/frontend(extraResources, asar 外)。前端版本号由 vite define 注入 __APP_VERSION__、Sidebar 左下角自动同步。",
     "scripts": {
@@ -21,11 +21,11 @@
       "T8_PARSEHUB_PYTHON": "可选，覆盖聚合解析节点使用的 Python 3.12 解释器路径",
       "T8_PARSEHUB_LIB_PATHS": "可选，覆盖 ParseHub Python 依赖搜索路径；正式包默认使用 resources/tools/parsehub-pythonlibs"
     },
-    "version": "2.0.1",
-    "semverVersion": "2.0.1",
+    "version": "2.0.2",
+    "semverVersion": "2.0.2",
     "versionNumberPolicy": "T8 版本号仍采用 x.y.z 三段，但每一段只允许 0-9；任一段到 9 后下一次发布必须向左进位，禁止任一段出现两位数字。例：1.9.9 的下一版必须是 2.0.0。",
-    "versionNote": "v1.3.0 起统一采用三段阶段号 x.y.z；当前源码为 v2.0.1：在 v2.0.0 的画布性能规范与自动更新基线基础上，新增全局提示词大编辑器、修正 @ 素材 chip 对齐、补齐 3D 全景资源库全景分类与即梦 CLI Seedance 多参考修复等源码能力。GitHub 公开源码仍排除本地私有计费/支付/充值实现；Electron 发布继续使用 GitHub Release latest.yml/blockmap 自动更新链路。",
-    "installer": "本次用户要求只更新并推送 GitHub 源码，不打包 Electron，不生成 T8-PenguinCanvas-Setup-2.0.1.exe、latest.yml 或 .blockmap；下一次需要桌面自动更新资产时，仍必须按 dist:release 流程重新生成 installer、blockmap、latest.yml 并验证 GitHub Release。",
+    "versionNote": "v1.3.0 起统一采用三段阶段号 x.y.z；当前发布为 v2.0.2：在 v2.0.1 全局提示词大编辑器、3D 全景资源库与即梦 CLI 多参考修复基础上，补齐聚合解析 Cookie 授权助手的浏览器手动模式 / Electron 桌面自动模式区分，继续保留开发首屏懒加载、图片缩略图队列和画布性能规范。GitHub 公开源码仍排除本地私有计费/支付/充值实现；Electron 发布继续使用 GitHub Release latest.yml/blockmap 自动更新链路。",
+    "installer": "本次按规范打包 Electron 并发布 GitHub Release v2.0.2 自动更新资产；必须生成并上传 T8-PenguinCanvas-Setup-2.0.2.exe、.exe.blockmap 与 latest.yml，且 npm run release:verify 通过后才可宣布自动更新版本发布完成。",
     "publicReleasePolicy": {
       "github": "GitHub 公开源码只保留通用画布、生成节点、扩展平台、资源库、主题、ComfyUI/RH 工具箱、云端上传等能力；本地私有计费/支付/充值能力不得进入公开仓库。",
       "neverStage": [
@@ -62,11 +62,11 @@
     ]
   },
   "canvasPerformance": {
-    "version": "2.0.1",
+    "version": "2.0.2",
     "description": "大画布启动、图片预览和拖动画布性能热修与后续开发规范。",
     "imagePreviewPipeline": {
-      "frontend": "高频节点预览统一使用 SmartImage + previewImageUrl，本地 /files/input 与 /files/output 图片自动请求 /api/files/thumbnail，原始素材 URL 保留在 data-full-src 与拖拽/下载/下游数据中。",
-      "backend": "backend/src/routes/files.js 提供 GET /api/files/thumbnail?url=&size=，用 sharp 生成 webp 缩略图并缓存到 THUMBNAILS_DIR，Cache-Control=immutable。",
+      "frontend": "高频节点预览统一使用 SmartImage + previewImageUrl，本地 /files/input 与 /files/output 图片接近视口后才请求 /api/files/thumbnail，原始素材 URL 保留在 data-full-src 与拖拽/下载/下游数据中。",
+      "backend": "backend/src/routes/files.js 提供 GET /api/files/thumbnail?url=&size=，用 sharp 生成 webp 缩略图并缓存到 THUMBNAILS_DIR，Cache-Control=immutable；同一 target 通过 thumbnailInflight 去重，生成并发由 T8PC_THUMBNAIL_CONCURRENCY 控制，默认 2、最高 4。",
       "exceptions": "裁剪、去水印框选、图片编辑、图片对比等依赖原图像素或细节的视图继续使用原图。"
     },
     "edgeMotion": {
@@ -75,13 +75,16 @@
     },
     "startup": {
       "devStrictMode": "开发环境默认不包 React StrictMode，设置 VITE_T8_STRICT_MODE=1 可恢复双挂载诊断。",
-      "autosave": "节点拖动期间自动保存跳过中间帧，拖动结束后触发一次最终快照保存。"
+      "appShellLazyLoad": "src/App.tsx 必须懒加载 Canvas 与非首屏弹窗/抽屉，Canvas 内 nodeTypes 通过 lazyCanvasNode 动态导入节点组件；首屏只加载外壳、侧栏、Canvas 骨架和当前画布实际出现的节点类型。",
+      "viteDevWarmup": "vite.config.ts 对 react/react-dom/@xyflow/react/lucide-react/zustand 做 optimizeDeps.include，并用 server.warmup 预热 main/App/Canvas 与 Image/Upload/Output 常用节点，避免第一次打开页面才集中 transform。",
+      "autosave": "节点拖动期间自动保存跳过中间帧，拖动结束后触发一次最终快照保存；加载画布时只做一次基线 JSON.stringify，旧快照节点数单独缓存，避免重复 parse/stringify 大画布。"
     },
     "developmentContract": {
       "nodes": [
         "新增节点只要在画布内展示本地图片预览，必须使用 SmartImage 或 previewImageUrl；只有裁剪、编辑、对比、去水印框选、像素测量等依赖原图细节或 naturalWidth/naturalHeight 的界面可直接加载原图。",
         "节点 data 中必须保存原始素材 URL，缩略图 URL 只允许用于 img/src 展示；拖拽、下载、上传到云端、资源库入库、下游传递和生成请求不得把缩略图当原图。",
         "图片列表默认 lazy/async，固定最大预览尺寸；不要在节点 render 中同步创建 Image、Canvas、Video、Audio 或执行大 JSON/stringify/排序/拓扑扫描。",
+        "新增业务节点必须在 Canvas.tsx 通过 lazyCanvasNode(() => import('./nodes/XxxNode')) 注册，除 PlaceholderNode、边、极少量基础壳组件外，禁止把重节点组件静态 import 到 Canvas 首屏模块图。",
         "节点内部需要读取上游素材时优先复用 useUpstreamMaterials、useOrderedMaterials、MaterialPreviewSection 等现有聚合组件，避免每个 render 全量遍历 ReactFlow nodes/edges。",
         "长任务、轮询、RAF、定时器、全局事件、ResizeObserver、MutationObserver 必须只在必要状态开启，并在 unmount/状态切换时清理；隐藏、未运行、未 ready 的节点不得持续占用 RAF。",
         "节点拖动、画布移动、批量选择期间不得触发昂贵副作用；会改变节点尺寸的媒体加载应有稳定容器、aspect-ratio 或 max-height，避免加载后大面积布局抖动。"
@@ -95,6 +98,7 @@
       ],
       "verification": [
         "新增节点含图片预览时必须补或更新 tests/imageLoadingPerformance.test.ts，锁定 SmartImage/previewImageUrl 使用。",
+        "新增重节点、弹窗或抽屉时必须补或更新 tests/imageLoadingPerformance.test.ts，锁定 App/Canvas 的 lazy 边界，避免开发环境首屏重新退化为全量模块加载。",
         "新增主题动效必须至少在足球小将/灌篮高手同类压力下验证 data-t8-edge-motion=reduced 生效，并检查 prefers-reduced-motion。",
         "发布前至少跑 node --test tests\\imageLoadingPerformance.test.ts、npm run type-check、npm run build；若改 3D/Three.js 还要跑 tests\\panorama3d.test.ts。"
       ]
@@ -2295,6 +2299,18 @@
         "资源库全景 kind 已贯通：后端默认全景分类含未分类、室内、室外，3D 全景保存资源库写入 panorama 类型，资源库抽屉和跨画布发送按 image 媒体路径插入/发送。",
         "即梦 CLI Seedance 修复继续保留：首帧、首尾帧、智能多帧与 9 图 / 3 视频 / 3 音频全能参考路径分流，避免全能多参误走智能多帧；相关媒体解析和测试已补。",
         "公开版本同步到 2.0.1：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；本次按用户要求只推 GitHub 源码，不打包 Electron，不上传自动更新 Release 资产。"
+      ]
+    },
+    "phase144": {
+      "label": "聚合解析授权体验与 v2.0.2 自动更新包",
+      "status": "complete",
+      "items": [
+        "聚合解析节点把授权状态明确拆为浏览器手动模式与 Electron 桌面自动模式：普通 127.0.0.1 浏览器页面不会再暗示可跨站读取平台 Cookie，Electron 桌面端仍通过 t8pc:parse-auth IPC 使用隔离分区自动读取授权窗口 Cookie。",
+        "浏览器模式下按钮文案改为“打开平台官网 / 检查已粘贴 Cookie”，节点内提示说明 127.0.0.1 页面不能跨站读取 Cookie；保存授权会提示没有桌面端本机授权库，避免用户以为网页登录后可自动检测。",
+        "Electron 模式下保留“打开授权窗口 → 登录平台 → 检测授权 → 加密保存本机授权库 → 载入授权 / 清除 Cookie”的完整流程，授权 Cookie 不写入节点结果和日志。",
+        "聚合解析面板继续保留合规确认、Cookie 风险提示、免责警告和手动 Cookie 获取指南；Cookie 只用于本次请求或 Electron 本机授权库，不作为全局设置持久化。",
+        "新增测试锁定聚合解析节点注册、合规 UI、按钮交互区域、手动/自动授权文案、Electron IPC 暴露、ParseHub 错误分级和结果归一，避免后续迭代重新混淆手动与自动模式。",
+        "公开版本同步到 2.0.2：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；本次按规范打包 Electron 并发布 GitHub Release 自动更新资产。"
       ]
     }
   },

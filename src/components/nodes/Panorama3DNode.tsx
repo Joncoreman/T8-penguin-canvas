@@ -126,10 +126,14 @@ function downloadUrl(url: string, filename: string) {
 async function ensurePanoramaResourceCategory() {
   const categories = await api.getResourceCategories('panorama');
   if (!categories.success) throw new Error(categories.error || '读取资源库分类失败');
+  const panoramaCategories = categories.data.filter((cat) => cat.kind === 'panorama');
+  if (panoramaCategories.length === 0) {
+    throw new Error('后端尚未加载全景资源类型，请重启开发后端后再保存。');
+  }
   const existing =
-    categories.data.find((cat) => cat.id === 'panorama_uncategorized') ||
-    categories.data.find((cat) => cat.name === '未分类') ||
-    categories.data[0];
+    panoramaCategories.find((cat) => cat.id === 'panorama_uncategorized') ||
+    panoramaCategories.find((cat) => cat.name === '未分类') ||
+    panoramaCategories[0];
   if (existing) return existing;
   const created = await api.addResourceCategory('panorama', '未分类');
   if (!created.success) throw new Error(created.error || '创建全景分类失败');
@@ -630,6 +634,9 @@ const Panorama3DNode = (p: NodeProps) => {
         favorite: false,
       });
       if (!saved.success) throw new Error(saved.error || '保存资源失败');
+      if (saved.data.kind !== 'panorama') {
+        throw new Error('后端未按全景类型保存，请重启开发后端后再试。');
+      }
       window.dispatchEvent(new CustomEvent('penguin:resources-changed'));
       setResourceState(saved.data.duplicate ? '已在资源库' : '已保存');
       window.setTimeout(() => setResourceState(''), 1800);

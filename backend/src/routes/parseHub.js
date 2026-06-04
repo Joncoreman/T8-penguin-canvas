@@ -6,6 +6,7 @@ const config = require('../config');
 const {
   COMPLIANCE_WARNING,
   SUPPORTED_PLATFORM_HINTS,
+  classifyParseHubError,
   getParseHubStatus,
   normalizeOptionalSecret,
   normalizeParseHubResult,
@@ -70,10 +71,13 @@ router.post('/resolve', async (req, res) => {
     });
   } catch (err) {
     const message = err?.message || String(err);
-    const status = /缺少|过长|确认内容来源合法|UnknownPlatform|不支持|unsupported/i.test(message) ? 400 : 500;
-    res.status(status).json({
+    const classified = classifyParseHubError(err);
+    res.status(classified.status).json({
       success: false,
+      code: classified.code,
       error: message,
+      hint: classified.hint,
+      nextAction: classified.nextAction,
       complianceWarning: COMPLIANCE_WARNING,
     });
   }

@@ -13,6 +13,10 @@ const { tryDecodeDuckPayload } = require('../utils/duckPayload');
 
 const router = express.Router();
 const THUMBNAIL_IMAGE_RE = /\.(png|jpe?g|webp|gif|bmp|avif|tiff?)(?:$|\?)/i;
+const MAX_THUMBNAIL_JOBS = Math.max(1, Math.min(4, Number.parseInt(process.env.T8PC_THUMBNAIL_CONCURRENCY || '2', 10) || 2));
+const thumbnailInflight = new Map();
+const thumbnailQueue = [];
+let activeThumbnailJobs = 0;
 
 // 配置 multer
 const storage = multer.diskStorage({
@@ -127,6 +131,51 @@ function thumbnailCacheFile(sourcePath, stat, size) {
   return path.join(config.THUMBNAILS_DIR, `preview_${size}_${key}.webp`);
 }
 
+function pumpThumbnailQueue() {
+  while (activeThumbnailJobs < MAX_THUMBNAIL_JOBS && thumbnailQueue.length > 0) {
+    const job = thumbnailQueue.shift();
+    activeThumbnailJobs += 1;
+    Promise.resolve()
+      .then(job.task)
+      .then(job.resolve, job.reject)
+      .finally(() => {
+        activeThumbnailJobs -= 1;
+        pumpThumbnailQueue();
+      });
+  }
+}
+
+function queueThumbnailJob(task) {
+  return new Promise((resolve, reject) => {
+    thumbnailQueue.push({ task, resolve, reject });
+    pumpThumbnailQueue();
+  });
+}
+
+async function ensureThumbnailFile(sourcePath, target, size) {
+  if (fs.existsSync(target)) return target;
+  const inflight = thumbnailInflight.get(target);
+  if (inflight) return inflight;
+  const promise = queueThumbnailJob(async () => {
+    if (fs.existsSync(target)) return target;
+    await sharp(sourcePath, { animated: false, limitInputPixels: false })
+      .rotate()
+      .resize({
+        width: size,
+        height: size,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .webp({ quality: config.THUMBNAIL_QUALITY || 78, effort: 4 })
+      .toFile(target);
+    return target;
+  }).finally(() => {
+    thumbnailInflight.delete(target);
+  });
+  thumbnailInflight.set(target, promise);
+  return promise;
+}
+
 // GET /api/files/thumbnail?url=/files/input/x.png&size=360
 // 用于画布内预览：只为本地 input/output 图片生成轻量 webp 缩略图。
 router.get('/thumbnail', async (req, res) => {
@@ -148,18 +197,7 @@ router.get('/thumbnail', async (req, res) => {
     if (!fs.existsSync(config.THUMBNAILS_DIR)) {
       fs.mkdirSync(config.THUMBNAILS_DIR, { recursive: true });
     }
-    if (!fs.existsSync(target)) {
-      await sharp(sourcePath, { animated: false, limitInputPixels: false })
-        .rotate()
-        .resize({
-          width: size,
-          height: size,
-          fit: 'inside',
-          withoutEnlargement: true,
-        })
-        .webp({ quality: config.THUMBNAIL_QUALITY || 78, effort: 4 })
-        .toFile(target);
-    }
+    await ensureThumbnailFile(sourcePath, target, size);
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.type('image/webp');
     return res.sendFile(target);

@@ -99,49 +99,6 @@ import SendMaterialsModal from './SendMaterialsModal';
 import { useCanvasHistory } from '../hooks/useCanvasHistory';
 import type { CanvasTemplate } from '../config/canvasTemplates';
 import PlaceholderNode from './nodes/PlaceholderNode';
-import TextNode from './nodes/TextNode';
-import ImageNode from './nodes/ImageNode';
-import LLMNode from './nodes/LLMNode';
-import VideoNode from './nodes/VideoNode';
-import SeedanceNode from './nodes/SeedanceNode';
-import AudioNode from './nodes/AudioNode';
-import RunningHubNode from './nodes/RunningHubNode';
-import RhConfigNode from './nodes/RhConfigNode';
-import RHToolsNode from './nodes/RHToolsNode';
-import RHToolboxNode from './nodes/RHToolboxNode';
-import ComfyUIStoreNode from './nodes/ComfyUIStoreNode';
-import ComfyUIAppMakerNode from './nodes/ComfyUIAppMakerNode';
-import ResizeNode from './nodes/ResizeNode';
-import UpscaleNode from './nodes/UpscaleNode';
-import GridCropNode from './nodes/GridCropNode';
-import GridEditorNode from './nodes/GridEditorNode';
-import CombineNode from './nodes/CombineNode';
-import RemoveBgNode from './nodes/RemoveBgNode';
-import ImageCompareNode from './nodes/ImageCompareNode';
-import ToolboxParamNode from './nodes/ToolboxParamNode';
-import PortraitMasterNode from './nodes/PortraitMasterNode';
-import PoseMasterNode from './nodes/PoseMasterNode';
-import Panorama3DNode from './nodes/Panorama3DNode';
-import AggregateParserNode from './nodes/AggregateParserNode';
-import IdeaNode from './nodes/IdeaNode';
-import BpNode from './nodes/BpNode';
-import RelayNode from './nodes/RelayNode';
-import RemoveAiWatermarkNode from './nodes/RemoveAiWatermarkNode';
-import VideoOutputNode from './nodes/VideoOutputNode';
-import PortraitMetadataNode from './nodes/PortraitMetadataNode';
-import StoryboardGridNode from './nodes/StoryboardGridNode';
-import PresetImageNode from './nodes/PresetImageNode';
-import DrawingBoardNode from './nodes/DrawingBoardNode';
-import BrowserNode from './nodes/BrowserNode';
-import FrameExtractorNode from './nodes/FrameExtractorNode';
-import FramePairNode from './nodes/FramePairNode';
-import LoopNode from './nodes/LoopNode';
-import PickFromSetNode from './nodes/PickFromSetNode';
-import TextSplitNode from './nodes/TextSplitNode';
-import MaterialSetNode from './nodes/MaterialSetNode';
-import UploadNode from './nodes/UploadNode';
-import OutputNode from './nodes/OutputNode';
-import GroupBoxNode from './nodes/GroupBoxNode';
 import DeletableEdge from './edges/DeletableEdge';
 import { NODE_REGISTRY } from '../config/nodeRegistry';
 import type { NodeType, NodeMeta } from '../types/canvas';
@@ -156,15 +113,63 @@ import {
   type PortType,
 } from '../config/portTypes';
 
-const RHToolboxMakerNode = import.meta.env?.DEV
-  ? lazy(() => import('./nodes/RHToolboxMakerNode'))
-  : PlaceholderNode;
+function lazyCanvasNode(load: () => Promise<any>, displayName: string): ComponentType<any> {
+  const LazyNode = lazy(load);
+  const WrappedNode = (props: any) => (
+    <Suspense fallback={<PlaceholderNode {...props} />}>
+      <LazyNode {...props} />
+    </Suspense>
+  );
+  WrappedNode.displayName = `LazyCanvasNode(${displayName})`;
+  return WrappedNode;
+}
 
-const RHToolboxMakerDevNode = (props: any) => import.meta.env?.DEV ? (
-  <Suspense fallback={<PlaceholderNode {...props} />}>
-    <RHToolboxMakerNode {...props} />
-  </Suspense>
-) : <PlaceholderNode {...props} />;
+const TextNode = lazyCanvasNode(() => import('./nodes/TextNode'), 'TextNode');
+const ImageNode = lazyCanvasNode(() => import('./nodes/ImageNode'), 'ImageNode');
+const LLMNode = lazyCanvasNode(() => import('./nodes/LLMNode'), 'LLMNode');
+const VideoNode = lazyCanvasNode(() => import('./nodes/VideoNode'), 'VideoNode');
+const SeedanceNode = lazyCanvasNode(() => import('./nodes/SeedanceNode'), 'SeedanceNode');
+const AudioNode = lazyCanvasNode(() => import('./nodes/AudioNode'), 'AudioNode');
+const RunningHubNode = lazyCanvasNode(() => import('./nodes/RunningHubNode'), 'RunningHubNode');
+const RhConfigNode = lazyCanvasNode(() => import('./nodes/RhConfigNode'), 'RhConfigNode');
+const RHToolsNode = lazyCanvasNode(() => import('./nodes/RHToolsNode'), 'RHToolsNode');
+const RHToolboxNode = lazyCanvasNode(() => import('./nodes/RHToolboxNode'), 'RHToolboxNode');
+const ComfyUIStoreNode = lazyCanvasNode(() => import('./nodes/ComfyUIStoreNode'), 'ComfyUIStoreNode');
+const ComfyUIAppMakerNode = lazyCanvasNode(() => import('./nodes/ComfyUIAppMakerNode'), 'ComfyUIAppMakerNode');
+const ResizeNode = lazyCanvasNode(() => import('./nodes/ResizeNode'), 'ResizeNode');
+const UpscaleNode = lazyCanvasNode(() => import('./nodes/UpscaleNode'), 'UpscaleNode');
+const GridCropNode = lazyCanvasNode(() => import('./nodes/GridCropNode'), 'GridCropNode');
+const GridEditorNode = lazyCanvasNode(() => import('./nodes/GridEditorNode'), 'GridEditorNode');
+const CombineNode = lazyCanvasNode(() => import('./nodes/CombineNode'), 'CombineNode');
+const RemoveBgNode = lazyCanvasNode(() => import('./nodes/RemoveBgNode'), 'RemoveBgNode');
+const ImageCompareNode = lazyCanvasNode(() => import('./nodes/ImageCompareNode'), 'ImageCompareNode');
+const ToolboxParamNode = lazyCanvasNode(() => import('./nodes/ToolboxParamNode'), 'ToolboxParamNode');
+const PortraitMasterNode = lazyCanvasNode(() => import('./nodes/PortraitMasterNode'), 'PortraitMasterNode');
+const PoseMasterNode = lazyCanvasNode(() => import('./nodes/PoseMasterNode'), 'PoseMasterNode');
+const Panorama3DNode = lazyCanvasNode(() => import('./nodes/Panorama3DNode'), 'Panorama3DNode');
+const AggregateParserNode = lazyCanvasNode(() => import('./nodes/AggregateParserNode'), 'AggregateParserNode');
+const IdeaNode = lazyCanvasNode(() => import('./nodes/IdeaNode'), 'IdeaNode');
+const BpNode = lazyCanvasNode(() => import('./nodes/BpNode'), 'BpNode');
+const RelayNode = lazyCanvasNode(() => import('./nodes/RelayNode'), 'RelayNode');
+const RemoveAiWatermarkNode = lazyCanvasNode(() => import('./nodes/RemoveAiWatermarkNode'), 'RemoveAiWatermarkNode');
+const VideoOutputNode = lazyCanvasNode(() => import('./nodes/VideoOutputNode'), 'VideoOutputNode');
+const PortraitMetadataNode = lazyCanvasNode(() => import('./nodes/PortraitMetadataNode'), 'PortraitMetadataNode');
+const StoryboardGridNode = lazyCanvasNode(() => import('./nodes/StoryboardGridNode'), 'StoryboardGridNode');
+const PresetImageNode = lazyCanvasNode(() => import('./nodes/PresetImageNode'), 'PresetImageNode');
+const DrawingBoardNode = lazyCanvasNode(() => import('./nodes/DrawingBoardNode'), 'DrawingBoardNode');
+const BrowserNode = lazyCanvasNode(() => import('./nodes/BrowserNode'), 'BrowserNode');
+const FrameExtractorNode = lazyCanvasNode(() => import('./nodes/FrameExtractorNode'), 'FrameExtractorNode');
+const FramePairNode = lazyCanvasNode(() => import('./nodes/FramePairNode'), 'FramePairNode');
+const LoopNode = lazyCanvasNode(() => import('./nodes/LoopNode'), 'LoopNode');
+const PickFromSetNode = lazyCanvasNode(() => import('./nodes/PickFromSetNode'), 'PickFromSetNode');
+const TextSplitNode = lazyCanvasNode(() => import('./nodes/TextSplitNode'), 'TextSplitNode');
+const MaterialSetNode = lazyCanvasNode(() => import('./nodes/MaterialSetNode'), 'MaterialSetNode');
+const UploadNode = lazyCanvasNode(() => import('./nodes/UploadNode'), 'UploadNode');
+const OutputNode = lazyCanvasNode(() => import('./nodes/OutputNode'), 'OutputNode');
+const GroupBoxNode = lazyCanvasNode(() => import('./nodes/GroupBoxNode'), 'GroupBoxNode');
+const RHToolboxMakerNode = import.meta.env?.DEV
+  ? lazyCanvasNode(() => import('./nodes/RHToolboxMakerNode'), 'RHToolboxMakerNode')
+  : PlaceholderNode;
 
 // Phase 4 阶段:全部 24 个节点均已实现业务逻辑
 const SPECIFIC_NODES: Record<string, any> = {
@@ -182,7 +187,7 @@ const SPECIFIC_NODES: Record<string, any> = {
   // RH 工具节点：内置启动器 + 应用运行面板（v1.2.10+）
   'rh-tools': RHToolsNode,
   'rh-toolbox': RHToolboxNode,
-  ...(import.meta.env?.DEV ? { 'rh-toolbox-maker': RHToolboxMakerDevNode } : {}),
+  ...(import.meta.env?.DEV ? { 'rh-toolbox-maker': RHToolboxMakerNode } : {}),
   'comfyui-store': ComfyUIStoreNode,
   'comfyui-app-maker': ComfyUIAppMakerNode,
   // Special (5)
@@ -1203,6 +1208,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   const saveTimersByCanvasRef = useRef<Map<string, number>>(new Map());
   const pendingSaveByCanvasRef = useRef<Map<string, { nodes: Node[]; edges: Edge[]; snapshot: string; nextNodeSerialId: number }>>(new Map());
   const lastSavedByCanvasRef = useRef<Map<string, string>>(new Map());
+  const lastSavedNodeCountByCanvasRef = useRef<Map<string, number>>(new Map());
   const nextNodeSerialIdRef = useRef(1);
   const allowEmptySaveCanvasIdsRef = useRef<Set<string>>(new Set());
   const edgeMotionReleaseTimerRef = useRef<number | null>(null);
@@ -1438,20 +1444,16 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         const fixedNs = normalized.nodes;
         setNodes(fixedNs);
         setEdges(es);
-        const loadedSnapshot = JSON.stringify({
-          nodes: fixedNsBeforeSerials,
+        const baselineNodes = normalized.changed ? fixedNsBeforeSerials : fixedNs;
+        const baselineNextNodeSerialId = normalized.changed
+          ? savedNextNodeSerialId || 1
+          : normalized.nextNodeSerialId;
+        lastSavedByCanvasRef.current.set(requestedCanvasId, JSON.stringify({
+          nodes: baselineNodes,
           edges: es,
-          nextNodeSerialId: savedNextNodeSerialId || 1,
-        });
-        const normalizedSnapshot = JSON.stringify({
-          nodes: fixedNs,
-          edges: es,
-          nextNodeSerialId: normalized.nextNodeSerialId,
-        });
-        lastSavedByCanvasRef.current.set(
-          requestedCanvasId,
-          normalized.changed || normalizedSnapshot !== loadedSnapshot ? loadedSnapshot : normalizedSnapshot,
-        );
+          nextNodeSerialId: baselineNextNodeSerialId,
+        }));
+        lastSavedNodeCountByCanvasRef.current.set(requestedCanvasId, baselineNodes.length);
         allowEmptySaveCanvasIdsRef.current.delete(requestedCanvasId);
         histReset({ nodes: fixedNs, edges: es });
         setLoadedCanvasId(requestedCanvasId);
@@ -1538,12 +1540,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     const canvasIdForSave = activeId;
     const previousSnapshot = lastSavedByCanvasRef.current.get(canvasIdForSave) || '';
     if (snapshot === previousSnapshot) return;
-    let previousNodeCount = 0;
-    try {
-      previousNodeCount = JSON.parse(previousSnapshot || '{}')?.nodes?.length || 0;
-    } catch {
-      previousNodeCount = 0;
-    }
+    const previousNodeCount = lastSavedNodeCountByCanvasRef.current.get(canvasIdForSave) || 0;
     const allowEmptySave = allowEmptySaveCanvasIdsRef.current.has(canvasIdForSave);
     if (persistNodes.length === 0 && previousNodeCount > 0 && !allowEmptySave) {
       // 防止空数据覆盖
@@ -1566,6 +1563,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         });
         if (allowEmptySave) allowEmptySaveCanvasIdsRef.current.delete(canvasIdForSave);
         lastSavedByCanvasRef.current.set(canvasIdForSave, snapshot);
+        lastSavedNodeCountByCanvasRef.current.set(canvasIdForSave, persistNodes.length);
         if (pendingSaveByCanvasRef.current.get(canvasIdForSave)?.snapshot === snapshot) {
           pendingSaveByCanvasRef.current.delete(canvasIdForSave);
         }

@@ -16,7 +16,7 @@ test('RH toolbox node is registered as a visible executable RH node', () => {
   assert.match(registry, /type:\s*'rh-toolbox'[\s\S]*label:\s*'RH工具箱'[\s\S]*category:\s*'rh'/);
   assert.match(ports, /'rh-toolbox':\s*\{\s*inputs:\s*\['text', 'image', 'video', 'audio'\],\s*outputs:\s*\['text', 'image', 'video', 'audio'\]\s*\}/);
   assert.match(types, /\|\s*'rh-toolbox'/);
-  assert.match(canvas, /import RHToolboxNode/);
+  assert.match(canvas, /const RHToolboxNode = lazyCanvasNode\(\(\) => import\('\.\/nodes\/RHToolboxNode'\), 'RHToolboxNode'\)/);
   assert.match(canvas, /'rh-toolbox': RHToolboxNode/);
   assert.match(canvas, /'rh-toolbox':\s*\{/);
   assert.match(canvas, /'rh-tools', 'rh-toolbox'/);
@@ -125,16 +125,16 @@ test('RH toolbox maker is dev-only and guarded from packaged builds', () => {
   const canvas = readFileSync(new URL('../src/components/Canvas.tsx', import.meta.url), 'utf8');
   const ports = readFileSync(new URL('../src/config/portTypes.ts', import.meta.url), 'utf8');
   const postBuild = readFileSync(new URL('../electron/_post_build.cjs', import.meta.url), 'utf8');
-  const roadmap = readFileSync(new URL('../roadmap.md', import.meta.url), 'utf8');
+  const features = readFileSync(new URL('../features.json', import.meta.url), 'utf8');
 
   assert.match(registry, /import\.meta\.env\?\.DEV[\s\S]*type:\s*'rh-toolbox-maker'[\s\S]*label:\s*'RH工具箱制作器'/);
-  assert.match(canvas, /import\.meta\.env\?\.DEV[\s\S]*lazy\(\(\) => import\('\.\/nodes\/RHToolboxMakerNode'\)\)/);
-  assert.match(canvas, /import\.meta\.env\?\.DEV \? \{ 'rh-toolbox-maker': RHToolboxMakerDevNode \} : \{\}/);
+  assert.match(canvas, /import\.meta\.env\?\.DEV[\s\S]*lazyCanvasNode\(\(\) => import\('\.\/nodes\/RHToolboxMakerNode'\), 'RHToolboxMakerNode'\)/);
+  assert.match(canvas, /import\.meta\.env\?\.DEV \? \{ 'rh-toolbox-maker': RHToolboxMakerNode \} : \{\}/);
   assert.match(ports, /import\.meta\.env\?\.DEV[\s\S]*'rh-toolbox-maker':\s*\{\s*inputs:\s*\[\],\s*outputs:\s*\['text'\]\s*\}/);
   assert.match(postBuild, /checkNoRhToolboxMaker/);
   assert.match(postBuild, /RHToolboxMakerNode/);
   assert.match(postBuild, /RH工具箱制作器/);
-  assert.match(roadmap, /维护者制作器节点（开发态）/);
+  assert.match(features, /RH工具箱制作器/);
 });
 
 test('RH toolbox developer manifest helpers are source-gated for dev runtime', () => {
