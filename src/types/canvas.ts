@@ -265,6 +265,7 @@ export interface ApiSettings {
   nanoBananaApiKey?: string;
   mjApiKey?: string;
   veoApiKey?: string;
+  soraApiKey?: string;
   grokApiKey?: string;
   seedanceApiKey?: string;
   sunoApiKey?: string;

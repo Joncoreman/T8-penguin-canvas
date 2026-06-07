@@ -13,6 +13,7 @@ export const yyhHiddenThemeMusicUrl = new URL('../assets/theme-music/yyh-hidden-
 export const slamdunkThemeMusicUrl = new URL('../assets/theme-music/slamdunk-kimi-ga-suki.mp3', import.meta.url).href;
 export const soccerThemeMusicUrl = new URL('../assets/theme-music/soccer-tsubasa-burning-hero.mid', import.meta.url).href;
 export const dragonBallThemeMusicUrl = new URL('../assets/theme-music/dragonball-makafushigi-adventure.mp3', import.meta.url).href;
+export const dragonBallShenronHiddenMusicUrl = new URL('../assets/theme-music/dragonball-shenron-cha-la-head-cha-la.mp3', import.meta.url).href;
 
 export const DEFAULT_THEME_TEMPLATE_ID = 'pixel-candy';
 export const TECH_TEMPLATE_ID = 'tech-default';
@@ -1039,9 +1040,12 @@ export const BUILT_IN_THEME_TEMPLATES: ThemeTemplate[] = [
       preset: 'ki-burst',
       source: 'url',
       url: dragonBallThemeMusicUrl,
+      hiddenTitle: 'CHA-LA HEAD-CHA-LA',
+      hiddenUrl: dragonBallShenronHiddenMusicUrl,
+      hiddenVolume: 0.2,
       volume: 0.18,
       bpm: 156,
-      copyrightNote: '七龙珠第一部开场曲默认音乐文件；公开分发前请确认音乐授权边界。',
+      copyrightNote: '七龙珠第一部开场曲默认音乐文件；神龙隐藏模式会切换到 CHA-LA HEAD-CHA-LA，可在主题模板中上传替换。公开分发前请确认音乐授权边界。',
     },
     modes: { dark: { tokens: dragonBallDark }, light: { tokens: dragonBallLight } },
   },

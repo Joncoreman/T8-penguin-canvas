@@ -1383,7 +1383,7 @@ const PortraitMasterNode = ({ id, data, selected }: NodeProps) => {
       status: 'success',
     });
     if (yyhHiddenMode) {
-      trackAchievementEvent({ type: 'hidden_mode.used', theme: 'yyh', kind: 'yyh-portrait', nodeType: 'portrait-master' });
+      trackAchievementEvent({ type: 'hidden_mode.used', theme: 'yyh', kind: 'yyh-portrait', mode: 'used', nodeType: 'portrait-master' });
     }
 
     const nodes = rf.getNodes();

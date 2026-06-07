@@ -3,6 +3,7 @@ import { Disc3, VolumeX } from 'lucide-react';
 import type { ThemeMusicPreset, ThemeMusicSource, ThemeTemplate } from '../theme/types';
 import { rhHiddenThemeMusicUrl } from '../theme/defaultTemplates';
 import { useHiddenFeatureStore } from '../stores/hiddenFeatures';
+import { useDragonBallRadarStore } from '../stores/dragonBallRadar';
 
 interface ThemeMusicToggleProps {
   template: ThemeTemplate;
@@ -132,6 +133,15 @@ const PRESET_NOTES: Record<ThemeMusicPreset, Note[]> = {
     { freq: 784, at: 1.18, len: 0.18, type: 'sawtooth' },
     { freq: 988, at: 1.54, len: 0.18, type: 'sine' },
   ],
+  'shenron-aura': [
+    { freq: 98, at: 0, len: 0.42, type: 'sine' },
+    { freq: 147, at: 0.32, len: 0.36, type: 'triangle' },
+    { freq: 220, at: 0.66, len: 0.3, type: 'sine' },
+    { freq: 392, at: 1.08, len: 0.18, type: 'triangle' },
+    { freq: 523, at: 1.34, len: 0.2, type: 'sine' },
+    { freq: 659, at: 1.72, len: 0.22, type: 'triangle' },
+    { freq: 784, at: 2.12, len: 0.28, type: 'sine' },
+  ],
 };
 
 const PRESET_LOOP_SECONDS: Record<ThemeMusicPreset, number> = {
@@ -145,6 +155,7 @@ const PRESET_LOOP_SECONDS: Record<ThemeMusicPreset, number> = {
   'buzzer-beater': 2.08,
   'golden-goal': 2.08,
   'ki-burst': 1.96,
+  'shenron-aura': 2.72,
 };
 
 function clampVolume(value?: number) {
@@ -395,6 +406,7 @@ export default function ThemeMusicToggle({ template }: ThemeMusicToggleProps) {
   const [enabled, setEnabled] = useState(false);
   const rhDuckUploadIds = useHiddenFeatureStore((s) => s.rhDuckUploadIds);
   const yyhPortraitIds = useHiddenFeatureStore((s) => s.yyhPortraitIds);
+  const shenronModeActive = useDragonBallRadarStore((s) => s.shenronModeActive);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
@@ -404,10 +416,22 @@ export default function ThemeMusicToggle({ template }: ThemeMusicToggleProps) {
 
   const rhHiddenMusicActive = template.visuals?.style === 'rh' && rhDuckUploadIds.length > 0;
   const yyhHiddenMusicActive = template.visuals?.style === 'yyh' && yyhPortraitIds.length > 0;
-  const hiddenMusicActive = rhHiddenMusicActive || yyhHiddenMusicActive;
+  const shenronHiddenMusicActive = template.visuals?.style === 'dragon-ball' && shenronModeActive;
+  const hiddenMusicActive = rhHiddenMusicActive || yyhHiddenMusicActive || shenronHiddenMusicActive;
   const music = useMemo(() => {
     const base = template.music;
     if (!hiddenMusicActive) return base;
+    if (shenronHiddenMusicActive) {
+      return {
+        title: base?.hiddenTitle || '神龙模式',
+        preset: 'shenron-aura' as ThemeMusicPreset,
+        source: (base?.hiddenUrl ? 'url' : 'synth') as ThemeMusicSource,
+        url: base?.hiddenUrl,
+        volume: base?.hiddenVolume ?? 0.2,
+        bpm: 72,
+        copyrightNote: base?.copyrightNote,
+      };
+    }
     if (yyhHiddenMusicActive) {
       return {
         title: base?.hiddenTitle || '幽游隐藏模式',
@@ -431,6 +455,7 @@ export default function ThemeMusicToggle({ template }: ThemeMusicToggleProps) {
   }, [
     hiddenMusicActive,
     rhHiddenMusicActive,
+    shenronHiddenMusicActive,
     yyhHiddenMusicActive,
     template.music?.bpm,
     template.music?.copyrightNote,
@@ -447,7 +472,7 @@ export default function ThemeMusicToggle({ template }: ThemeMusicToggleProps) {
   const title = music?.title || 'Theme Music';
   const preset = music?.preset || 'tech-pulse';
   const volume = clampVolume(music?.volume);
-  const musicKey = `${template.id}|${rhHiddenMusicActive ? 'rh-hidden' : yyhHiddenMusicActive ? 'yyh-hidden' : 'normal'}|${music?.preset || ''}|${music?.source || ''}|${music?.url || ''}|${volume}`;
+  const musicKey = `${template.id}|${rhHiddenMusicActive ? 'rh-hidden' : yyhHiddenMusicActive ? 'yyh-hidden' : shenronHiddenMusicActive ? 'shenron-hidden' : 'normal'}|${music?.preset || ''}|${music?.source || ''}|${music?.url || ''}|${volume}`;
 
   useEffect(() => {
     enabledRef.current = enabled;

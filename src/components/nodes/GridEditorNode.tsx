@@ -450,7 +450,12 @@ const GridEditorNode = ({ id, data, selected }: NodeProps) => {
         </div>
       </div>
 
-      <div className="nodrag space-y-2.5 p-3" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className="nodrag nowheel space-y-2.5 p-3"
+        onMouseDown={(e) => e.stopPropagation()}
+        onWheelCapture={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
+      >
         <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={onFileChange} />
 
         <div className="grid grid-cols-6 gap-1.5">
@@ -584,14 +589,18 @@ const GridEditorNode = ({ id, data, selected }: NodeProps) => {
               <option value="fill">拉伸填充</option>
             </select>
           </label>
-          <label className="col-span-1 flex items-end gap-1.5 text-[10px] font-semibold" style={subtleTextStyle}>
+          <label
+            className="col-span-1 flex items-end gap-1.5 text-[10px] font-semibold"
+            style={subtleTextStyle}
+            title="在预览和最终拼版图左上角显示格子编号；不用于选择或导出指定格子。"
+          >
             <input
               type="checkbox"
               checked={config.showIndexes}
               onChange={(event) => patchConfig({ showIndexes: event.target.checked })}
               className="mb-2 h-4 w-4 accent-orange-400"
             />
-            序号
+            显示编号
           </label>
           <label className="col-span-1 flex items-end gap-1.5 text-[10px] font-semibold" style={subtleTextStyle}>
             <input
@@ -646,8 +655,10 @@ const GridEditorNode = ({ id, data, selected }: NodeProps) => {
           }}
         >
           <div
-            className="w-full overflow-auto rounded-md border"
+            className="nowheel w-full overflow-auto overscroll-contain rounded-md border"
             data-grid-editor-stage
+            onWheelCapture={(e) => e.stopPropagation()}
+            onWheel={(e) => e.stopPropagation()}
             style={{
               borderColor: 'var(--t8-border, rgba(255,255,255,.14))',
               maxHeight: 520,
@@ -692,16 +703,19 @@ const GridEditorNode = ({ id, data, selected }: NodeProps) => {
                           {item.caption}
                         </div>
                       )}
-                      <div
-                        className="absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold"
-                        style={{
-                          background: 'rgba(17,24,39,.78)',
-                          color: '#fff7ed',
-                          border: '1px solid rgba(255,255,255,.42)',
-                        }}
-                      >
-                        {index + 1}
-                      </div>
+                      {config.showIndexes && (
+                        <div
+                          className="absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-bold"
+                          title={`第 ${index + 1} 格`}
+                          style={{
+                            background: 'rgba(17,24,39,.78)',
+                            color: '#fff7ed',
+                            border: '1px solid rgba(255,255,255,.42)',
+                          }}
+                        >
+                          {index + 1}
+                        </div>
+                      )}
                       <button
                         type="button"
                         title="移除此格"

@@ -78,7 +78,7 @@ function pickApiKey(settings, hint = '') {
   if (m.includes('nano-banana') || m.includes('nano_banana') || m.includes('nanobanana')) return settings.nanoBananaApiKey || fb;
   if (m.includes('midjourney') || /\bmj[-_/]/.test(m) || m.startsWith('mj') || m === 'mj') return settings.mjApiKey || fb;
   if (m.includes('veo')) return settings.veoApiKey || fb;
-  if (m.includes('sora')) return settings.veoApiKey || fb;
+  if (m.includes('sora')) return settings.soraApiKey || fb;
   if (m.includes('grok')) return settings.grokApiKey || fb;
   if (m.includes('seedance')) return settings.seedanceApiKey || fb;
   if (m.includes('suno') || m.includes('chirp')) return settings.sunoApiKey || fb;
@@ -137,13 +137,19 @@ function ensureKey(settings, res, hint, label) {
 // 防止前端未透传 model 时轮询错误 fallback 到通用 key 导致“令牌不合法”。
 // 30 分钟过期自清。
 const taskKeyMap = new Map();
-function rememberTaskKey(taskId, apiKey) {
+function rememberTaskKey(taskId, apiKey, meta = {}) {
   if (!taskId || !apiKey) return;
-  taskKeyMap.set(String(taskId), apiKey);
+  taskKeyMap.set(String(taskId), { apiKey, ...meta });
   setTimeout(() => taskKeyMap.delete(String(taskId)), 30 * 60 * 1000);
 }
+function recallTaskMeta(taskId) {
+  if (!taskId) return null;
+  const item = taskKeyMap.get(String(taskId));
+  if (!item) return null;
+  return typeof item === 'string' ? { apiKey: item } : item;
+}
 function recallTaskKey(taskId) {
-  return taskId ? taskKeyMap.get(String(taskId)) : null;
+  return recallTaskMeta(taskId)?.apiKey || null;
 }
 
 // ========== 工具:保存上游返回的图像到本地 ==========
@@ -1270,6 +1276,8 @@ router.post('/llm', async (req, res) => {
 // 协议(贞贞工坊): POST /v2/videos/generations + GET /v2/videos/generations/:tid
 //
 // 通过 model 字段自动选择上游 payload 协议:
+//   - veo-omni-10s  → Veo Omni 协议: POST /v1/videos multipart
+//                      { model=omni_flash-10s, prompt, size, seconds=10, watermark, input_reference }
 //   - 含 'veo'      → Veo3.1 协议:  { prompt, model, enhance_prompt, aspect_ratio, seed?, enable_upsample?, images?(base64,最多3) }
 //                       (主项目 runVeo3, index.html line 3372)
 //   - 含 'grok'     → Grok Video 协议: { prompt, model, ratio, duration(数字秒), resolution, seed?, images?(URL,最多7) }
@@ -1366,7 +1374,13 @@ function getFalVideoUrl(data) {
   const video = data && data.video;
   if (video && typeof video === 'object' && video.url) return video.url;
   if (typeof video === 'string') return video;
-  return data?.video_url || data?.url || data?.output?.video?.url || data?.data?.video?.url || '';
+  return data?.video_url
+    || data?.url
+    || data?.output?.video?.url
+    || data?.data?.output
+    || data?.data?.video_url
+    || data?.data?.video?.url
+    || '';
 }
 
 function splitSoraCharacterIds(raw) {
@@ -1382,6 +1396,71 @@ function splitGrokReferenceUrls(raw) {
   return values
     .map((s) => String(s || '').trim())
     .filter((s) => /^https?:\/\//i.test(s));
+}
+
+function stripDataUrlPrefix(value) {
+  const text = String(value || '').trim();
+  const match = /^data:[^,;]+;base64,(.+)$/i.exec(text);
+  return match ? match[1].trim() : text;
+}
+
+const VEO_OMNI_PUBLIC_MODEL = 'veo-omni-10s';
+const VEO_OMNI_UPSTREAM_MODEL = 'omni_flash-10s';
+
+function isVeoOmniModel(model) {
+  const m = String(model || '').trim().toLowerCase();
+  return m === VEO_OMNI_PUBLIC_MODEL || m === VEO_OMNI_UPSTREAM_MODEL;
+}
+
+function veoOmniSizeFromAspect(aspectRatio) {
+  return String(aspectRatio || '').trim() === '9:16' ? '720x1280' : '1280x720';
+}
+
+function normalizeVideoTaskStatus(status) {
+  const raw = String(status || '').trim();
+  const lower = raw.toLowerCase();
+  if (['success', 'succeeded', 'completed', 'complete', 'done'].includes(lower)) return 'SUCCESS';
+  if (['failure', 'failed', 'error', 'cancelled', 'canceled'].includes(lower)) return 'FAILURE';
+  if (['running', 'processing', 'in_progress', 'in-progress'].includes(lower)) return 'RUNNING';
+  if (['queued', 'pending', 'created', 'submitted'].includes(lower)) return 'PENDING';
+  return raw.toUpperCase();
+}
+
+function stringifyUpstreamErrorValue(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'object') {
+    if (typeof value.message === 'string') return value.message.trim();
+    if (typeof value.msg === 'string') return value.msg.trim();
+    if (typeof value.detail === 'string') return value.detail.trim();
+    try { return JSON.stringify(value).slice(0, 500); } catch { return ''; }
+  }
+  return String(value).trim();
+}
+
+function getUpstreamErrorMessage(data, text, status) {
+  const candidates = [
+    data?.error?.message,
+    data?.error,
+    data?.message,
+    data?.msg,
+    data?.detail,
+    data?.error_msg,
+    data?.fail_reason,
+    data?.data?.error?.message,
+    data?.data?.error,
+    data?.data?.message,
+    data?.data?.msg,
+    data?.data?.detail,
+    data?.data?.fail_reason,
+  ];
+  for (const candidate of candidates) {
+    const msg = stringifyUpstreamErrorValue(candidate);
+    if (msg) return `上游 HTTP ${status}: ${msg}`;
+  }
+  const rawText = String(text || '').trim();
+  if (rawText) return `上游 HTTP ${status}: ${rawText.slice(0, 500)}`;
+  return `上游 HTTP ${status}`;
 }
 
 // 保存远程视频到本地
@@ -1657,22 +1736,77 @@ router.post('/video/submit', async (req, res) => {
     // Grok 参数
     ratio, duration, resolution,
     // 通用
-    seed, images,
+    seed, private: privateVideo, is_private, watermark, images,
   } = req.body || {};
   // v1.2.9.15: 一体化「专属优先 fallback 通用」校验
   if (!ensureKey(settings, res, model || '', '视频')) return;
   if (!model || !prompt) {
     return res.status(400).json({ success: false, error: 'model 和 prompt 必填' });
   }
-  const upstream = `${config.ZHENZHEN_BASE_URL}/v2/videos/generations`;
   const apiKey = settings.zhenzhenApiKey;
   const lowerModel = String(model).toLowerCase();
+  const isVeoOmni = isVeoOmniModel(lowerModel);
   const isGrok = lowerModel.includes('grok');
+  const isSoraZhenzhen = lowerModel === 'sora-2-zhenzhen';
   const isVeo = lowerModel.includes('veo');
   let body;
 
   try {
-    if (isGrok) {
+    if (isVeoOmni) {
+      // ===== Veo Omni 协议(参考 Comfly_veo_omini): POST /v1/videos multipart =====
+      const refs = Array.isArray(images) ? images.slice(0, 1) : [];
+      if (!refs.length) {
+        return res.status(400).json({ success: false, error: 'veo-omni-10s 需要 1 张参考图' });
+      }
+      const conv = await refToBuffer(refs[0]);
+      if (!conv) {
+        return res.status(400).json({ success: false, error: 'veo-omni-10s 参考图读取失败' });
+      }
+      const form = new FormData();
+      const seconds = ['4', '5', '6', '8', '10'].includes(String(duration)) ? String(duration) : '10';
+      const size = veoOmniSizeFromAspect(aspect_ratio || ratio || '16:9');
+      form.append('model', VEO_OMNI_UPSTREAM_MODEL);
+      form.append('prompt', prompt);
+      form.append('size', size);
+      form.append('seconds', seconds);
+      form.append('watermark', String(Boolean(watermark)).toLowerCase());
+      form.append('input_reference', new Blob([conv.buf], { type: conv.mime }), `input_reference.${conv.ext || 'png'}`);
+
+      const upstream = `${config.ZHENZHEN_BASE_URL}/v1/videos`;
+      console.log('[upstream] Veo Omni → /v1/videos model:', VEO_OMNI_UPSTREAM_MODEL, 'size:', size, 'seconds:', seconds, 'refs:', refs.length);
+      const r = await fetch(upstream, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+      });
+      const text = await r.text();
+      let data;
+      try { data = JSON.parse(text); } catch {
+        return res.status(500).json({ success: false, error: '上游响应非 JSON: ' + text.slice(0, 200) });
+      }
+      if (!r.ok) {
+        return res.status(r.status).json({ success: false, error: getUpstreamErrorMessage(data, text, r.status), raw: data });
+      }
+      const taskId = data?.task_id || data?.id;
+      if (!taskId) return res.status(500).json({ success: false, error: '未获取到 task_id: ' + text.slice(0, 200) });
+      rememberTaskKey(taskId, apiKey, { model: VEO_OMNI_PUBLIC_MODEL });
+      return res.json({ success: true, data: { taskId, raw: data } });
+    } else if (isSoraZhenzhen) {
+      // ===== Sora2 Zhenzhen API 协议(参考 gpt-image-2-web runSora2) =====
+      body = {
+        prompt,
+        model: 'sora-2',
+        aspect_ratio: aspect_ratio || ratio || '16:9',
+        duration: String(duration ?? 15),
+        private: privateVideo !== false && is_private !== false,
+      };
+      if (seed && seed > 0) body.seed = seed;
+      if (Array.isArray(images) && images.length) {
+        const refs = images.slice(0, 1).map(stripDataUrlPrefix).filter(Boolean);
+        if (refs.length) body.images = refs;
+      }
+      console.log('[upstream] Sora2 Zhenzhen → /v2/videos/generations model:', body.model, 'aspect_ratio:', body.aspect_ratio, 'duration:', body.duration, 'private:', body.private, 'refs:', body.images?.length || 0);
+    } else if (isGrok) {
       // ===== Grok Video 协议(主项目 runGrok3 line 3863) =====
       body = {
         prompt,
@@ -1704,6 +1838,7 @@ router.post('/video/submit', async (req, res) => {
       console.log('[upstream] Veo/Default → /v2/videos/generations model:', model, 'aspect_ratio:', body.aspect_ratio, 'refs:', body.images?.length || 0, isVeo ? '(veo)' : '(legacy)');
     }
 
+    const upstream = `${config.ZHENZHEN_BASE_URL}/v2/videos/generations`;
     const r = await fetch(upstream, {
       method: 'POST',
       headers: {
@@ -1718,7 +1853,7 @@ router.post('/video/submit', async (req, res) => {
       return res.status(500).json({ success: false, error: '上游响应非 JSON: ' + text.slice(0, 200) });
     }
     if (!r.ok) {
-      return res.status(r.status).json({ success: false, error: data?.error?.message || data?.message || `上游 HTTP ${r.status}` });
+      return res.status(r.status).json({ success: false, error: getUpstreamErrorMessage(data, text, r.status), raw: data });
     }
     const taskId = data?.task_id || data?.id;
     if (!taskId) return res.status(500).json({ success: false, error: '未获取到 task_id: ' + text.slice(0, 200) });
@@ -1733,17 +1868,21 @@ router.post('/video/submit', async (req, res) => {
 router.get('/video/query', async (req, res) => {
   const settings = loadRawSettings();
   const taskId = String(req.query.taskId || '').trim();
+  const rememberedMeta = recallTaskMeta(taskId);
+  const queryModel = String(req.query.model || rememberedMeta?.model || '').trim();
   // 优先从 submit 阶段记录的 (taskId → key) 映射恢复，防止前端未传 model 导致 fallback 错 key。
-  const remembered = recallTaskKey(taskId);
-  if (remembered) {
-    if (settings) settings.zhenzhenApiKey = remembered;
+  if (rememberedMeta?.apiKey) {
+    if (settings) settings.zhenzhenApiKey = rememberedMeta.apiKey;
     else return res.status(400).json({ success: false, error: '未找到 settings' });
   } else {
     // v1.2.9.15: 一体化「专属优先 fallback 通用」校验
-    if (!ensureKey(settings, res, String(req.query.model || ''), '视频')) return;
+    if (!ensureKey(settings, res, queryModel, '视频')) return;
   }
   if (!taskId) return res.status(400).json({ success: false, error: 'taskId 必填' });
-  const upstream = `${config.ZHENZHEN_BASE_URL}/v2/videos/generations/${encodeURIComponent(taskId)}`;
+  const isVeoOmni = isVeoOmniModel(queryModel);
+  const upstream = isVeoOmni
+    ? `${config.ZHENZHEN_BASE_URL}/v1/videos/${encodeURIComponent(taskId)}`
+    : `${config.ZHENZHEN_BASE_URL}/v2/videos/generations/${encodeURIComponent(taskId)}`;
   try {
     const r = await fetch(upstream, {
       headers: { Authorization: `Bearer ${settings.zhenzhenApiKey}` },
@@ -1754,37 +1893,23 @@ router.get('/video/query', async (req, res) => {
       return res.status(500).json({ success: false, error: '上游响应非 JSON: ' + text.slice(0, 200) });
     }
     if (!r.ok) {
-      return res.status(r.status).json({ success: false, error: data?.error?.message || `上游 HTTP ${r.status}` });
+      return res.status(r.status).json({ success: false, error: getUpstreamErrorMessage(data, text, r.status), raw: data });
     }
-    const st = String(data?.status || '').toUpperCase();
+    const st = normalizeVideoTaskStatus(data?.status);
     let videoUrl = null;
     if (st === 'SUCCESS') {
-      const remote = data?.data?.output;
+      const remote = getFalVideoUrl(data);
       if (remote) {
-        // 转存视频到本地
-        try {
-          const vr = await fetch(remote);
-          if (vr.ok) {
-            const buf = Buffer.from(await vr.arrayBuffer());
-            const ext = (remote.match(/\.(mp4|webm|mov)/i)?.[1] || 'mp4').toLowerCase();
-            const filename = `vid_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.${ext}`;
-            fs.writeFileSync(path.join(config.OUTPUT_DIR, filename), buf);
-            videoUrl = `/files/output/${filename}`;
-          } else {
-            videoUrl = remote;
-          }
-        } catch {
-          videoUrl = remote;
-        }
+        videoUrl = await saveRemoteVideo(remote);
       }
     }
     res.json({
       success: true,
       data: {
         status: st || 'PENDING',
-        progress: data?.progress || '',
+        progress: data?.progress == null ? '' : String(data.progress),
         videoUrl,
-        failReason: data?.fail_reason || null,
+        failReason: data?.fail_reason || data?.failure_details || data?.error || data?.message || null,
         raw: data,
       },
     });

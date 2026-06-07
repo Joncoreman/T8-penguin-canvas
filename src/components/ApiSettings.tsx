@@ -38,6 +38,7 @@ type KeyField =
   | 'nanoBananaApiKey'
   | 'mjApiKey'
   | 'veoApiKey'
+  | 'soraApiKey'
   | 'grokApiKey'
   | 'seedanceApiKey'
   | 'sunoApiKey';
@@ -59,7 +60,8 @@ const CLASSIFIED_KEYS: KeySpec[] = [
   { field: 'gptImageApiKey', label: 'gpt-image 系列', desc: 'GPT2 / gpt-image-1 等图像任务专用', bullet: 'bg-pink-400' },
   { field: 'nanoBananaApiKey', label: 'nano-banana 系列', desc: 'nano-banana / nano-banana-pro 专用', bullet: 'bg-yellow-400' },
   { field: 'mjApiKey', label: 'mj 系列', desc: 'Midjourney (turbo/fast/relax) 专用', bullet: 'bg-purple-400' },
-  { field: 'veoApiKey', label: 'veo / sora 系列', desc: 'Veo / Veo3.1 / Sora2 视频专用', bullet: 'bg-blue-400' },
+  { field: 'veoApiKey', label: 'veo 系列', desc: 'Veo 系列视频专用', bullet: 'bg-blue-400' },
+  { field: 'soraApiKey', label: 'sora2 系列', desc: 'Sora2 FAL / Zhenzhen API 视频专用', bullet: 'bg-sky-400' },
   { field: 'grokApiKey', label: 'grok 系列', desc: 'Grok Image / Grok Imagine Video 专用', bullet: 'bg-orange-400' },
   { field: 'seedanceApiKey', label: 'seedance 系列', desc: 'Seedance 视频专用', bullet: 'bg-teal-400' },
   { field: 'sunoApiKey', label: 'suno 系列', desc: 'Suno 音乐专用', bullet: 'bg-rose-400' },
@@ -118,12 +120,12 @@ const ADVANCED_PROVIDER_GUIDES: Record<AdvancedProviderProtocol, {
   },
   volcengine: {
     subtitle: '接入火山方舟 / Seedream / Seedance',
-    description: '适合用火山引擎做 Seedream 图像、Seedance 视频或方舟聊天模型。只在节点里选择高级来源时才会走这里。',
+    description: '适合用火山引擎做 Seedream 图像、Seedance 视频或方舟聊天模型。生成调用使用方舟 Ark API Key，不使用 Access Key ID / Secret Access Key；使用 Seedance2.0 前需要先在火山方舟控制台开通对应模型服务。',
     nodeScopes: ['图像节点', '视频节点', 'LLM 节点'],
-    connectionHint: 'Base URL 填火山方舟 API 地址；常规生成使用 API Key，素材上传能力可补充 AK/SK。',
-    modelHint: '图像、视频、聊天模型分别按火山控制台里的模型接入点填写，每行一个。',
+    connectionHint: 'Base URL 填火山方舟 API 地址；Seedream / Seedance / LLM 生成必须填方舟 Ark API Key。Access Key ID / Secret Access Key 是另一类凭证，请放到下方火山 AK/SK 高级项。',
+    modelHint: '图像、视频、聊天模型分别按火山控制台里的模型接入点填写，每行一个。Seedance2.0 / Seedance2.0 Fast 如果未在方舟控制台开通，提交会返回 ModelNotOpen / HTTP 404。',
     baseUrlPlaceholder: 'https://ark.cn-beijing.volces.com/api/v3',
-    keyLabel: '火山 API Key',
+    keyLabel: '方舟 Ark API Key（生成用，不是 AK/SK）',
   },
   comfyui: {
     subtitle: '接入本机 ComfyUI 工作流',
@@ -249,12 +251,12 @@ function AdvancedProviderFormBlock({
 const emptyMap = (): Record<KeyField, string> => ({
   zhenzhenApiKey: '', rhApiKey: '', llmApiKey: '',
   gptImageApiKey: '', nanoBananaApiKey: '', mjApiKey: '', veoApiKey: '',
-  grokApiKey: '', seedanceApiKey: '', sunoApiKey: '',
+  soraApiKey: '', grokApiKey: '', seedanceApiKey: '', sunoApiKey: '',
 });
 const emptyShow = (): Record<KeyField, boolean> => ({
   zhenzhenApiKey: false, rhApiKey: false, llmApiKey: false,
   gptImageApiKey: false, nanoBananaApiKey: false, mjApiKey: false, veoApiKey: false,
-  grokApiKey: false, seedanceApiKey: false, sunoApiKey: false,
+  soraApiKey: false, grokApiKey: false, seedanceApiKey: false, sunoApiKey: false,
 });
 
 export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProps) {
@@ -347,6 +349,7 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
     nanoBananaApiKey: inputs.nanoBananaApiKey.trim(),
     mjApiKey: inputs.mjApiKey.trim(),
     veoApiKey: inputs.veoApiKey.trim(),
+    soraApiKey: inputs.soraApiKey.trim(),
     grokApiKey: inputs.grokApiKey.trim(),
     seedanceApiKey: inputs.seedanceApiKey.trim(),
     sunoApiKey: inputs.sunoApiKey.trim(),
@@ -1386,7 +1389,7 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
             className={formBlockCls}
             labelClassName={labelCls}
             hintClassName={hintCls}
-            title="2. 连接密钥"
+            title={isVolc ? '2. 生成连接密钥' : '2. 连接密钥'}
             note={guide?.connectionHint}
           >
             <label className="space-y-1 block">
@@ -1396,9 +1399,32 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
                 value={provider.apiKey || ''}
                 onChange={(e) => updateAdvancedProvider(provider.id, { apiKey: e.target.value })}
                 className={fieldInputCls}
-                placeholder={provider.hasApiKey || provider.apiKey ? '留空或保留 **** 表示不覆盖后端密钥' : '请输入 API Key'}
+                placeholder={
+                  provider.hasApiKey || provider.apiKey
+                    ? '留空或保留 **** 表示不覆盖后端密钥'
+                    : isVolc
+                      ? '请输入方舟 Ark API Key，不要填 Access Key ID / Secret'
+                      : '请输入 API Key'
+                }
               />
             </label>
+            {isVolc && (
+              <div className={guideBoxCls}>
+                <div className="font-bold">该填哪个 Key？</div>
+                <p>
+                  图像 Seedream、视频 Seedance 和方舟 LLM 生成使用「方舟 Ark API Key」。
+                  你在火山账号里看到的 Access Key ID / Secret Access Key 不能填在这里，
+                  需要放到下方「火山 AK/SK」高级项；目前它只作为素材签名类能力的预留凭证。
+                </p>
+                <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-400/15 px-3 py-2">
+                  <div className="font-bold">Seedance2.0 开通提醒</div>
+                  <p>
+                    使用 doubao-seedance-2-0-260128 或 doubao-seedance-2-0-fast-260128 前，
+                    需要先在火山方舟控制台开通对应模型服务；未开通时上游会返回 ModelNotOpen / HTTP 404。
+                  </p>
+                </div>
+              </div>
+            )}
             {provider.protocol === 'modelscope' && (
               <div className="flex flex-wrap gap-2">
                 <button
@@ -1427,8 +1453,8 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
             className={formBlockCls}
             labelClassName={labelCls}
             hintClassName={hintCls}
-            title="3. 火山高级项（可选）"
-            note="普通 Ark / Seedream / Seedance 调用通常只需要上面的 API Key。只有需要素材上传或特定项目隔离时，再补充这些字段。"
+            title="3. 火山 AK/SK（可选，素材签名）"
+            note="这里不是生成 Key。普通 Ark / Seedream / Seedance 调用只需要上方的方舟 Ark API Key；AK/SK 仅用于素材上传、私域资产或签名类 OpenAPI。"
           >
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <label className="space-y-1">
@@ -1450,23 +1476,23 @@ export default function ApiSettingsModal({ open, onClose }: ApiSettingsModalProp
                 />
               </label>
               <label className="space-y-1">
-                <span className={`text-[11px] ${labelCls}`}>素材 Access Key ID</span>
+                <span className={`text-[11px] ${labelCls}`}>Access Key ID（AK，素材签名）</span>
                 <input
                   type="password"
                   value={provider.volcengineConfig?.accessKeyId || ''}
                   onChange={(e) => updateAdvancedProviderNested(provider.id, 'volcengineConfig', { accessKeyId: e.target.value })}
                   className={fieldInputCls}
-                  placeholder={provider.volcengineConfig?.hasAccessKeyId ? '留空保持不变' : '可选'}
+                  placeholder={provider.volcengineConfig?.hasAccessKeyId ? '留空保持不变' : '可选，不是方舟 API Key'}
                 />
               </label>
               <label className="space-y-1">
-                <span className={`text-[11px] ${labelCls}`}>素材 Secret Access Key</span>
+                <span className={`text-[11px] ${labelCls}`}>Secret Access Key（SK，素材签名）</span>
                 <input
                   type="password"
                   value={provider.volcengineConfig?.secretAccessKey || ''}
                   onChange={(e) => updateAdvancedProviderNested(provider.id, 'volcengineConfig', { secretAccessKey: e.target.value })}
                   className={fieldInputCls}
-                  placeholder={provider.volcengineConfig?.hasSecretAccessKey ? '留空保持不变' : '可选'}
+                  placeholder={provider.volcengineConfig?.hasSecretAccessKey ? '留空保持不变' : '可选，不是方舟 API Key'}
                 />
               </label>
             </div>

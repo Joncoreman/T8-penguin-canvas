@@ -16,7 +16,7 @@ const {
 
 const router = express.Router();
 
-// 默认 settings 结构(三套通用 Key + 7 类分类 Key)
+// 默认 settings 结构(三套通用 Key + 8 类分类 Key)
 const DEFAULT_SETTINGS = {
   // 三套通用 Key
   zhenzhenApiKey: '',
@@ -31,6 +31,7 @@ const DEFAULT_SETTINGS = {
   nanoBananaApiKey: '',
   mjApiKey: '',
   veoApiKey: '',
+  soraApiKey: '',
   grokApiKey: '',
   seedanceApiKey: '',
   sunoApiKey: '',
@@ -71,7 +72,7 @@ const LEGACY_DEFAULT_PATHS = {
 
 // 分类 key 字段列表（供 GET 脱敏与 POST 合并使用）
 const CLASSIFIED_KEY_FIELDS = [
-  'gptImageApiKey', 'nanoBananaApiKey', 'mjApiKey', 'veoApiKey',
+  'gptImageApiKey', 'nanoBananaApiKey', 'mjApiKey', 'veoApiKey', 'soraApiKey',
   'grokApiKey', 'seedanceApiKey', 'sunoApiKey',
 ];
 

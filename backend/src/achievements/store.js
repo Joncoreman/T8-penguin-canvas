@@ -4,13 +4,33 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const config = require('../config');
-const manifest = require('../../../shared/achievementManifest.json');
+
+function loadAchievementManifest() {
+  const candidates = [];
+  if (process.env.T8PC_RES) {
+    candidates.push(path.join(process.env.T8PC_RES, 'shared', 'achievementManifest.json'));
+  }
+  candidates.push(path.resolve(__dirname, '..', '..', '..', 'shared', 'achievementManifest.json'));
+  candidates.push(path.resolve(process.cwd(), 'shared', 'achievementManifest.json'));
+
+  for (const candidate of candidates) {
+    try {
+      if (candidate && fs.existsSync(candidate)) {
+        return JSON.parse(fs.readFileSync(candidate, 'utf8'));
+      }
+    } catch (_) {}
+  }
+  return require('../../../shared/achievementManifest.json');
+}
+
+const manifest = loadAchievementManifest();
 
 const SCHEMA = 't8-achievements';
 const VERSION = 1;
 const MAX_EVENTS = 120;
 const MAX_TICK_SECONDS = 30;
 const SESSION_GAP_MS = 5 * 60 * 1000;
+const BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 const THEME_STYLES = new Set(manifest.themes.map((theme) => theme.style));
 const EVENT_TYPES = new Set([
   'theme.active_tick',
@@ -23,6 +43,20 @@ const EVENT_TYPES = new Set([
   'workflow.saved',
   'panorama.generated',
   'parsehub.resolved',
+  'dragon_ball.collected',
+  'dragon_ball.set_completed',
+]);
+const CREATIVE_EVENT_TYPES = new Set([
+  'hidden_mode.enabled',
+  'hidden_mode.used',
+  'node.created',
+  'node.run_success',
+  'resource.saved',
+  'workflow.saved',
+  'panorama.generated',
+  'parsehub.resolved',
+  'dragon_ball.collected',
+  'dragon_ball.set_completed',
 ]);
 
 function nowIso(ts = Date.now()) {
@@ -99,6 +133,8 @@ function emptyThemeStats() {
     hiddenModeUses: 0,
     panoramasGenerated: 0,
     parseHubResolved: 0,
+    dragonBallsCollected: 0,
+    dragonBallSetsCompleted: 0,
     nodeTypeCounts: {},
     nodeRunCounts: {},
     hiddenModes: {},
@@ -134,16 +170,82 @@ function ensureObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function secondsValue(value) {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function normalizeDailySeconds(value) {
+  const source = ensureObject(value);
+  const dailySeconds = {};
+  for (const [rawKey, rawValue] of Object.entries(source)) {
+    const amount = secondsValue(rawValue);
+    if (amount <= 0) continue;
+    let key = String(rawKey || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) {
+      const parsed = Date.parse(key);
+      if (!Number.isFinite(parsed)) continue;
+      key = localDateKey(parsed);
+    }
+    dailySeconds[key] = secondsValue(dailySeconds[key]) + amount;
+  }
+  return dailySeconds;
+}
+
+function sumDailySeconds(dailySeconds) {
+  return Object.values(ensureObject(dailySeconds)).reduce((sum, value) => sum + secondsValue(value), 0);
+}
+
+function dateKeyTime(key) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ''));
+  if (!match) return NaN;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime();
+}
+
+function startOfLocalWeek(ts = Date.now()) {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const offset = day === 0 ? 6 : day - 1;
+  d.setDate(d.getDate() - offset);
+  return d.getTime();
+}
+
+function endOfLocalWeek(ts = Date.now()) {
+  return startOfLocalWeek(ts) + (7 * 24 * 60 * 60 * 1000);
+}
+
+function rangeSeconds(dailySeconds, startMs, endMs) {
+  return Object.entries(ensureObject(dailySeconds)).reduce((sum, [key, value]) => {
+    const time = dateKeyTime(key);
+    if (!Number.isFinite(time) || time < startMs || time >= endMs) return sum;
+    return sum + secondsValue(value);
+  }, 0);
+}
+
+function bestKnownActiveSeconds(raw, dailySeconds) {
+  const dailyTotal = sumDailySeconds(dailySeconds);
+  return Math.max(
+    dailyTotal,
+    secondsValue(raw.activeSeconds),
+    secondsValue(raw.totalActiveSeconds),
+    secondsValue(raw.totalSeconds),
+    secondsValue(raw.usageSeconds),
+    secondsValue(raw.durationSeconds),
+    secondsValue(raw.timeSeconds),
+  );
+}
+
 function ensureThemeStats(data, theme) {
   const key = normalizeTheme(theme);
   data.themeStats = ensureObject(data.themeStats);
   const raw = ensureObject(data.themeStats[key]);
+  const dailySeconds = normalizeDailySeconds(raw.dailySeconds);
   data.themeStats[key] = {
     ...emptyThemeStats(),
     ...raw,
-    activeSeconds: Math.max(0, Math.floor(Number(raw.activeSeconds) || 0)),
-    sessions: Math.max(0, Math.floor(Number(raw.sessions) || 0)),
-    dailySeconds: ensureObject(raw.dailySeconds),
+    activeSeconds: bestKnownActiveSeconds(raw, dailySeconds),
+    sessions: secondsValue(raw.sessions),
+    dailySeconds,
     nodeTypeCounts: ensureObject(raw.nodeTypeCounts),
     nodeRunCounts: ensureObject(raw.nodeRunCounts),
     hiddenModes: ensureObject(raw.hiddenModes),
@@ -174,17 +276,29 @@ function sanitizeData(raw) {
 function loadData() {
   ensureDir();
   if (!fs.existsSync(config.ACHIEVEMENTS_FILE)) {
+    const recovered = loadRecoveryData();
+    if (recovered) {
+      saveData(recovered);
+      return recovered;
+    }
     const data = defaultData();
     saveData(data);
     return data;
   }
   try {
-    return sanitizeData(JSON.parse(fs.readFileSync(config.ACHIEVEMENTS_FILE, 'utf8')));
+    const raw = loadJsonFromFile(config.ACHIEVEMENTS_FILE);
+    const before = JSON.stringify(raw);
+    const data = sanitizeData(raw);
+    if (JSON.stringify(data) !== before) saveData(data);
+    return data;
   } catch (error) {
-    const backup = `${config.ACHIEVEMENTS_FILE}.broken-${Date.now()}`;
-    try { fs.copyFileSync(config.ACHIEVEMENTS_FILE, backup); } catch (_) {}
-    console.warn('[achievements] achievements.json 已损坏，已重建:', error?.message || error);
-    const data = defaultData();
+    const backup = quarantineCorruptFile();
+    console.warn(
+      '[achievements] achievements.json 已损坏，尝试从备份恢复:',
+      error?.message || error,
+      backup ? `broken=${backup}` : '',
+    );
+    const data = loadRecoveryData() || defaultData();
     saveData(data);
     return data;
   }
@@ -193,7 +307,82 @@ function loadData() {
 function saveData(data) {
   ensureDir();
   data.updatedAt = nowIso();
-  fs.writeFileSync(config.ACHIEVEMENTS_FILE, JSON.stringify(data, null, 2), 'utf8');
+  const file = config.ACHIEVEMENTS_FILE;
+  const temp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    backupExistingFile(file);
+    fs.writeFileSync(temp, JSON.stringify(data, null, 2), 'utf8');
+    fs.renameSync(temp, file);
+  } finally {
+    try { if (fs.existsSync(temp)) fs.rmSync(temp, { force: true }); } catch (_) {}
+  }
+}
+
+function backupExistingFile(file = config.ACHIEVEMENTS_FILE) {
+  if (!fs.existsSync(file)) return;
+  const backup = `${file}.bak`;
+  try {
+    const sourceStat = fs.statSync(file);
+    const backupStat = fs.existsSync(backup) ? fs.statSync(backup) : null;
+    const shouldBackup = !backupStat
+      || sourceStat.mtimeMs - backupStat.mtimeMs >= BACKUP_INTERVAL_MS
+      || sourceStat.size !== backupStat.size;
+    if (shouldBackup) fs.copyFileSync(file, backup);
+  } catch (error) {
+    console.warn('[achievements] backup failed:', error?.message || error);
+  }
+}
+
+function recoveryCandidates() {
+  const file = config.ACHIEVEMENTS_FILE;
+  const dir = path.dirname(file);
+  const name = path.basename(file);
+  const candidates = [`${file}.bak`];
+  try {
+    const backups = fs.readdirSync(dir)
+      .filter((item) => item.startsWith(`${name}.broken-`) || item.startsWith(`${name}.backup-`))
+      .map((item) => path.join(dir, item))
+      .filter((item) => fs.statSync(item).isFile())
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+    candidates.push(...backups);
+  } catch (_) {}
+  return [...new Set(candidates)].filter((candidate) => fs.existsSync(candidate));
+}
+
+function loadJsonFromFile(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function loadRecoveryData() {
+  for (const candidate of recoveryCandidates()) {
+    try {
+      const raw = loadJsonFromFile(candidate);
+      const before = JSON.stringify(raw);
+      const data = sanitizeData(raw?.data || raw);
+      if (JSON.stringify(data) !== before) data.updatedAt = nowIso();
+      console.warn('[achievements] recovered from backup:', candidate);
+      return data;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function quarantineCorruptFile() {
+  const file = config.ACHIEVEMENTS_FILE;
+  if (!fs.existsSync(file)) return '';
+  const backup = `${file}.broken-${Date.now()}`;
+  try {
+    fs.renameSync(file, backup);
+    return backup;
+  } catch (_) {
+    try {
+      fs.copyFileSync(file, backup);
+      fs.rmSync(file, { force: true });
+      return backup;
+    } catch (_) {
+      return '';
+    }
+  }
 }
 
 function countForNodeTypes(map, nodeTypes) {
@@ -288,6 +477,7 @@ function sanitizeEvent(payload) {
   }
   if (payload?.nodeType) event.nodeType = safeText(payload.nodeType);
   if (payload?.kind) event.kind = safeText(payload.kind);
+  if (payload?.mode) event.mode = safeText(payload.mode);
   if (payload?.category) event.category = safeText(payload.category);
   return event;
 }
@@ -300,10 +490,13 @@ function bump(map, key, amount = 1) {
 function applyEventToStats(data, event) {
   const stats = ensureThemeStats(data, event.theme);
   if (event.type === 'theme.active_tick') {
-    const amount = Math.max(0, Math.min(MAX_TICK_SECONDS, Number(event.amountSeconds) || 0));
-    if (amount <= 0) return;
+    const requestedAmount = Math.max(0, Math.min(MAX_TICK_SECONDS, Number(event.amountSeconds) || 0));
+    if (requestedAmount <= 0) return;
     const previous = stats.lastActiveAt ? Date.parse(stats.lastActiveAt) : 0;
     const current = Date.parse(event.at) || Date.now();
+    const elapsedSincePrevious = previous > 0 ? Math.max(0, Math.floor((current - previous) / 1000)) : requestedAmount;
+    const amount = previous > 0 ? Math.min(requestedAmount, elapsedSincePrevious) : requestedAmount;
+    if (amount <= 0) return;
     if (!previous || current - previous > SESSION_GAP_MS) stats.sessions += 1;
     stats.activeSeconds += amount;
     const day = localDateKey(current);
@@ -347,7 +540,177 @@ function applyEventToStats(data, event) {
   }
   if (event.type === 'parsehub.resolved') {
     stats.parseHubResolved += 1;
+    return;
   }
+  if (event.type === 'dragon_ball.collected') {
+    stats.dragonBallsCollected += 1;
+    return;
+  }
+  if (event.type === 'dragon_ball.set_completed') {
+    stats.dragonBallSetsCompleted += 1;
+  }
+}
+
+function buildDailyTasks(data, today) {
+  return manifest.themes
+    .map((theme) => {
+      const stats = ensureThemeStats(data, theme.style);
+      const next = DEFINITIONS.find((definition) => {
+        if (definition.theme !== theme.style) return false;
+        if (data.unlockedAchievements[definition.id]) return false;
+        return metricValue(stats, definition.condition) < conditionTarget(definition.condition);
+      });
+      if (!next) return null;
+      const progress = metricValue(stats, next.condition);
+      const target = conditionTarget(next.condition);
+      return {
+        id: `daily-${theme.style}-${next.id}`,
+        theme: theme.style,
+        themeLabel: theme.label,
+        accent: theme.accent,
+        achievementId: next.id,
+        title: next.title,
+        description: next.description,
+        progress,
+        target,
+        ratio: Math.max(0, Math.min(1, progress / Math.max(1, target))),
+        targetKind: next.condition?.type || 'counter',
+        todaySeconds: secondsValue(stats.dailySeconds?.[today]),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.todaySeconds - b.todaySeconds) || (a.ratio - b.ratio))
+    .slice(0, 4);
+}
+
+function weeklyActionCounts(events, startMs, endMs) {
+  const counts = {};
+  for (const event of Array.isArray(events) ? events : []) {
+    const time = Date.parse(event?.at || '');
+    if (!Number.isFinite(time) || time < startMs || time >= endMs) continue;
+    if (!CREATIVE_EVENT_TYPES.has(event.type)) continue;
+    const theme = normalizeTheme(event.theme);
+    counts[theme] = secondsValue(counts[theme]) + 1;
+  }
+  return counts;
+}
+
+function buildWeeklyPassport(data) {
+  const now = Date.now();
+  const startMs = startOfLocalWeek(now);
+  const endMs = endOfLocalWeek(now);
+  const actionCounts = weeklyActionCounts(data.events, startMs, endMs);
+  const themes = manifest.themes.map((theme) => {
+    const stats = ensureThemeStats(data, theme.style);
+    const weeklySeconds = rangeSeconds(stats.dailySeconds, startMs, endMs);
+    const actionCount = secondsValue(actionCounts[theme.style]);
+    const completed = weeklySeconds >= 600 || actionCount > 0;
+    return {
+      theme: theme.style,
+      themeLabel: theme.label,
+      shortLabel: theme.shortLabel,
+      accent: theme.accent,
+      weeklySeconds,
+      actionCount,
+      completed,
+    };
+  });
+  const completedThemes = themes.filter((theme) => theme.completed);
+  return {
+    weekStart: localDateKey(startMs),
+    weekEnd: localDateKey(endMs - 1),
+    targetThemeCount: 3,
+    completedThemeCount: completedThemes.length,
+    ratio: Math.max(0, Math.min(1, completedThemes.length / 3)),
+    themes: themes
+      .filter((theme) => theme.completed || theme.weeklySeconds > 0 || theme.actionCount > 0)
+      .sort((a, b) => Number(b.completed) - Number(a.completed) || b.weeklySeconds - a.weeklySeconds || b.actionCount - a.actionCount)
+      .slice(0, 6),
+  };
+}
+
+function topEntry(map) {
+  let best = { key: '', value: 0 };
+  for (const [key, value] of Object.entries(ensureObject(map))) {
+    const amount = secondsValue(value);
+    if (amount > best.value) best = { key, value: amount };
+  }
+  return best;
+}
+
+function buildCreativeReview(data, weeklyPassport, today) {
+  const totals = {
+    nodesCreated: 0,
+    runsSucceeded: 0,
+    resourcesSaved: 0,
+    workflowsSaved: 0,
+    hiddenModeActivations: 0,
+  };
+  const nodeRuns = {};
+  let topTheme = null;
+  let todayTopTheme = null;
+  let weeklyActiveSeconds = 0;
+  for (const theme of manifest.themes) {
+    const stats = ensureThemeStats(data, theme.style);
+    totals.nodesCreated += secondsValue(stats.nodesCreated);
+    totals.runsSucceeded += secondsValue(stats.runsSucceeded);
+    totals.resourcesSaved += secondsValue(stats.resourcesSaved);
+    totals.workflowsSaved += secondsValue(stats.workflowsSaved);
+    totals.hiddenModeActivations += secondsValue(stats.hiddenModeActivations);
+    weeklyActiveSeconds += rangeSeconds(stats.dailySeconds, startOfLocalWeek(), endOfLocalWeek());
+    for (const [nodeType, count] of Object.entries(ensureObject(stats.nodeRunCounts))) {
+      nodeRuns[nodeType] = secondsValue(nodeRuns[nodeType]) + secondsValue(count);
+    }
+    const activeSeconds = secondsValue(stats.activeSeconds);
+    const todaySeconds = secondsValue(stats.dailySeconds?.[today]);
+    if (!topTheme || activeSeconds > topTheme.activeSeconds) {
+      topTheme = { theme: theme.style, themeLabel: theme.label, activeSeconds };
+    }
+    if (!todayTopTheme || todaySeconds > todayTopTheme.todaySeconds) {
+      todayTopTheme = { theme: theme.style, themeLabel: theme.label, todaySeconds };
+    }
+  }
+  const mostUsedNodeType = topEntry(nodeRuns);
+  return {
+    topTheme,
+    todayTopTheme,
+    weeklyActiveSeconds,
+    weeklyThemeCount: weeklyPassport.completedThemeCount,
+    mostUsedNodeType: mostUsedNodeType.key ? mostUsedNodeType : null,
+    recentCreativeEventCount: (Array.isArray(data.events) ? data.events : []).filter((event) => CREATIVE_EVENT_TYPES.has(event.type)).length,
+    ...totals,
+  };
+}
+
+function buildThemeShowcases(data) {
+  const showcases = {};
+  for (const theme of manifest.themes) {
+    const stats = ensureThemeStats(data, theme.style);
+    const categoryCounts = {};
+    let lastActivityAt = '';
+    for (const event of Array.isArray(data.events) ? data.events : []) {
+      if (normalizeTheme(event.theme) !== theme.style) continue;
+      if (!CREATIVE_EVENT_TYPES.has(event.type)) continue;
+      if (!lastActivityAt || Date.parse(event.at || '') > Date.parse(lastActivityAt || '')) lastActivityAt = event.at || '';
+      if (event.type === 'resource.saved' && event.category) {
+        bump(categoryCounts, event.category);
+      }
+    }
+    const topCategory = topEntry(categoryCounts);
+    showcases[theme.style] = {
+      theme: theme.style,
+      themeLabel: theme.label,
+      resourcesSaved: secondsValue(stats.resourcesSaved),
+      workflowsSaved: secondsValue(stats.workflowsSaved),
+      panoramasGenerated: secondsValue(stats.panoramasGenerated),
+      parseHubResolved: secondsValue(stats.parseHubResolved),
+      topCategory: topCategory.key || '',
+      topCategoryCount: topCategory.value,
+      lastActivityAt,
+      hasShowcase: secondsValue(stats.resourcesSaved) + secondsValue(stats.workflowsSaved) + secondsValue(stats.panoramasGenerated) > 0,
+    };
+  }
+  return showcases;
 }
 
 function buildSummary(data, unlockResult = { unlocked: [], unlockedFilms: [] }) {
@@ -360,6 +723,7 @@ function buildSummary(data, unlockResult = { unlocked: [], unlockedFilms: [] }) 
     (sum, stats) => sum + (Number(stats?.dailySeconds?.[today]) || 0),
     0,
   );
+  const weeklyPassport = buildWeeklyPassport(data);
   return {
     today,
     todaySeconds,
@@ -370,6 +734,10 @@ function buildSummary(data, unlockResult = { unlocked: [], unlockedFilms: [] }) 
     unlockedFilmCount: Object.keys(data.unlockedFilms || {}).length,
     recentUnlocks: unlockResult.unlocked,
     recentFilms: unlockResult.unlockedFilms,
+    dailyTasks: buildDailyTasks(data, today),
+    weeklyPassport,
+    creativeReview: buildCreativeReview(data, weeklyPassport, today),
+    themeShowcases: buildThemeShowcases(data),
   };
 }
 
@@ -394,7 +762,7 @@ function recordEvent(payload) {
   const event = sanitizeEvent(payload);
   if (!event) return { ...publicData(data), ignored: true };
   if (data.preferences?.enabled === false && event.type !== 'theme.switched') {
-    return { ...publicData(data), ignored: true };
+    return { ...publicData(data), ignored: true, ignoredReason: 'achievement-tracking-disabled' };
   }
   applyEventToStats(data, event);
   data.events.push(event);

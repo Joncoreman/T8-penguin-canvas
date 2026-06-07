@@ -299,7 +299,12 @@ export function advancedProviderModelOptions(
     return uniqueCompact((provider.comfyuiConfig?.workflows || []).map((workflow) => workflow.id || workflow.name));
   }
   const explicit = uniqueCompact(listForKind(provider, kind));
-  if (explicit.length) return explicit;
+  if (explicit.length) {
+    const defaultModel = defaultModelForKind(provider, kind);
+    return defaultModel && explicit.includes(defaultModel)
+      ? uniqueCompact([defaultModel, ...explicit])
+      : explicit;
+  }
   return uniqueCompact([
     defaultModelForKind(provider, kind),
     ...(FALLBACK_MODELS[kind][provider.protocol] || []),

@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FormEvent,
   type MutableRefObject,
   type Ref,
 } from 'react';
@@ -233,6 +234,11 @@ function readRichEditor(root: HTMLElement, fallbackMentions: MediaMention[]): { 
   return { text, mentions };
 }
 
+function isImeCompositionInput(event: Event | null | undefined) {
+  const native = event as (InputEvent & { isComposing?: boolean }) | null | undefined;
+  return !!native?.isComposing || /Composition/i.test(String(native?.inputType || ''));
+}
+
 const MentionPromptInput = ({
   value,
   mentions = [],
@@ -442,9 +448,13 @@ const MentionPromptInput = ({
     setQueryState({ ...query, open: true, activeIndex: 0 });
   };
 
-  const handleEditorInput = () => {
+  const handleEditorInput = (event?: FormEvent<HTMLDivElement>) => {
     const el = localRef.current;
     if (!el) return;
+    if (isImeCompositionInput(event?.nativeEvent)) {
+      composingRef.current = true;
+      return;
+    }
     if (composingRef.current) return;
     const caret = getCaretPlainOffset(el);
     const { text: nextValue, mentions: nextMentions } = readRichEditor(el, mentions);
@@ -608,6 +618,9 @@ const MentionPromptInput = ({
           tabIndex={0}
           data-placeholder={placeholder || ''}
           onInput={handleEditorInput}
+          onBeforeInput={(event) => {
+            if (isImeCompositionInput(event.nativeEvent)) composingRef.current = true;
+          }}
           onCompositionStart={() => {
             composingRef.current = true;
             setQueryState((s) => ({ ...s, open: false }));

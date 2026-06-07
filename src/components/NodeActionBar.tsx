@@ -187,10 +187,10 @@ const NodeActionBar = () => {
     holdTimerRef.current = window.setTimeout(() => {
       if (rhDuckEligible) {
         const enabled = toggleRhDuckUpload(selectedExe.id);
-        if (enabled) trackAchievementEvent({ type: 'hidden_mode.enabled', theme: visualStyle, kind: 'rh-duck', nodeType: 'upload' });
+        if (enabled) trackAchievementEvent({ type: 'hidden_mode.enabled', theme: visualStyle, kind: 'rh-duck', mode: 'enabled', nodeType: 'upload' });
       } else if (yyhPortraitEligible) {
         const enabled = toggleYyhPortrait(selectedExe.id);
-        if (enabled) trackAchievementEvent({ type: 'hidden_mode.enabled', theme: visualStyle, kind: 'yyh-portrait', nodeType: 'portrait-master' });
+        if (enabled) trackAchievementEvent({ type: 'hidden_mode.enabled', theme: visualStyle, kind: 'yyh-portrait', mode: 'enabled', nodeType: 'portrait-master' });
       }
       suppressClickRef.current = true;
       holdTimerRef.current = null;

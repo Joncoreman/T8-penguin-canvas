@@ -379,19 +379,30 @@ html[data-theme-visual="soccer-hero"] .react-flow__connection-path {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 18 11 4 11 !important;
+  animation: none;
+  filter: none !important;
+}
+
+html[data-theme-visual="soccer-hero"] .react-flow__edge-path.t8-edge-theme-active,
+html[data-theme-visual="soccer-hero"] .react-flow__connection-path {
   animation: sc-pass-flow 0.95s linear infinite;
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--sc-blue) 36%, transparent)) !important;
 }
 
 html[data-theme-visual="soccer-hero"] .t8-edge-yyh-red-segment {
-  display: block;
+  display: none;
   stroke: var(--sc-gold) !important;
   stroke-width: 2.2px;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 5 24;
-  animation: sc-pass-flow-gold 0.95s linear infinite;
+  animation: none;
   opacity: 0.84;
+}
+
+html[data-theme-visual="soccer-hero"] .t8-edge-yyh-red-segment.t8-edge-theme-active {
+  display: block;
+  animation: sc-pass-flow-gold 0.95s linear infinite;
 }
 
 html[data-theme-visual="soccer-hero"] .react-flow__edge.selected .react-flow__edge-path,

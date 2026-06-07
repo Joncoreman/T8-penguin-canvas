@@ -288,15 +288,7 @@ html[data-theme-visual="slamdunk"] .t8-sidebar::before {
 }
 
 html[data-theme-visual="slamdunk"] .t8-sidebar::after {
-  content: "";
-  position: absolute;
-  inset: auto 18px 34px 26px;
-  height: 74px;
-  border: 2px solid color-mix(in srgb, var(--sd-ink) 34%, transparent);
-  border-top: 0;
-  border-radius: 0 0 74px 74px;
-  opacity: 0.38;
-  pointer-events: none;
+  content: none;
 }
 
 html[data-theme-visual="slamdunk"] .t8-sidebar .px-row,
@@ -560,19 +552,31 @@ html[data-theme-visual="slamdunk"] .react-flow__connection-path {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 16 10 4 10 !important;
+  animation: none;
+  filter: none !important;
+}
+
+html[data-theme-visual="slamdunk"] .react-flow__edge-path.t8-edge-theme-active,
+html[data-theme-visual="slamdunk"] .react-flow__connection-path {
   animation: sd-pass-flow 0.95s linear infinite;
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--sd-orange) 36%, transparent)) !important;
 }
 
 html[data-theme-visual="slamdunk"] .t8-edge-yyh-red-segment {
-  display: block;
+  display: none;
   stroke: var(--sd-red) !important;
   stroke-width: 2.2px;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 4 24;
-  animation: sd-pass-flow-red 0.95s linear infinite;
+  animation: none;
   opacity: 0.82;
+  filter: none;
+}
+
+html[data-theme-visual="slamdunk"] .t8-edge-yyh-red-segment.t8-edge-theme-active {
+  display: block;
+  animation: sd-pass-flow-red 0.95s linear infinite;
   filter: drop-shadow(0 0 4px color-mix(in srgb, var(--sd-red) 36%, transparent));
 }
 

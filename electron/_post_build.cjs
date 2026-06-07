@@ -5,7 +5,8 @@
 //   1. 检查 dist_electron/win-unpacked/resources/backend-enc/*.t8c 是否存在
 //   2. 检查 frontend/index.html 是否到位
 //   3. 强制移除任何意外混入的明文 backend/src/*.js (双保险)
-//   4. 输出最终产物清单
+//   4. 运行本地私有扩展的可选分发检查
+//   5. 输出最终产物清单
 // ============================================================================
 'use strict';
 
@@ -115,6 +116,42 @@ function isSmallTextFile(p) {
   }
 }
 
+function runLocalPostBuildChecks() {
+  const disabled = process.env.T8_ENABLE_LOCAL_PRIVATE === '0'
+    || process.env.T8_DISABLE_LOCAL_EXTENSIONS === '1';
+  const hookPath = path.join(ROOT, 'local-private', 'extensions', 'build', 'post-build.cjs');
+  if (disabled) {
+    console.log('  ⚠️  local private build hook disabled by environment');
+    return;
+  }
+  if (!fs.existsSync(hookPath)) {
+    console.log('  ✅ no local private build hook configured');
+    return;
+  }
+  const hook = require(hookPath);
+  const run = typeof hook === 'function' ? hook : hook && hook.runLocalPostBuildChecks;
+  if (typeof run !== 'function') {
+    failSecurity('local private build hook does not export a runnable check:', hookPath);
+  }
+  run({
+    ROOT,
+    PACKAGE_JSON,
+    APP_VERSION,
+    PRODUCT_NAME,
+    UNPACKED,
+    RES,
+    ok,
+    bad,
+    checkFile,
+    checkFrontendAsset,
+    listDir,
+    rel,
+    failSecurity,
+    walkFiles,
+    isSmallTextFile,
+  });
+}
+
 function checkAiWatermarkRuntime() {
   const runtimeRoot = path.join(RES, 'tools', 'remove-ai-watermarks');
   const archiveRoot = path.join(RES, 'tools', 'runtime-archives');
@@ -177,7 +214,6 @@ function checkParseHubRuntime() {
     ok(parsehubPkg);
     return;
   }
-
   if (fs.existsSync(archive)) {
     ok(archive);
     if (fs.existsSync(archiveManifest)) ok(archiveManifest);
@@ -201,9 +237,10 @@ function checkUpdateArtifacts() {
   const blockmap = path.join(distDir, `${installerName}.blockmap`);
   const latest = path.join(distDir, 'latest.yml');
   const strict = process.env.T8_REQUIRE_UPDATE_ARTIFACTS === '1';
-  const hasAnyArtifact = fs.existsSync(installer) || fs.existsSync(blockmap) || fs.existsSync(latest);
+  const hasInstaller = fs.existsSync(installer);
+  const hasBlockmap = fs.existsSync(blockmap);
 
-  if (!hasAnyArtifact && !strict) {
+  if (!strict && !hasInstaller && !hasBlockmap) {
     console.log('  ⚠️  NSIS update artifacts not present; skipping installer/latest.yml checks for dir build');
     return;
   }
@@ -316,25 +353,30 @@ function main() {
   checkFrontendAsset('slamdunk-kimi-ga-suki-', '.mp3');
   checkFrontendAsset('soccer-tsubasa-burning-hero-', '.mid');
   checkFrontendAsset('dragonball-makafushigi-adventure-', '.mp3');
+  checkFrontendAsset('dragonball-shenron-cha-la-head-cha-la-', '.mp3');
 
   console.log('\n[3] 清除可能混入的明文后端源码:');
   nukePlainBackend();
-  console.log('\n[4] 去AI水印 sidecar runtime:');
+
+  console.log('\n[4] 本地私有扩展分发检查:');
+  runLocalPostBuildChecks();
+
+  console.log('\n[5] 去AI水印 sidecar runtime:');
   checkAiWatermarkRuntime();
 
-  console.log('\n[5] ffmpeg sidecar runtime:');
+  console.log('\n[6] ffmpeg sidecar runtime:');
   checkFfmpegRuntime();
 
-  console.log('\n[6] ParseHub bridge/runtime:');
+  console.log('\n[7] ParseHub bridge/runtime:');
   checkParseHubRuntime();
 
-  console.log('\n[7] RH工具箱制作器分发检查:');
+  console.log('\n[8] RH工具箱制作器分发检查:');
   checkNoRhToolboxMaker();
 
-  console.log('\n[8] GitHub 自动更新资产:');
+  console.log('\n[9] GitHub 自动更新资产:');
   checkUpdateArtifacts();
 
-  console.log('\n[9] resources/ 完整结构:');
+  console.log('\n[10] resources/ 完整结构:');
   listDir(RES);
 
   if (missingCount > 0) {

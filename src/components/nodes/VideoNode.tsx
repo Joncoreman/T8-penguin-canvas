@@ -56,9 +56,9 @@ import {
 /**
  * VideoNode - 异步视频生成(完全对齐 gpt-image-2-web)
  * 支持:
- *   - Veo 3.1   (kind=veo)      — 13 个子模型 / aspect_ratio(16:9|9:16) / seed / enhance_prompt / enable_upsample / images(≤3)
+ *   - Veo      (kind=veo)       — 默认 veo-omni-10s / 旧 Veo 3.1 子模型 / images(≤3)
  *   - Grok Video(kind=grok)     — Grok Video 1.5 FAL 默认 / 旧版 FAL / grok-video-3 / images(≤7)
- *   - Sora2 FAL (kind=sora)     — 文生/图生视频 / Base64 参考图(≤1) / duration / resolution
+ *   - Sora2    (kind=sora)      — Zhenzhen API + FAL 双渠道 / Base64 参考图(≤1)
  *   - Seedance  (kind=seedance) — 零破坏兼容旧 veo 字段
  * 流程: submit → poll(5s 间隔) → 转存 → 展示
  */
@@ -147,6 +147,8 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
   const isFal = isFalVideoModel(apiModel);
   const falReg = isFal ? VIDEO_FAL_REGISTRY[apiModel] : null;
   const isGrokFalV15 = apiModel === 'grok-imagine-video-1.5';
+  const isSoraZhenzhen = !isExternalSelected && modelDef.kind === 'sora' && !isFal;
+  const isVeoOmni = !isExternalSelected && apiModel === 'veo-omni-10s';
   const showBuiltinFalControls = !isExternalSelected && isFal && !!falReg;
   const showGenericVideoControls = isExternalSelected || !isFal;
   const ratioOptions = isJimengSeedanceSelected
@@ -180,6 +182,7 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
   const soraDeleteVideo: boolean = d?.soraDeleteVideo ?? true;
   const soraBlockIp: boolean = d?.soraBlockIp ?? false;
   const soraCharacterIds: string = d?.soraCharacterIds || '';
+  const soraPrivate: boolean = d?.soraPrivate ?? true;
 
   const status: 'idle' | 'submitting' | 'polling' | 'success' | 'error' = d?.status || 'idle';
   const taskId: string | undefined = d?.taskId;
@@ -263,7 +266,9 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
     [localRefImages, localRefVideos, localRefAudios, id],
   );
   const maxMentionRefs =
-    isJimengSeedanceSelected
+    isVeoOmni
+      ? 1
+      : isJimengSeedanceSelected
       ? JIMENG_SEEDANCE_LIMITS.images
       : isFal && falReg
       ? falReg.paramKind === 'grok-fal' && (isGrokFalV15 || gkfMode !== 'reference_to_video')
@@ -449,6 +454,11 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
       logBus.error('生成中止: 缺少 prompt', src);
       return;
     }
+    if (isVeoOmni && imageUrls.length === 0) {
+      setError('veo-omni-10s 需要 1 张参考图');
+      logBus.error('生成中止: veo-omni-10s 缺少参考图', src);
+      return;
+    }
     taskCompletionSound.primeAudio();
     update({ status: 'submitting', error: null, videoUrl: null, taskId: null });
     try {
@@ -582,8 +592,8 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
       // === 原有贞贞工坊分支 ===
       // 参考图预处理:
       //   - Grok: 直接传 URL (本地 /files/* 也可,后端会转上游 URL)
-      //   - Veo / Seedance: 转 base64
-      const refs = imageUrls.slice(0, modelDef.maxRefImages);
+      //   - Veo / Sora2 / Seedance: 转 base64
+      const refs = imageUrls.slice(0, isVeoOmni ? 1 : modelDef.maxRefImages);
       let images: string[] | undefined;
       if (modelDef.supportImages && refs.length > 0) {
         if (modelDef.kind === 'grok') {
@@ -605,18 +615,33 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
         payload.duration = Number(duration) || modelDef.defaultDuration || 15;
         payload.resolution = resolution || modelDef.defaultResolution || '720P';
         if (seed > 0) payload.seed = seed;
+      } else if (modelDef.kind === 'sora') {
+        payload.aspect_ratio = ratio;
+        payload.duration = Number(duration) || modelDef.defaultDuration || 15;
+        payload.private = soraPrivate;
+        if (seed > 0) payload.seed = seed;
       } else {
         // veo / seedance
         payload.aspect_ratio = ratio;
-        payload.enhance_prompt = enhancePrompt;
-        if (enableUpsample) payload.enable_upsample = true;
+        if (isVeoOmni) {
+          payload.duration = 10;
+        } else {
+          payload.enhance_prompt = enhancePrompt;
+          if (enableUpsample) payload.enable_upsample = true;
+        }
         if (seed > 0) payload.seed = seed;
       }
       if (images && images.length) payload.images = images;
 
       logBus.info(
         `提交任务: kind=${modelDef.kind} model=${apiModel} ratio=${ratio}` +
-        (modelDef.kind === 'grok' ? ` duration=${payload.duration}s resolution=${payload.resolution}` : ` enhance=${payload.enhance_prompt}`) +
+        (modelDef.kind === 'grok'
+          ? ` duration=${payload.duration}s resolution=${payload.resolution}`
+          : modelDef.kind === 'sora'
+            ? ` duration=${payload.duration}s private=${payload.private}`
+            : isVeoOmni
+              ? ' duration=10s endpoint=/v1/videos'
+              : ` enhance=${payload.enhance_prompt}`) +
         ` refs=${images?.length || 0} prompt="${finalPrompt.slice(0, 30)}…"`,
         src,
       );
@@ -816,6 +841,8 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
                 update({
                   model: nextModel,
                   ...(nextModel === 'grok-imagine-video-1.5' ? { gkfMode: 'image_to_video' } : {}),
+                  ...(nextModel === 'sora-2-zhenzhen' ? { ratio: '16:9', duration: 15, resolution: '' } : {}),
+                  ...(nextModel === 'veo-omni-10s' ? { ratio: '16:9', duration: 10, resolution: '' } : {}),
                 });
               }}
               className="w-full rounded bg-white/5 border border-white/10 px-2 py-1 text-xs text-white outline-none focus:border-white/30"
@@ -985,6 +1012,33 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
           </>
         )}
 
+        {isSoraZhenzhen && (
+          <div className="rounded border border-white/10 bg-white/5 px-2 py-1.5 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold text-white/70">Sora2 Zhenzhen API</span>
+              <span className="text-[9px] text-white/35">参考图 ≤ 1</span>
+            </div>
+            <label className="flex items-center gap-1.5 text-[10px] text-white/60 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={soraPrivate}
+                onChange={(e) => update({ soraPrivate: e.target.checked })}
+                className="accent-rose-400"
+              />
+              Private
+            </label>
+            <div className="text-[10px] text-white/40 leading-relaxed">
+              提交到 /v2/videos/generations，真实模型名为 sora-2；参考图会转为裸 Base64。
+            </div>
+          </div>
+        )}
+
+        {isVeoOmni && (
+          <div className="rounded border border-white/10 bg-white/5 px-2 py-1.5 text-[10px] leading-relaxed text-white/45">
+            Veo Omni 走 /v1/videos，固定调用 omni_flash-10s，需要 1 张参考图；16:9=1280x720，9:16=720x1280。
+          </div>
+        )}
+
         {isJimengSeedanceSelected && (
           <div className="rounded border border-white/10 bg-white/5 p-1.5 space-y-1">
             <div className="flex items-center justify-between gap-2">
@@ -1062,7 +1116,7 @@ const VideoNode = ({ id, data, selected }: NodeProps) => {
         )}
 
         {/* veo 专用选项(非FAL) */}
-        {!isExternalSelected && !isFal && modelDef.kind === 'veo' && (
+        {!isExternalSelected && !isFal && modelDef.kind === 'veo' && !isVeoOmni && (
           <div className="grid grid-cols-2 gap-1.5">
             <label className="flex items-center gap-1 text-[10px] text-white/60 cursor-pointer">
               <input

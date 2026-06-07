@@ -26,7 +26,7 @@ import * as LucideIcons from 'lucide-react';
 import { useCanvasStore } from '../stores/canvas';
 import { useThemeStore } from '../stores/theme';
 import { useShortcutStore } from '../stores/shortcuts';
-import { trackAchievementEvent } from '../stores/achievements';
+import { trackAchievementEvent, useAchievementStore } from '../stores/achievements';
 import { getTemplateMode, resolveThemeTemplate } from '../theme/defaultTemplates';
 import { useRunBusStore } from '../stores/runBus';
 import { useGroupBusStore, GROUP_COLORS, DEFAULT_GROUP_NAME } from '../stores/groupBus';
@@ -96,6 +96,7 @@ import TerminalPanel from './TerminalPanel';
 import NodeActionBar from './NodeActionBar';
 import MaterialDragOverlay from './MaterialDragOverlay';
 import ThemeMusicToggle from './ThemeMusicToggle';
+import DragonBallRadar from './DragonBallRadar';
 import SendMaterialsModal from './SendMaterialsModal';
 import { useCanvasHistory } from '../hooks/useCanvasHistory';
 import type { CanvasTemplate } from '../config/canvasTemplates';
@@ -618,10 +619,41 @@ const INITIAL_DATA: Record<string, Record<string, any>> = {
     panoramaSizeLevel: '1K',
     panoramaPrompt: '',
     panoramaPromptFinal: '',
+    panoramaViewerPosition: '',
+    panoramaViewCenter: '',
     panoramaSourceUrl: '',
     panoramaGeneratedUrl: '',
     panoramaReferenceUrl: '',
     panoramaGeneratedHistory: [],
+    panoramaCameraViews: [],
+    panoramaActiveCameraViewId: '',
+    panoramaHotspots: [],
+    panoramaAvatars: [],
+    panoramaAvatarKeyframes: [],
+    panoramaKeyframeSequenceCount: 8,
+    panoramaOcclusionMasks: [],
+    panoramaOcclusionMaskVisible: true,
+    panoramaActiveAvatarId: '',
+    panoramaSceneSnapshot: null,
+    panoramaControlSnapshotUrl: '',
+    panoramaActionPrompt: '',
+    panoramaActionPlan: null,
+    panoramaAvatarPanelOpen: true,
+    panoramaAvatarPickMode: false,
+    panoramaAvatarIkEditMode: false,
+    panoramaActorOverlayVisible: true,
+    panoramaCompositionGuide: 'off',
+    panoramaSceneLegendVisible: true,
+    panoramaScenePrompt: '',
+    panoramaShotCamera: {
+      mode: 'panorama-view',
+      presetId: 'full-body',
+      targetAvatarId: '',
+      targetBone: 'body',
+      framingRatio: '16:9',
+      closeupStrength: 28,
+      lowAngle: 10,
+    },
     imageUrl: '',
     imageUrls: [],
     urls: [],
@@ -1181,7 +1213,7 @@ const MODEL_USAGE_HELP_TEXT = `特别注意事项：
 图像模型注意事项：
 
 gpt-image-2-all模型（default分组）只能出1K图，速度最快，最稳定，审核最松
-gpt-image-2模型（default分组）可以出1K，2K，4K图，4K不一定稳定，如果提示系统错误，降低分辨率重试，超过1K，需要选择分辨率， auto不支持1K以上
+gpt-image-2模型（default分组）可以出1K，2K，4K图，2K，4K不一定稳定，如果提示系统错误，降低分辨率重试，超过1K，需要选择分辨率， auto不支持1K以上
 gpt-image-2-fal模型，兜底模型，支持2K，4K，价格较贵
 nano-banana-2和nano-banana-pro模型，需要用gemini优质分组，default分组不稳定（尤其4K）
 nano-banana-2-fal和nano-banana-pro-fal模型，兜底模型，支持4K，价格较贵
@@ -1192,8 +1224,9 @@ MJ系列模型（Default分组），不同模型的用法都不一样，参考�
 seedance2.0（Default分组）非远景推荐480P+FAST模式，质量吊打快乐马，价格只要5个币15秒，后续用flashvsr放大即可，720P满血15秒大概15币，不排队，支持真人
 seedance2.0（sd-global分组）需要联系T8微信单独开通，只支持企业开通，由于除版权外基本无审核，防止有人搞色情，需要签协议才能开通，价格和上面一样
 veo3.1模型，需要看下网站左侧分类教程，有多个分组可用，目前比较稳的是veo&grok备用分组2的veo3.1模型和默认分组的fal模型
+veo-omni模型，需要使用default分组（veo-omnii模型是2026.06.06刚上架的）
 grok-video模型，需要看下网站左侧分类教程，有多个分组可用，目前比较稳的是fal模型，新增支持最新imagine 1.5模型（支持图生视频），最佳SD平替（default分组），以及veo&grok备用分组2，支持15秒多参生视频
-sora-2模型，由于官方下架了，虽然我加上了，但是目前有问题，先不要用
+sora-2模型，支持sora-vip分组以及default默认分组的FAL模型（sora-vip分组是2026.06.06刚修复的）
 
 音频模型注意事项：
 
@@ -1266,6 +1299,11 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   const [dragSaveTick, setDragSaveTick] = useState(0);
   const lastDone = useRunBusStore((s) => s.lastDone);
   const lastAchievementDoneTsRef = useRef(0);
+  const achievementProfileLoaded = useAchievementStore((state) => Boolean(state.profile));
+  const achievementTrackingEnabled = useAchievementStore((state) => state.profile?.preferences?.enabled !== false);
+  const rhDuckDecodedUnlocked = useAchievementStore((state) => Boolean(state.profile?.unlockedAchievements?.['rh-duck-decoded']));
+  const yyhPortraitOutputUnlocked = useAchievementStore((state) => Boolean(state.profile?.unlockedAchievements?.['yyh-portrait-output']));
+  const hiddenOutputSyncRef = useRef<Set<string>>(new Set());
 
   // 选中节点 / 剪贴板
   const [selectedCount, setSelectedCount] = useState(0);
@@ -1354,6 +1392,42 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   }, [edges]);
 
   useEffect(() => {
+    if (!loaded || !achievementProfileLoaded || !achievementTrackingEnabled) return;
+    const syncOnce = (key: string, payload: Parameters<typeof trackAchievementEvent>[0]) => {
+      if (hiddenOutputSyncRef.current.has(key)) return;
+      hiddenOutputSyncRef.current.add(key);
+      trackAchievementEvent(payload);
+    };
+    const hasRhDuckDecodedOutput = nodes.some((node) => Boolean((node.data as any)?.rhDuckDecoded));
+    if (hasRhDuckDecodedOutput && !rhDuckDecodedUnlocked) {
+      syncOnce('rh-duck-used-output', {
+        type: 'hidden_mode.used',
+        theme: 'rh',
+        kind: 'rh-duck',
+        mode: 'used',
+        nodeType: 'upload',
+      });
+    }
+    const hasYyhPortraitHiddenOutput = nodes.some((node) => Boolean((node.data as any)?.yyhPortraitHidden));
+    if (hasYyhPortraitHiddenOutput && !yyhPortraitOutputUnlocked) {
+      syncOnce('yyh-portrait-used-output', {
+        type: 'hidden_mode.used',
+        theme: 'yyh',
+        kind: 'yyh-portrait',
+        mode: 'used',
+        nodeType: 'portrait-master',
+      });
+    }
+  }, [
+    achievementProfileLoaded,
+    achievementTrackingEnabled,
+    loaded,
+    nodes,
+    rhDuckDecodedUnlocked,
+    yyhPortraitOutputUnlocked,
+  ]);
+
+  useEffect(() => {
     if (!lastDone?.ok || !lastDone.ts || lastAchievementDoneTsRef.current === lastDone.ts) return;
     lastAchievementDoneTsRef.current = lastDone.ts;
     const node = nodesRef.current.find((item) => item.id === lastDone.id);
@@ -1431,6 +1505,8 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     y: number;
     ids: string[];
   } | null>(null);
+  const [selectionContextSubmenu, setSelectionContextSubmenu] = useState<'align' | null>(null);
+  const selectionContextSubmenuCloseTimerRef = useRef<number | null>(null);
   const [sendModal, setSendModal] = useState<{
     materials: SendableMaterial[];
     nodeFragment?: SendNodeFragment;
@@ -3044,7 +3120,33 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   }, []);
 
   // ===== 右键菜单 =====
-  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+  const clearSelectionContextSubmenuCloseTimer = useCallback(() => {
+    if (selectionContextSubmenuCloseTimerRef.current) {
+      window.clearTimeout(selectionContextSubmenuCloseTimerRef.current);
+      selectionContextSubmenuCloseTimerRef.current = null;
+    }
+  }, []);
+
+  const openSelectionContextSubmenu = useCallback((submenu: 'align') => {
+    clearSelectionContextSubmenuCloseTimer();
+    setSelectionContextSubmenu(submenu);
+  }, [clearSelectionContextSubmenuCloseTimer]);
+
+  const scheduleSelectionContextSubmenuClose = useCallback(() => {
+    clearSelectionContextSubmenuCloseTimer();
+    selectionContextSubmenuCloseTimerRef.current = window.setTimeout(() => {
+      selectionContextSubmenuCloseTimerRef.current = null;
+      setSelectionContextSubmenu(null);
+    }, 120);
+  }, [clearSelectionContextSubmenuCloseTimer]);
+
+  useEffect(() => () => clearSelectionContextSubmenuCloseTimer(), [clearSelectionContextSubmenuCloseTimer]);
+
+  const closeContextMenu = useCallback(() => {
+    clearSelectionContextSubmenuCloseTimer();
+    setSelectionContextSubmenu(null);
+    setContextMenu(null);
+  }, [clearSelectionContextSubmenuCloseTimer]);
   const closePaneMenu = useCallback(() => setPaneMenu(null), []);
 
   const openNodeContextMenuAt = useCallback(
@@ -3059,6 +3161,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         ids = [nodeId];
       }
       setPaneMenu(null);
+      setSelectionContextSubmenu(null);
       setContextMenu({ x: clientX, y: clientY, ids });
     },
     []
@@ -3070,6 +3173,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       e.preventDefault();
       const ids = sels.map((n) => n.id);
       if (ids.length === 0) return;
+      setSelectionContextSubmenu(null);
       setContextMenu({ x: e.clientX, y: e.clientY, ids });
     },
     []
@@ -3107,6 +3211,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   const onPaneContextMenu = useCallback(
     (e: React.MouseEvent | MouseEvent) => {
       e.preventDefault();
+      setSelectionContextSubmenu(null);
       setContextMenu(null);
       const x = (e as MouseEvent).clientX;
       const y = (e as MouseEvent).clientY;
@@ -3131,6 +3236,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     const x = (e as any)?.clientX ?? 0;
     const y = (e as any)?.clientY ?? 0;
     if (!x && !y) return;
+    setSelectionContextSubmenu(null);
     setContextMenu({ x, y, ids });
   }, []);
 
@@ -4779,7 +4885,8 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
   const isPixel = style === 'pixel';
   const isDecorativeEdgeVisual = isSlamdunk || isSoccer || isDragonBall;
   const heavyEdgeMotion = isDecorativeEdgeVisual && edges.length >= EDGE_MOTION_HEAVY_EDGE_COUNT;
-  const edgeMotionReduced = isDecorativeEdgeVisual && (heavyEdgeMotion || viewportMoving || nodeDragging);
+  const edgeMotionReduced = isDecorativeEdgeVisual && (viewportMoving || nodeDragging);
+  const edgeMotionMode = isDecorativeEdgeVisual ? (edgeMotionReduced ? 'reduced' : 'scoped') : undefined;
   const heavyCanvasSurface = nodes.length >= 96 || edges.length >= EDGE_MOTION_HEAVY_EDGE_COUNT;
   const guideColor = themeTokens.edgeSelected;
   const edgeStroke = themeTokens.edge;
@@ -4814,13 +4921,13 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
       root.removeAttribute('data-t8-edge-load');
       return;
     }
-    root.setAttribute('data-t8-edge-motion', edgeMotionReduced ? 'reduced' : 'full');
+    root.setAttribute('data-t8-edge-motion', edgeMotionMode || 'scoped');
     root.setAttribute('data-t8-edge-load', heavyEdgeMotion ? 'heavy' : 'normal');
     return () => {
       root.removeAttribute('data-t8-edge-motion');
       root.removeAttribute('data-t8-edge-load');
     };
-  }, [edgeMotionReduced, heavyEdgeMotion, isDecorativeEdgeVisual]);
+  }, [edgeMotionMode, heavyEdgeMotion, isDecorativeEdgeVisual]);
 
   if (!activeId) {
     return (
@@ -4841,7 +4948,7 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
     <div
       className={`t8-canvas-shell flex-1 relative${connectionPanModeActive ? ' connection-pan-mode-active' : ''}${edgeMotionReduced ? ' t8-edge-motion-reduced' : ''}${viewportMoving ? ' t8-viewport-moving' : ''}${nodeDragging ? ' t8-node-dragging' : ''}`}
       data-theme-visual={visualStyle}
-      data-edge-motion={edgeMotionReduced ? 'reduced' : isDecorativeEdgeVisual ? 'full' : undefined}
+      data-edge-motion={edgeMotionMode}
       data-edge-load={heavyEdgeMotion ? 'heavy' : undefined}
       style={{ background: bgColor }}
       onContextMenuCapture={onCanvasContextMenuCapture}
@@ -4869,7 +4976,13 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
         snapEnabled={snapEnabled}
         onToggleSnap={() => setSnapEnabled((v) => !v)}
         onAlignSelection={handleAlignSelection}
-      />
+      >
+        <DragonBallRadar
+          visualStyle={visualStyle}
+          viewportMoving={viewportMoving}
+          nodeDragging={nodeDragging}
+        />
+      </CanvasToolbar>
       <TerminalPanel />
       {connectionPanModeActive && (
         <div className="t8-connection-pan-hud" data-canvas-floating-ui="connection-pan-hud">
@@ -5260,6 +5373,15 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
               : `${sendNodeCount}节点`;
         const menuItemCls = 't8-context-menu__item';
         const alignMiniBtnCls = 't8-context-menu__item justify-center text-[11px] !px-2 !py-1.5';
+        const menuWidth = 200;
+        const alignSubmenuWidth = 238;
+        const menuLeft = Math.max(8, Math.min(contextMenu.x, window.innerWidth - menuWidth - 20));
+        const menuTop = Math.max(8, Math.min(contextMenu.y, window.innerHeight - 220));
+        const alignSubmenuOpensLeft = menuLeft + menuWidth + alignSubmenuWidth > window.innerWidth - 8;
+        const alignSubmenuLeft = alignSubmenuOpensLeft
+          ? Math.max(8, menuLeft - alignSubmenuWidth + 2)
+          : Math.max(8, Math.min(window.innerWidth - alignSubmenuWidth - 8, menuLeft + menuWidth - 2));
+        const alignSubmenuTop = Math.max(8, Math.min(menuTop + 36, window.innerHeight - 230));
         const alignButton = (
           action: NodeAlignAction,
           label: string,
@@ -5299,9 +5421,9 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
               data-canvas-floating-ui="node-menu"
               className="fixed z-40 overflow-hidden t8-context-menu t8-context-menu--selection"
               style={{
-                left: Math.min(contextMenu.x, window.innerWidth - 220),
-                top: Math.min(contextMenu.y, window.innerHeight - 220),
-                width: 200,
+                left: menuLeft,
+                top: menuTop,
+                width: menuWidth,
               }}
             >
               <div
@@ -5312,25 +5434,23 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
                   可执行 {exeCount}
                 </span>
               </div>
-              <div className="px-2 py-2">
-                <div className="mb-1 flex items-center gap-1 text-[10px] font-bold opacity-65">
-                  <LucideIcons.LayoutGrid size={11} />
-                  <span>对齐 / 整理</span>
-                </div>
-                <div className="grid grid-cols-3 gap-1">
-                  {alignButton('align-left', '左', LucideIcons.AlignStartVertical)}
-                  {alignButton('align-center-x', '水平中', LucideIcons.AlignCenterVertical)}
-                  {alignButton('align-right', '右', LucideIcons.AlignEndVertical)}
-                  {alignButton('align-top', '上', LucideIcons.AlignStartHorizontal)}
-                  {alignButton('align-center-y', '垂直中', LucideIcons.AlignCenterHorizontal)}
-                  {alignButton('align-bottom', '下', LucideIcons.AlignEndHorizontal)}
-                </div>
-                <div className="mt-1 grid grid-cols-2 gap-1">
-                  {alignButton('distribute-x', '水平等距', LucideIcons.AlignHorizontalSpaceBetween, 3)}
-                  {alignButton('distribute-y', '垂直等距', LucideIcons.AlignVerticalSpaceBetween, 3)}
-                  {alignButton('snap-grid', '吸附网格', LucideIcons.Magnet, 1)}
-                  {alignButton('arrange-grid', '整理网格', LucideIcons.Grid3x3, 2)}
-                </div>
+              <div
+                onMouseEnter={() => openSelectionContextSubmenu('align')}
+                onMouseLeave={scheduleSelectionContextSubmenuClose}
+              >
+                <button
+                  type="button"
+                  className={menuItemCls}
+                  aria-haspopup="menu"
+                  aria-expanded={selectionContextSubmenu === 'align'}
+                  aria-label="打开对齐和整理方式"
+                  onFocus={() => openSelectionContextSubmenu('align')}
+                  onClick={() => openSelectionContextSubmenu('align')}
+                >
+                  <LucideIcons.LayoutGrid size={13} />
+                  <span className="flex-1">对齐 / 整理</span>
+                  <LucideIcons.ChevronRight size={13} className={alignSubmenuOpensLeft ? 'rotate-180' : ''} />
+                </button>
               </div>
               <button
                 className={menuItemCls}
@@ -5470,6 +5590,47 @@ function CanvasInner({ onAddNodeRef, onInsertWorkflowRef }: CanvasInnerProps) {
                 <span>删除 ({shortcutText('canvas.delete')})</span>
               </button>
             </div>
+            {selectionContextSubmenu === 'align' && (
+              <div
+                data-canvas-floating-ui="selection-align-submenu"
+                className="fixed z-50 transition-opacity duration-100"
+                style={{
+                  left: alignSubmenuLeft,
+                  top: alignSubmenuTop,
+                  width: alignSubmenuWidth,
+                }}
+                role="menu"
+                aria-label="对齐和整理方式"
+                onMouseEnter={() => openSelectionContextSubmenu('align')}
+                onMouseLeave={scheduleSelectionContextSubmenuClose}
+              >
+                <div className="t8-context-menu p-2">
+                  <div className="mb-1 flex items-center gap-1 px-1 text-[10px] font-bold opacity-65">
+                    <LucideIcons.LayoutGrid size={11} />
+                    <span>对齐方式</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {alignButton('align-left', '左', LucideIcons.AlignStartVertical)}
+                    {alignButton('align-center-x', '水平中', LucideIcons.AlignCenterVertical)}
+                    {alignButton('align-right', '右', LucideIcons.AlignEndVertical)}
+                    {alignButton('align-top', '上', LucideIcons.AlignStartHorizontal)}
+                    {alignButton('align-center-y', '垂直中', LucideIcons.AlignCenterHorizontal)}
+                    {alignButton('align-bottom', '下', LucideIcons.AlignEndHorizontal)}
+                  </div>
+                  <div className="my-2 h-px border-t" style={{ borderColor: 'var(--t8-border, rgba(148, 163, 184, 0.28))' }} />
+                  <div className="mb-1 flex items-center gap-1 px-1 text-[10px] font-bold opacity-65">
+                    <LucideIcons.Grid3x3 size={11} />
+                    <span>整理方式</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    {alignButton('distribute-x', '水平等距', LucideIcons.AlignHorizontalSpaceBetween, 3)}
+                    {alignButton('distribute-y', '垂直等距', LucideIcons.AlignVerticalSpaceBetween, 3)}
+                    {alignButton('snap-grid', '吸附网格', LucideIcons.Magnet, 1)}
+                    {alignButton('arrange-grid', '整理网格', LucideIcons.Grid3x3, 2)}
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         );
       })()}

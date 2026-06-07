@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Moon, Settings, Sun, Wifi, WifiOff, Sparkles, Cloud, ExternalLink, Copy, Check, Gift, Heart, Youtube, PlayCircle, Bell, Wand2, Globe, MessageCircle, CalendarDays, Rocket, Key, Library, Palette, Skull, Sailboat } from 'lucide-react';
 import { useThemeStore } from './stores/theme';
+import { seedDragonBallRadarForShenronTest, useDragonBallRadarStore } from './stores/dragonBallRadar';
+import { trackAchievementEvent } from './stores/achievements';
 import { useApiKeysStore } from './stores/apiKeys';
 import { useShortcutStore } from './stores/shortcuts';
 import Sidebar from './components/Sidebar';
@@ -9,6 +11,7 @@ import AppUpdaterButton from './components/AppUpdaterButton';
 import MaterialContextMenu from './components/MaterialContextMenu';
 import ErrorBoundary from './components/ErrorBoundary';
 import AchievementButton from './components/AchievementButton';
+import AchievementCeremonyLayer from './components/AchievementCeremonyLayer';
 import AchievementDrawer from './components/AchievementDrawer';
 import AchievementToast from './components/AchievementToast';
 import AchievementTracker from './components/AchievementTracker';
@@ -22,6 +25,7 @@ import { materialSetItemsToData, type MaterialSetKind, type MaterialSetItem } fr
 import { workflowManifestToFragment } from './utils/workflowResource';
 import { matchesAnyShortcut } from './utils/keyboardShortcuts';
 import { portraitResourceToNodeData } from './utils/portraitResource';
+import { LocalModalSlot, LocalTopbarSlot } from 'virtual:t8-local-extensions';
 
 const Canvas = lazy(() => import('./components/Canvas'));
 const ApiSettingsModal = lazy(() => import('./components/ApiSettings'));
@@ -375,6 +379,31 @@ function App() {
   const isSlamdunk = currentTemplate.visuals?.style === 'slamdunk';
   const isSoccer = currentTemplate.visuals?.style === 'soccer-hero';
   const isDragonBall = currentTemplate.visuals?.style === 'dragon-ball';
+  const shenronUnlockedAt = useDragonBallRadarStore((state) => state.shenronUnlockedAt);
+  const shenronModeActive = useDragonBallRadarStore((state) => state.shenronModeActive);
+  const setShenronModeActive = useDragonBallRadarStore((state) => state.setShenronModeActive);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('t8DragonBalls') !== '6') return;
+    seedDragonBallRadarForShenronTest(7);
+    params.delete('t8DragonBalls');
+    const query = params.toString();
+    window.history.replaceState(null, document.title, `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+  }, []);
+
+  const handleDragonBallModeSwitch = (active: boolean) => {
+    setShenronModeActive(active);
+    if (active && !shenronModeActive) {
+      trackAchievementEvent({
+        type: 'hidden_mode.enabled',
+        theme: 'dragon-ball',
+        kind: 'dragon-ball-shenron',
+        mode: 'enabled',
+      });
+    }
+  };
 
   const handleAddNode = (type: NodeType) => {
     addNodeRef.current?.(type);
@@ -557,10 +586,10 @@ function App() {
               </span>
               <div className="min-w-0">
                 <h1 className="t8-dragonball-brand__title text-[14px] font-black leading-none">
-                  七龙珠 · 贞贞的无限画布
+                  {shenronModeActive ? '神龙模式 · 贞贞的无限画布' : '七龙珠 · 贞贞的无限画布'}
                 </h1>
                 <div className="t8-dragonball-brand__sub text-[9px] font-bold tracking-wide leading-none mt-0.5">
-                  CAPSULE CORP CANVAS / DRAGON RADAR ONLINE
+                  {shenronModeActive ? 'SHENRON MODE ONLINE / DRAGON RADAR LOCKED' : 'CAPSULE CORP CANVAS / DRAGON RADAR ONLINE'}
                 </div>
               </div>
               <span className="t8-dragonball-brand__stars" aria-hidden="true">
@@ -1262,6 +1291,30 @@ function App() {
             <Palette size={14} />
             <span className="text-[11px] truncate">{currentTemplate.name}</span>
           </button>
+          {isDragonBall && shenronUnlockedAt && (
+            <div className="t8-dragonball-mode-switch" role="group" aria-label="七龙珠主题模式">
+              <button
+                type="button"
+                className={`t8-dragonball-mode-switch__option ${!shenronModeActive ? 'is-active' : ''}`}
+                aria-pressed={!shenronModeActive}
+                onClick={() => handleDragonBallModeSwitch(false)}
+                title="切回七龙珠普通模式"
+              >
+                七龙珠
+              </button>
+              <button
+                type="button"
+                className={`t8-dragonball-mode-switch__option ${shenronModeActive ? 'is-active' : ''}`}
+                aria-pressed={shenronModeActive}
+                onClick={() => handleDragonBallModeSwitch(true)}
+                title="切换到神龙隐藏模式"
+              >
+                <Sparkles size={12} />
+                神龙
+              </button>
+            </div>
+          )}
+          <LocalTopbarSlot isPixel={isPixel} isDark={isDark} />
           <AchievementButton isPixel={isPixel} isDark={isDark} />
           <button
             onClick={() => setResourceOpen(true)}
@@ -1318,6 +1371,7 @@ function App() {
       {/* API 设置弹窗 */}
       <Suspense fallback={null}>
         {settingsOpen && <ApiSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />}
+        <LocalModalSlot />
         {themeManagerOpen && (
           <ThemeTemplateManager open={themeManagerOpen} onClose={() => setThemeManagerOpen(false)} />
         )}
@@ -1331,6 +1385,7 @@ function App() {
       </Suspense>
       <MaterialContextMenu />
       <AchievementDrawer />
+      <AchievementCeremonyLayer />
       <AchievementToast />
     </div>
     </RHToolsProvider>

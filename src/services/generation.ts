@@ -642,14 +642,16 @@ export async function queryVideoFal(params: { responseUrl?: string; endpoint?: s
 // ========================================================================
 // 视频生成(异步) — 完全对齐 gpt-image-2-web
 //   - veo3.1   字段:  aspect_ratio + enhance_prompt + enable_upsample + seed + images(base64,≤3)
+//   - veo-omni 字段:  aspect_ratio + duration=10 + images(base64,取第1张),后端转 /v1/videos multipart
 //   - grok     字段:  ratio + duration(秒,数字) + resolution + seed + images(本地 URL/base64,≤7,后端转上游 URL)
+//   - sora2    字段:  aspect_ratio + duration + private + seed + images(base64,≤1)
 //   - seedance 字段:  沿用 veo 字段(零破坏)
 // 后端通过 model 字段名自动选择协议,前端无需显式传 kind。
 // ========================================================================
 export interface VideoSubmitRequest {
   model: string;
   prompt: string;
-  // Veo3.1
+  // Veo / Veo3.1
   aspect_ratio?: string;
   enhance_prompt?: boolean;
   enable_upsample?: boolean;
@@ -659,10 +661,15 @@ export interface VideoSubmitRequest {
   resolution?: string;
   // 通用
   seed?: number;
+  /** Sora2 Zhenzhen API: 是否私密生成(对齐 gpt-image-2-web sr_private) */
+  private?: boolean;
+  is_private?: boolean;
   /**
    * 参考图。
    *  - veo3.1:   base64 dataURL,最多 3 张
+   *  - veo-omni: base64 dataURL,取第 1 张并转为 input_reference multipart
    *  - grok:     可传 base64 dataURL 或 /files/* 本地 URL,最多 7 张(后端会上传到上游 /v1/files 取 URL)
+   *  - sora2:    base64 dataURL,最多 1 张(后端会转为上游要求的裸 base64)
    *  - seedance: base64 dataURL,最多 3 张(同 veo)
    */
   images?: string[];

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import {
   BUILT_IN_THEME_TEMPLATES,
+  dragonBallShenronHiddenMusicUrl,
   dragonBallThemeMusicUrl,
   evaThemeMusicUrl,
   getTemplateMode,
@@ -111,6 +112,7 @@ const MUSIC_PRESET_OPTIONS: Array<{ value: ThemeMusicPreset; label: string }> = 
   { value: 'buzzer-beater', label: '压哨热血' },
   { value: 'golden-goal', label: '黄金进球' },
   { value: 'ki-burst', label: '气功波雷达' },
+  { value: 'shenron-aura', label: '神龙青焰' },
 ];
 
 const MAX_THEME_AUDIO_SIZE = 20 * 1024 * 1024;
@@ -321,9 +323,12 @@ function fallbackMusic(legacyStyle: LegacyThemeStyle, visuals?: ThemeVisuals): T
       preset: 'ki-burst',
       source: 'url',
       url: dragonBallThemeMusicUrl,
+      hiddenTitle: 'CHA-LA HEAD-CHA-LA',
+      hiddenUrl: dragonBallShenronHiddenMusicUrl,
+      hiddenVolume: 0.2,
       volume: 0.18,
       bpm: 156,
-      copyrightNote: '七龙珠第一部开场曲默认音乐文件；公开分发前请确认音乐授权边界。',
+      copyrightNote: '七龙珠第一部开场曲默认音乐文件；神龙隐藏模式会切换到 CHA-LA HEAD-CHA-LA，可在主题模板中上传替换。公开分发前请确认音乐授权边界。',
     };
   }
   if (legacyStyle === 'tech' || visualStyle === 'tech') {

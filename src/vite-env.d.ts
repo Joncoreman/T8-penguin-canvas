@@ -1,5 +1,13 @@
 /// <reference types="vite/client" />
 
+declare module 'virtual:t8-local-extensions' {
+  import type { FC } from 'react';
+  import type { LocalTopbarSlotProps } from './extensions/localExtensionTypes';
+
+  export const LocalTopbarSlot: FC<LocalTopbarSlotProps>;
+  export const LocalModalSlot: FC;
+}
+
 type T8UpdaterStatusCode =
   | 'idle'
   | 'disabled'

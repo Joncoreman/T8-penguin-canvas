@@ -19,7 +19,11 @@ export default function AchievementToast() {
   return (
     <div className="t8-achievement-toast-stack" data-canvas-floating-ui="achievement-toast">
       {notifications.map((item) => (
-        <div key={item.id} className="t8-achievement-toast" onClick={() => openDrawer(item.filmTitle ? 'films' : 'medals')}>
+        <div
+          key={item.id}
+          className="t8-achievement-toast"
+          onClick={() => openDrawer(item.filmTitle ? 'films' : 'themes', item.themeId)}
+        >
           <div className="t8-achievement-toast__icon">
             {item.filmTitle ? <Film size={18} /> : <Medal size={18} />}
           </div>

@@ -260,7 +260,7 @@ const UploadNode = ({ id, data, selected }: NodeProps) => {
     rf.addNodes(newNodes);
     rf.setEdges((eds) => [...eds, ...newEdges]);
     if (outputFromRhDuckDecode) {
-      trackAchievementEvent({ type: 'hidden_mode.used', theme: 'rh', kind: 'rh-duck', nodeType: 'upload' });
+      trackAchievementEvent({ type: 'hidden_mode.used', theme: 'rh', kind: 'rh-duck', mode: 'used', nodeType: 'upload' });
     }
   };
 

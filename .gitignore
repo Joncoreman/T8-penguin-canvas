@@ -44,11 +44,12 @@ _preview_*.svg
 # Local project operating manual and planning notes (do not publish)
 /skill.md
 /roadmap.md
+/local-private/**
 
 # Local-only private billing/recharge overlay. Public GitHub releases must not
 # contain these modules, routes, UI components, or private patch files.
 /backend/src/routes/recharge.js
-/src/components/RechargeModal.tsx
+/src/components/R[e]charge*.tsx
 /src/private/recharge/**
 /backend/src/private/recharge/**
 /private/recharge/**

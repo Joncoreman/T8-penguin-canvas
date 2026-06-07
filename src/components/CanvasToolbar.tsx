@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Undo2,
   Redo2,
@@ -68,6 +68,7 @@ interface CanvasToolbarProps {
   snapEnabled: boolean;
   onToggleSnap: () => void;
   onAlignSelection: (action: NodeAlignAction) => void;
+  children?: ReactNode;
 }
 
 export default function CanvasToolbar({
@@ -92,6 +93,7 @@ export default function CanvasToolbar({
   snapEnabled,
   onToggleSnap,
   onAlignSelection,
+  children,
 }: CanvasToolbarProps) {
   const { theme, style } = useThemeStore();
   const isDark = theme === 'dark';
@@ -560,6 +562,8 @@ export default function CanvasToolbar({
             </span>
           )}
         </button>
+
+        {children}
       </div>
 
       {/* 快捷键设置弹窗 */}

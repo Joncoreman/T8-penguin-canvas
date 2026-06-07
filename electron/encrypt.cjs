@@ -25,6 +25,7 @@ const bytenode = require('bytenode');
 const { encryptBuffer } = require('./loader.cjs');
 
 const BACKEND_SRC = path.resolve(__dirname, '..', 'backend', 'src');
+const LOCAL_PRIVATE_SRC = path.resolve(__dirname, '..', 'local-private');
 const OUT_DIR = path.resolve(__dirname, '..', 'build', 'backend-enc');
 
 function walk(dir, results = []) {
@@ -33,7 +34,7 @@ function walk(dir, results = []) {
     const st = fs.statSync(full);
     if (st.isDirectory()) {
       walk(full, results);
-    } else if (full.endsWith('.js')) {
+    } else if (full.endsWith('.js') || full.endsWith('.cjs')) {
       results.push(full);
     } else if (full.endsWith('.json')) {
       results.push(full); // settings/canvas 模板等
@@ -56,15 +57,15 @@ function rewriteRequires(src) {
       // 已有 .t8c / .json 后缀:不动
       if (/\.(t8c|json)$/.test(p)) return m;
       // 去掉 .js 后缀(若有)
-      const stripped = p.replace(/\.js$/, '');
+      const stripped = p.replace(/\.(?:js|cjs)$/, '');
       return `require(${q}${stripped}.t8c${q})`;
     },
   );
 }
 
-function encryptFile(srcAbs) {
-  const rel = path.relative(BACKEND_SRC, srcAbs).replace(/\\/g, '/');
-  const dst = path.join(OUT_DIR, rel.replace(/\.js$/, '.t8c'));
+function encryptFile(srcAbs, sourceRoot = BACKEND_SRC, outRoot = OUT_DIR) {
+  const rel = path.relative(sourceRoot, srcAbs).replace(/\\/g, '/');
+  const dst = path.join(outRoot, rel.replace(/\.(?:js|cjs)$/, '.t8c'));
   ensureDir(path.dirname(dst));
 
   if (srcAbs.endsWith('.json')) {
@@ -104,6 +105,20 @@ function main() {
   console.log(`[encrypt] backend src files: ${files.length}`);
   for (const f of files) {
     encryptFile(f);
+  }
+
+  const localPrivateDisabled = process.env.T8_ENABLE_LOCAL_PRIVATE === '0'
+    || process.env.T8_DISABLE_LOCAL_EXTENSIONS === '1';
+  const localPrivateEntry = path.join(LOCAL_PRIVATE_SRC, 'extensions', 'backend', 'index.cjs');
+  if (!localPrivateDisabled && fs.existsSync(localPrivateEntry)) {
+    const localOut = path.join(OUT_DIR, 'local-private');
+    const localFiles = walk(LOCAL_PRIVATE_SRC);
+    console.log(`[encrypt] local private files: ${localFiles.length}`);
+    for (const f of localFiles) {
+      encryptFile(f, LOCAL_PRIVATE_SRC, localOut);
+    }
+  } else {
+    console.log('[encrypt] local private extensions: skipped');
   }
   console.log(`[encrypt] DONE → ${OUT_DIR}`);
 }

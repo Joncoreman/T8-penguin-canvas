@@ -23,7 +23,8 @@ export type ThemeMusicPreset =
   | 'spirit-gun'
   | 'buzzer-beater'
   | 'golden-goal'
-  | 'ki-burst';
+  | 'ki-burst'
+  | 'shenron-aura';
 export type ThemeMusicSource = 'synth' | 'url' | 'upload';
 
 export interface ThemeTokens {

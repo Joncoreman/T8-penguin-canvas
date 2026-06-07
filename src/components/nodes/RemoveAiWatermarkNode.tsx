@@ -132,17 +132,26 @@ function ToggleRow({
   label,
   checked,
   onChange,
+  disabled = false,
+  title,
 }: {
   label: string;
   checked: boolean;
   onChange: (value: boolean) => void;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
-    <label className="flex items-center gap-2 text-[11px] cursor-pointer" style={{ color: 'var(--t8-text-main)' }}>
+    <label
+      className={`flex items-center gap-2 text-[11px] ${disabled ? 'cursor-not-allowed opacity-55' : 'cursor-pointer'}`}
+      style={{ color: 'var(--t8-text-main)' }}
+      title={title}
+    >
       <input
         className="nodrag"
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
       />
       {label}
@@ -263,6 +272,10 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
     const selectedItems = processAll ? candidates : candidates.slice(0, 1);
     update({ status: 'running', error: '', outputText: '' });
     try {
+      const effectiveOptions: AiWatermarkOptions = {
+        ...options,
+        restoreFaces: options.restoreFaces === true && status?.optionalFeatures?.restore === true,
+      };
       const results = [];
       const imageUrls: string[] = [];
       const videoUrls: string[] = [];
@@ -273,7 +286,7 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
           source: item.url,
           kind: item.kind,
           mode,
-          options,
+          options: effectiveOptions,
         });
         results.push(result);
         if (result.outputUrl) {
@@ -538,11 +551,20 @@ function RemoveAiWatermarkNode({ id, data, selected }: { id: string; data: any; 
               </div>
               <ToggleRow label="自动策略 (0.8.9)" checked={options.auto === true || options.autoTune === true} onChange={(value) => patchOptions({ auto: value })} />
               <ToggleRow label="自适应细节抛光" checked={options.adaptivePolish === true} onChange={(value) => patchOptions({ adaptivePolish: value })} />
-              <ToggleRow label={`GFPGAN 脸部恢复${canUseRestore ? '' : '（未装 restore）'}`} checked={options.restoreFaces === true} onChange={(value) => patchOptions({ restoreFaces: value })} />
+              <ToggleRow
+                label={`GFPGAN 脸部修复${canUseRestore ? '' : '（可选组件未安装）'}`}
+                checked={options.restoreFaces === true && canUseRestore}
+                disabled={!canUseRestore}
+                title="restore 是上游 remove-ai-watermarks 的可选 GFPGAN 脸部修复能力；缺失时不影响普通去水印、元数据清理或基础隐形水印处理。"
+                onChange={(value) => patchOptions({ restoreFaces: value })}
+              />
               {canUseAutoTune ? (
                 <SmallHint>自动策略会由上游按图像内容选择管线、脸部恢复和细节抛光；手动选 controlnet 会覆盖自动管线。</SmallHint>
               ) : (
                 <SmallHint>当前 runtime 不是 0.8.9，新参数会自动降级为旧版可识别参数。</SmallHint>
+              )}
+              {!canUseRestore && (
+                <SmallHint>脸部修复是可选增强项，缺失时只是不能开启 GFPGAN 修脸；其它去水印功能仍可正常使用。</SmallHint>
               )}
             </div>
           </div>

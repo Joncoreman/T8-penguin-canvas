@@ -326,6 +326,27 @@
           "description": "在七龙珠风格下成功生成一次 3D 全景。",
           "rarity": "gold",
           "condition": { "type": "counter", "metric": "panoramasGenerated", "count": 1 }
+        },
+        {
+          "idSuffix": "radar-first",
+          "title": "雷达第一响",
+          "description": "在七龙珠风格下通过龙珠雷达收集任意一颗龙珠。",
+          "rarity": "bronze",
+          "condition": { "type": "counter", "metric": "dragonBallsCollected", "count": 1 }
+        },
+        {
+          "idSuffix": "seven-stars",
+          "title": "七星归位",
+          "description": "在七龙珠风格下集齐 1 星到 7 星龙珠。",
+          "rarity": "gold",
+          "condition": { "type": "counter", "metric": "dragonBallSetsCompleted", "count": 1 }
+        },
+        {
+          "idSuffix": "shenron-mode",
+          "title": "神龙降临",
+          "description": "集齐七颗龙珠后开启神龙模式。",
+          "rarity": "hidden",
+          "condition": { "type": "hidden", "kind": "dragon-ball-shenron", "mode": "enabled", "count": 1 }
         }
       ]
     }
@@ -359,7 +380,7 @@
       "id": "film-dragon-ball-01",
       "theme": "dragon-ball",
       "title": "七龙珠奖励影片",
-      "unlockAchievementId": "dragon-ball-shenron-pano",
+      "unlockAchievementId": "dragon-ball-shenron-mode",
       "lockedText": "待解锁",
       "unavailableText": "影片素材待提供"
     }

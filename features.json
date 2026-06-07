@@ -1,7 +1,147 @@
 {
   "$schema": "本文件为 T8-penguin-canvas 节点清单防丢失锁,任何节点删减都需要在 roadmap.md 中说明并更新本文件。",
-  "version": "2.0.6",
-  "lastUpdated": "2026-06-05-source-v206-readme-advanced-api-comfyui",
+  "version": "2.0.9",
+  "lastUpdated": "2026-06-07-veo-omni-action-director-electron-release",
+  "electronReleaseV209": {
+    "version": "2.0.9",
+    "status": "electron-release",
+    "date": "2026-06-07",
+    "description": "v2.0.9 集中发布 3D 全景导演台后续能力、Sora2 Zhenzhen API 双通道、Veo Omni 默认模型、上传与画布持久化稳定性修复，并按规范打包 Electron 自动更新版本。",
+    "highlights": [
+      "3D 全景节点继续升级导演台：多人彩色小人、100+ 动作预设、自然语言动作生成、关键帧时间轴、序列帧素材集、遮挡参考、画面关节拖拽和全屏参数台形成闭环。",
+      "视频节点 Sora2 保留原 FAL 通道，同时新增 Zhenzhen API 通道；Sora2 拥有独立分类 API Key，不再和 Veo 共用独立 Key 设置。",
+      "视频节点主分类显示名从 Veo 3.1 调整为 Veo，并把 `veo-omni-10s` 设为 Veo 分类默认具体模型；旧 Veo3.1 / Veo FAL 入口继续保留。",
+      "Veo Omni 对齐 zhenzhen `/v1/videos` multipart 协议：前端模型值为 `veo-omni-10s`，后端提交时映射为 `omni_flash-10s`，使用 `input_reference` 与 `/v1/videos/{task_id}` 查询。",
+      "上传素材接口上限对齐 20MB，并在超限时返回 413 JSON 错误，避免大 PNG 上传被误报 HTTP 500。",
+      "画布持久化增加 BOM/NUL 清洗、canvas 文件扫描兜底和原子写入，降低崩溃或死机后画布列表丢失的概率。",
+      "模型注意事项文本更新为当前图像、视频、音频、LLM 模型分组说明；公开源码继续排除 skill.md、roadmap.md、local-private/** 和私有计费/支付/充值实现。"
+    ],
+    "sourceSync": [
+      "package.json / package-lock.json",
+      "vite.config.ts / vite.config.js",
+      "electron/main.cjs APP_VERSION",
+      "backend/src/config.js APP_VERSION",
+      "features.json",
+      "README.md",
+      "release-notes/v2.0.9.md"
+    ],
+    "electronRelease": {
+      "script": "npm run dist:release",
+      "assets": [
+        "dist_electron/T8-PenguinCanvas-Setup-2.0.9.exe",
+        "dist_electron/T8-PenguinCanvas-Setup-2.0.9.exe.blockmap",
+        "dist_electron/latest.yml"
+      ],
+      "updater": "GitHub Release v2.0.9 作为 latest.yml 自动更新源；安装继续使用前台 NSIS 向导，不静默安装。"
+    },
+    "publicSafety": [
+      "公开源码继续禁止 skill.md、roadmap.md、local-private/**、私有充值 UI/路由/API/密钥进入 GitHub。",
+      "发布前必须运行 npm run public:check 并检查 staged 文件列表。",
+      "Electron 用户包可在本机 dist:release 时包含 ignored local-private 加密扩展；GitHub Source code zip/tar.gz 不包含这些源码。"
+    ],
+    "verification": [
+      "node --test tests\\*.test.ts",
+      "npm run type-check",
+      "npm run build",
+      "npm run public:check",
+      "npm run dist:release",
+      "npm run release:verify",
+      "win-unpacked 启动冒烟"
+    ]
+  },
+  "electronReleaseV208": {
+    "version": "2.0.8",
+    "status": "electron-release",
+    "date": "2026-06-06",
+    "description": "v2.0.8 聚焦火山 Seedance 2.0 任务结果解析、隐藏模式成就补记、七龙珠神龙体验与 Electron 自动更新发布稳定性，按规范打包并发布新的自动更新版本。",
+    "highlights": [
+      "火山引擎 Seedance 2.0 任务完成后兼容顶层 content、result/content、mp4_url、output_url、src/path 与 JSON 字符串里的视频 URL，修复“任务完成但没有返回视频”的误报。",
+      "补充火山 Seedance 2.0 真实最低配置冒烟：doubao-seedance-2-0-fast-260128、4s、480p、首帧图生视频可返回视频地址；日志和文档不得泄漏 API Key 或完整签名 URL。",
+      "隐藏模式成就链路继续加固：统计关闭提示、重新开启后的隐藏状态补记、七龙珠神龙与 RH 隐藏模式事件统一进入成就进度。",
+      "七龙珠神龙模式补齐隐藏音乐、普通/神龙双模式切换、神龙主题可读性和雷达倒计时/收集状态体验。",
+      "火山引擎 API 设置继续补充 Ark API Key 与模型开通提示，ModelNotOpen / 401 等错误给出更明确的中文说明。",
+      "发布继续遵守公开源码安全边界：GitHub 源码和 Source code 包不包含计费/支付/充值实现，本机 Electron 自动更新包可通过 ignored local-private 加密扩展带入本地私有能力。"
+    ],
+    "sourceSync": [
+      "package.json / package-lock.json",
+      "vite.config.ts / vite.config.js",
+      "electron/main.cjs APP_VERSION",
+      "backend/src/config.js APP_VERSION",
+      "features.json",
+      "README.md",
+      "release-notes/v2.0.8.md"
+    ],
+    "electronRelease": {
+      "script": "npm run dist:release",
+      "assets": [
+        "dist_electron/T8-PenguinCanvas-Setup-2.0.8.exe",
+        "dist_electron/T8-PenguinCanvas-Setup-2.0.8.exe.blockmap",
+        "dist_electron/latest.yml"
+      ],
+      "updater": "GitHub Release v2.0.8 作为 latest.yml 自动更新源；安装继续使用前台 NSIS 向导，不静默安装。"
+    },
+    "publicSafety": [
+      "公开源码继续禁止 skill.md、roadmap.md、local-private/**、私有充值 UI/路由/API/密钥进入 GitHub。",
+      "发布前必须运行 npm run public:check 并检查 staged 文件列表。",
+      "Electron 用户包可在本机 dist:release 时包含 ignored local-private 加密扩展；GitHub Source code zip/tar.gz 不包含这些源码。"
+    ],
+    "verification": [
+      "node --test tests\\volcengineProvider.test.ts tests\\achievements.test.ts tests\\dragonBallRadar.test.ts tests\\advancedProviderFrontend.test.ts tests\\apiSettingsTheme.test.ts",
+      "npm run type-check",
+      "npm run build",
+      "npm run public:check",
+      "npm run dist:release",
+      "npm run release:verify",
+      "win-unpacked 启动冒烟"
+    ]
+  },
+  "electronReleaseV207": {
+    "version": "2.0.7",
+    "status": "electron-release",
+    "date": "2026-06-05",
+    "description": "v2.0.7 集中发布七龙珠神龙隐藏模式过场、3D 全景机位/热点、火山引擎修复、成就仪式感与本地私有扩展拆分，并按规范打包 Electron 自动更新版本。",
+    "highlights": [
+      "七龙珠隐藏模式神龙过场改为项目内透明 PNG 资产 src/assets/theme-dragonball/shenron-dragon.png，配合雷达扫描、能量雾、光束和七龙珠聚合动画。",
+      "龙珠雷达进入顶部工具栏，支持展开/折叠；七颗龙珠收集、15 分钟单球倒计时、3 秒停留收集、特殊音效和隐藏模式成就事件保持稳定。",
+      "3D 全景节点新增观看机位书签、默认视线中心、热点导览和跨全景节点跳转；生成提示词会合并观看者站位与视线中心。",
+      "火山引擎扩展 API 对齐 Infinite-Canvas 的 Seedream / Seedance 调用路径，修复连接检测、Seedance 2.0 视频提交 404 等问题。",
+      "成就系统增强主题详情、完成度、隐藏模式仪式感和本地持久化，避免更新后累计时长丢失。",
+      "画板、提示词编辑器、宫格编辑滚轮、ModelScope 多 LoRA 总权重、Topaz / 去AI水印提示等体验继续修复。",
+      "本地私有扩展拆分完成：GitHub 公开源码不包含计费/支付/充值实现，本机开发和本机 Electron 打包可通过 ignored local-private 扩展带入。"
+    ],
+    "sourceSync": [
+      "package.json / package-lock.json",
+      "vite.config.ts / vite.config.js",
+      "electron/main.cjs APP_VERSION",
+      "backend/src/config.js APP_VERSION",
+      "features.json",
+      "README.md",
+      "release-notes/v2.0.7.md"
+    ],
+    "electronRelease": {
+      "script": "npm run dist:release",
+      "assets": [
+        "dist_electron/T8-PenguinCanvas-Setup-2.0.7.exe",
+        "dist_electron/T8-PenguinCanvas-Setup-2.0.7.exe.blockmap",
+        "dist_electron/latest.yml"
+      ],
+      "updater": "GitHub Release v2.0.7 作为 latest.yml 自动更新源；安装继续使用前台 NSIS 向导，不静默安装。"
+    },
+    "publicSafety": [
+      "公开源码继续禁止 skill.md、roadmap.md、local-private/**、私有充值 UI/路由/API/密钥进入 GitHub。",
+      "发布前必须运行 npm run public:check 并检查 staged 文件列表。",
+      "Electron 用户包可在本机 dist:release 时包含 ignored local-private 加密扩展；GitHub Source code zip/tar.gz 不包含这些源码。"
+    ],
+    "verification": [
+      "node --test tests\\*.test.ts",
+      "npm run type-check",
+      "npm run build",
+      "npm run public:check",
+      "npm run dist:release",
+      "npm run release:verify",
+      "win-unpacked 启动冒烟"
+    ]
+  },
   "sourceReleaseV206": {
     "version": "2.0.6",
     "status": "source-only",
@@ -33,6 +173,37 @@
       "git diff --check"
     ]
   },
+  "panorama3dCameraNavigation": {
+    "version": "2.0.6-dev",
+    "status": "implemented",
+    "description": "3D 全景节点新增摄像机机位书签、生成时观看者站位/初始视线中心提示词、全景热点导览与跨 3D 全景节点跳转。",
+    "sourceFiles": [
+      "src/utils/panorama3d.ts",
+      "src/components/nodes/Panorama3DNode.tsx",
+      "src/components/Canvas.tsx",
+      "tests/panorama3d.test.ts"
+    ],
+    "dataFields": [
+      "panoramaViewerPosition",
+      "panoramaViewCenter",
+      "panoramaCameraViews",
+      "panoramaActiveCameraViewId",
+      "panoramaHotspots"
+    ],
+    "capabilities": [
+      "预设正前、左侧、右侧、背面、天顶、地面视角。",
+      "保存当前 Yaw / Pitch / FOV 为机位，支持跳转、设为默认和删除。",
+      "文生/图生全景时把观看者站位和初始视线中心合并进实际发送提示词。",
+      "热点支持保存当前中心或点击画面取点，热点可跳转当前全景视角或其他 3D 全景节点。",
+      "拖动画面期间只更新本地 Three.js 视角，松手后再落盘节点数据，降低画布拖拽卡顿风险。"
+    ],
+    "developerRule": "3D 全景的“摄像机位置”只表示单张全景贴图内的观看方向与 FOV，不要用假的 xyz 平移误导用户。后续扩展导览、热点、资源库 metadata 或导出协议时统一复用 src/utils/panorama3d.ts 的 PanoramaCameraView / PanoramaHotspot / prompt context 工具函数；拖动或自动旋转期间不要高频写 ReactFlow 节点 data。",
+    "verification": [
+      "node --test tests\\panorama3d.test.ts",
+      "npm run type-check",
+      "npm run build"
+    ]
+  },
   "topazLocalUpscale": {
     "version": "2.0.5",
     "status": "implemented",
@@ -43,8 +214,12 @@
         "label": "Topaz图像高清化",
         "category": "toolbox",
         "ports": {
-          "inputs": ["image"],
-          "outputs": ["image"]
+          "inputs": [
+            "image"
+          ],
+          "outputs": [
+            "image"
+          ]
         },
         "runtime": "用户本机已安装并登录 Topaz Gigapixel AI / Gigapixel 8；默认查找 C:\\Program Files\\Topaz Labs LLC\\Topaz Gigapixel AI\\gigapixel.exe，也可在节点内填写路径。",
         "cli": "gigapixel --scale <scale> -i <input> -o <outputDir> --dn/--sh/--cm/--fr/--pds --model <model>; std/fidelity/lowres/recovery 自动追加 --mv 2。",
@@ -55,8 +230,12 @@
         "label": "Topaz视频高清化",
         "category": "toolbox",
         "ports": {
-          "inputs": ["video"],
-          "outputs": ["video"]
+          "inputs": [
+            "video"
+          ],
+          "outputs": [
+            "video"
+          ]
         },
         "runtime": "用户本机已安装并登录 Topaz Video AI；必须使用 Topaz Video AI 自带 ffmpeg.exe，默认目录 C:\\Program Files\\Topaz Labs LLC\\Topaz Video AI。",
         "cli": "ffmpeg -y -hide_banner -nostdin -strict 2 -hwaccel auto -i <input> -vf tvai_up=...,tvai_fi=... -c:v hevc_nvenc ...；GPU 编码失败时回退 CPU mpeg4。",
@@ -205,7 +384,11 @@
         "src/components/PromptExpandModal.tsx",
         "src/components/PromptTextarea.tsx"
       ],
-      "editorKinds": ["text", "json", "lines"],
+      "editorKinds": [
+        "text",
+        "json",
+        "lines"
+      ],
       "developerRule": "后续新增 prompt、workflow JSON、模型列表、排除规则、字段映射等长文本输入，必须优先使用 PromptTextarea 或 MentionPromptInput 的放大编辑能力；JSON/行列表类字段要显式传 editorKind，避免用户在窄输入框里编辑复杂配置。"
     },
     "panorama3dContract": {
@@ -213,8 +396,14 @@
       "developerRule": "3D 全景只做轻量客户端质量提示，不阻断用户继续使用；保存资源库仍必须保留原图 URL、panorama metadata 和全景分类，接缝检测失败时要给 unknown 状态而不是报错。"
     },
     "achievementRetentionContract": {
-      "events": ["resource.saved", "workflow.saved"],
-      "ui": ["成就导入 JSON", "今日主题建议"],
+      "events": [
+        "resource.saved",
+        "workflow.saved"
+      ],
+      "ui": [
+        "成就导入 JSON",
+        "今日主题建议"
+      ],
       "developerRule": "新增留存事件只能记录非内容字段，例如 kind/category/nodeType/计数；严禁记录 prompt、短链、Cookie、完整文件名、资源 URL 或用户正文。重复保存、重复导入、重复运行导致的刷计数必须有去重或业务 guard。"
     },
     "aggregateParserAuthContract": {
@@ -314,13 +503,14 @@
       "T8_PARSEHUB_PYTHON": "可选，覆盖聚合解析节点使用的 Python 3.12 解释器路径",
       "T8_PARSEHUB_LIB_PATHS": "可选，覆盖 ParseHub Python 依赖搜索路径；正式包首次使用会把 resources/tools/runtime-archives/parsehub-pythonlibs.zip 解压到 runtime-cache 后使用",
       "T8_RUNTIME_ARCHIVES_DIR": "可选，覆盖内置运行时归档搜索目录；默认打包为 resources/tools/runtime-archives",
-      "T8_RUNTIME_CACHE_DIR": "可选，覆盖运行时归档解压缓存目录；默认打包模式为 %APPDATA%/t8-penguin-canvas/runtime-cache"
+      "T8_RUNTIME_CACHE_DIR": "可选，覆盖运行时归档解压缓存目录；默认打包模式为 %APPDATA%/t8-penguin-canvas/runtime-cache",
+      "T8_ENABLE_LOCAL_PRIVATE": "可选，0=强制关闭本机 local-private/extensions 私有扩展；默认只要本机 ignored 私有扩展存在，开发环境和本机打包 release 都会自动带入。GitHub/clean clone 因为没有 local-private 目录，所以不会带充值实现。"
     },
-    "version": "2.0.6",
-    "semverVersion": "2.0.6",
+    "version": "2.0.9",
+    "semverVersion": "2.0.9",
     "versionNumberPolicy": "T8 版本号仍采用 x.y.z 三段，但每一段只允许 0-9；任一段到 9 后下一次发布必须向左进位，禁止任一段出现两位数字。例：1.9.9 的下一版必须是 2.0.0。",
-    "versionNote": "v1.3.0 起统一采用三段阶段号 x.y.z；当前源码版本为 v2.0.6：README 补齐扩展平台 API Key / Token 与本地 ComfyUI 配置说明，继续收口 ModelScope 多 LoRA 官方总权重、防卡顿、Topaz、主题成就和提示词模板等公开源码能力。本次按用户要求只推 GitHub 源码，不打包 Electron，不发布 GitHub Release 自动更新资产；GitHub 公开源码仍排除本地私有计费/支付/充值实现。",
-    "installer": "v2.0.6 本次只推源码，不生成 T8-PenguinCanvas-Setup-2.0.6.exe、.exe.blockmap 或 latest.yml，也不创建/更新 GitHub Release；后续需要桌面自动更新包时再按 npm run dist:release 完整流程执行。",
+    "versionNote": "v1.3.0 起统一采用三段阶段号 x.y.z；当前源码版本为 v2.0.9：集中发布 3D 全景导演台后续能力、Sora2 Zhenzhen API 双通道、独立 Sora2 Key、Veo Omni 默认模型、上传 20MB 上限和画布崩溃恢复。本次按规范打包 Electron 并发布 GitHub Release 自动更新资产；GitHub 公开源码仍排除本地私有计费/支付/充值实现。",
+    "installer": "v2.0.9 按 npm run dist:release 生成 T8-PenguinCanvas-Setup-2.0.9.exe、.exe.blockmap 与 latest.yml，并发布 GitHub Release 自动更新资产；安装继续走前台 NSIS 向导，保留桌面和开始菜单快捷方式。",
     "updaterInstallMode": "自动更新下载完成后不得静默安装：main.cjs 必须设置 autoInstallOnAppQuit=false，显式安装调用 quitAndInstall(false,true)；electron/build-resources/installer.nsh 通过 SetSilent normal 让新版 NSIS 安装器即使收到旧客户端传入的 /S 也尽量切回前台安装向导。",
     "installerShortcutPolicy": "安装完成后必须创建桌面和开始菜单快捷方式：package.json build.nsis.createDesktopShortcut 必须为 \"always\"，createStartMenuShortcut 必须为 true；electron/build-resources/installer.nsh 必须保留 customInstall 兜底 CreateShortCut \"$newStartMenuLink\" 与 \"$DESKTOP\\${SHORTCUT_NAME}.lnk\"，防止更新安装/keepShortcuts 路径遗漏入口。",
     "updaterEntryPolicy": "顶栏桌面更新入口不得只因 window.t8pc.updater 缺失就静默消失；Electron UA 或 t8pc.getInfo/openExternal 可用时必须显示诊断入口，提示重新安装完整桌面包，Web/纯浏览器环境才隐藏。状态为 not-available 时按钮仍保留“更新”字样，避免用户误以为自动更新入口被删除。",
@@ -330,16 +520,32 @@
         "roadmap.md",
         "skill.md",
         "backend/src/routes/recharge.js",
-        "src/components/RechargeModal.tsx",
+        "src/components/Recharge*.tsx",
         "src/private/recharge/**",
         "backend/src/private/recharge/**",
         "private/recharge/**",
-        "local-private/recharge/**",
+        "local-private/**",
         "recharge.private.*",
         "data/recharge*.json",
         "backend/data/recharge*.json"
       ],
-      "prePushScan": "每次推送前必须检查 staged 文件不包含 roadmap.md、skill.md、RechargeModal、/api/recharge、/pay、RECHARGE、DULUPAY、AGENT_HMAC 或中文充值相关实现；本地开发和打包若需要私有能力，只能通过 .gitignore 覆盖层或私有补丁恢复。"
+      "prePushScan": "每次推送前运行 npm run public:check，并检查 staged 文件不包含 roadmap.md、skill.md、私有扩展目录、私有 UI、私有路由、支付路径、密钥字段或中文充值实现；本地开发和打包若需要私有能力，只能通过 ignored local-private/extensions 扩展加载。"
+    },
+    "localPrivateExtensions": {
+      "status": "implemented-v2.0.9-release",
+      "purpose": "把本机私有计费/支付能力从已跟踪公开文件中拆出，避免每次 Git 推送都需要手动拆 hunk。",
+      "publicHooks": [
+        "backend/src/extensions/localExtensions.js 只负责发现并注册本地私有后端扩展，不包含具体业务逻辑。",
+        "vite.config.ts/js 通过 virtual:t8-local-extensions 默认映射到 src/extensions/emptyLocalExtensions.tsx；本机 ignored 扩展存在时自动映射到 local-private/extensions/frontend/index.tsx，设置 T8_ENABLE_LOCAL_PRIVATE=0 或 T8_DISABLE_LOCAL_EXTENSIONS=1 才关闭。",
+        "electron/encrypt.cjs 默认加密 backend/src；本机 ignored 后端扩展存在且未被显式禁用时，会额外加密 local-private 后端扩展到 build/backend-enc/local-private。",
+        "electron/_post_build.cjs 会在本机 ignored build hook 存在且未被显式禁用时自动运行；具体密钥与分发检查放在 ignored local-private/extensions/build/post-build.cjs。"
+      ],
+      "gitSafety": [
+        ".gitignore 统一忽略 /local-private/**，旧私有路由和私有 UI 路径仍保持忽略兜底。",
+        "scripts/check-public-clean.cjs / npm run public:check 会扫描 staged 路径和 diff，防止误提交私有文件或实现关键字。",
+        "公开文件 backend/src/config.js、backend/src/server.js、src/App.tsx、src/services/api.ts、electron/_post_build.cjs 不应再保留私有业务 diff。",
+        "v2.0.9 发布时继续用 scripts/check-public-clean.cjs 扫描 staged 路径和新增文本，skill.md / roadmap.md / local-private/** 不进入公开提交。"
+      ]
     },
     "checklist": [
       "运行 npm run encrypt 前确认已 npm install bytenode 且使用 Electron 内置 Node",
@@ -367,17 +573,26 @@
     "imagePreviewPipeline": {
       "frontend": "高频节点预览统一使用 SmartImage + previewImageUrl，本地 /files/input 与 /files/output 图片接近视口后才请求 /api/files/thumbnail，原始素材 URL 保留在 data-full-src 与拖拽/下载/下游数据中。",
       "backend": "backend/src/routes/files.js 提供 GET /api/files/thumbnail?url=&size=，用 sharp 生成 webp 缩略图并缓存到 THUMBNAILS_DIR，Cache-Control=immutable；同一 target 通过 thumbnailInflight 去重，生成并发由 T8PC_THUMBNAIL_CONCURRENCY 控制，默认 2、最高 4。",
+      "upload": "POST /api/files/upload multipart 上传上限对齐到 20MB；multer 超限返回 413 JSON(code=file_too_large)，避免 10MB 以上 ComfyUI PNG 被误报为 HTTP 500。",
       "exceptions": "裁剪、去水印框选、图片编辑、图片对比等依赖原图像素或细节的视图继续使用原图。"
     },
     "edgeMotion": {
-      "themes": ["soccer-hero", "slamdunk", "dragon-ball"],
-      "policy": "强主题连线动画在视口拖动、节点拖动或边数达到阈值时写入 data-t8-edge-motion=reduced，禁用 edge path 动画、filter、运动球 SVG 或气功波流动效果；DeletableEdge 只在当前体育主题且边数较低时渲染对应运动球。"
+      "themes": [
+        "soccer-hero",
+        "slamdunk",
+        "dragon-ball"
+      ],
+      "policy": "强主题连线动画统一走 scoped 规范：闲置时写入 data-t8-edge-motion=scoped，普通连线只做静态主题化；只有选中边、悬停边、或与选中节点相连的边会获得 .t8-edge-theme-active 并启用 edge path 动画、运动球 SVG 或气功波流动效果。视口拖动、节点拖动或 prefers-reduced-motion 时写入/遵守 data-t8-edge-motion=reduced，禁用所有无限动画、filter、运动球和 SVG animateMotion；当一次选中导致活跃边超过 DECORATIVE_EDGE_MOTION_LIMIT 时，只保留直接选中/悬停边动效，避免 36+ 条边一起运动。"
     },
     "startup": {
       "devStrictMode": "开发环境默认不包 React StrictMode，设置 VITE_T8_STRICT_MODE=1 可恢复双挂载诊断。",
       "appShellLazyLoad": "src/App.tsx 必须懒加载 Canvas 与非首屏弹窗/抽屉，Canvas 内 nodeTypes 通过 lazyCanvasNode 动态导入节点组件；首屏只加载外壳、侧栏、Canvas 骨架和当前画布实际出现的节点类型。",
       "viteDevWarmup": "vite.config.ts 对 react/react-dom/@xyflow/react/lucide-react/zustand 做 optimizeDeps.include，并用 server.warmup 预热 main/App/Canvas 与 Image/Upload/Output 常用节点，避免第一次打开页面才集中 transform。",
       "autosave": "节点拖动期间自动保存跳过中间帧，拖动结束后触发一次最终快照保存；加载画布时只做一次基线 JSON.stringify，旧快照节点数单独缓存，避免重复 parse/stringify 大画布。"
+    },
+    "canvasPersistence": {
+      "crashRecovery": "backend/src/routes/canvas.js 读取 JSON 时剥离 UTF-8 BOM 和 NUL；canvas_list.json 缺失或解析失败时扫描 data/canvas_*.json 兜底恢复有效画布列表，避免死机中断写入后侧栏直接显示 0。",
+      "atomicWrites": "画布列表、新建空画布、PUT 保存画布和自动保存镜像统一通过临时文件 + rename 原子写入，降低系统死机或进程崩溃导致 JSON 被 NUL 覆盖的概率。"
     },
     "developmentContract": {
       "nodes": [
@@ -390,8 +605,8 @@
         "节点拖动、画布移动、批量选择期间不得触发昂贵副作用；会改变节点尺寸的媒体加载应有稳定容器、aspect-ratio 或 max-height，避免加载后大面积布局抖动。"
       ],
       "themes": [
-        "主题动效必须可降级：边数多、viewportMoving、nodeDragging、prefers-reduced-motion 或 data-t8-edge-motion=reduced 时，必须停用无限动画、filter、drop-shadow、运动粒子和 SVG animateMotion。",
-        "主题 CSS 不得给所有节点、所有边或大面积背景套高成本 filter/backdrop-filter/box-shadow 动画；强风格效果应放在少量静态背景层或 hover/selected 状态。",
+        "主题连线动效必须可降级且默认 scoped：普通边静态；选中边、悬停边、选中节点相关边才允许 .t8-edge-theme-active 动画、filter、drop-shadow、运动粒子和 SVG animateMotion。",
+        "主题 CSS 不得给所有节点、所有边或大面积背景套高成本 filter/backdrop-filter/box-shadow 动画；强风格效果应放在少量静态背景层或 .t8-edge-theme-active / hover / selected 状态。",
         "画布背景水印、纹理和主题地图必须 pointer-events:none、低 z-index、轻量静态化；不得覆盖图片/视频/文本预览，也不得随每帧 transform 重绘复杂滤镜。",
         "MiniMap、Controls、HUD、右键菜单和浮动条必须跟随全局变量适配主题；新增主题要在 100+ 节点、36+ 边、拖动画布、拖动节点场景检查不卡顿。",
         "主题音乐、视频背景、粒子、运动球等装饰默认静音/静态/按需启用，不能在进入画布时批量解码大媒体或创建大量动画实例。"
@@ -399,14 +614,16 @@
       "verification": [
         "新增节点含图片预览时必须补或更新 tests/imageLoadingPerformance.test.ts，锁定 SmartImage/previewImageUrl 使用。",
         "新增重节点、弹窗或抽屉时必须补或更新 tests/imageLoadingPerformance.test.ts，锁定 App/Canvas 的 lazy 边界，避免开发环境首屏重新退化为全量模块加载。",
-        "新增主题动效必须至少在足球小将/灌篮高手/七龙珠同类压力下验证 data-t8-edge-motion=reduced 生效，并检查 prefers-reduced-motion。",
+        "新增主题动效必须至少在足球小将/灌篮高手/七龙珠同类压力下验证 data-t8-edge-motion=scoped 只让选中相关边运动，并验证 data-t8-edge-motion=reduced 与 prefers-reduced-motion 能完全停止动效。",
         "发布前至少跑 node --test tests\\imageLoadingPerformance.test.ts、npm run type-check、npm run build；若改 3D/Three.js 还要跑 tests\\panorama3d.test.ts。"
       ]
     },
     "verification": [
       "node --test tests\\imageLoadingPerformance.test.ts",
       "node --test tests\\panorama3d.test.ts",
+      "node --test tests\\canvasPersistence.test.ts",
       "node -c backend\\src\\routes\\files.js",
+      "node -c backend\\src\\routes\\canvas.js",
       "npm run type-check",
       "npm run build"
     ]
@@ -418,7 +635,18 @@
     "manifest": {
       "sharedJson": "shared/achievementManifest.json",
       "frontendWrapper": "src/data/achievementManifest.ts",
-      "themeTracks": ["tech", "pixel", "op", "rh", "naruto", "eva", "yyh", "slamdunk", "soccer-hero", "dragon-ball"],
+      "themeTracks": [
+        "tech",
+        "pixel",
+        "op",
+        "rh",
+        "naruto",
+        "eva",
+        "yyh",
+        "slamdunk",
+        "soccer-hero",
+        "dragon-ball"
+      ],
       "perThemeRules": "每个主题 5 条时长线(10m/1h/3h/10h/30h) + 3 条首批特色成就；定义由 manifest 展开，前后端共用同一 JSON，避免规则漂移。"
     },
     "storage": {
@@ -544,9 +772,10 @@
           "yyh-hidden": "yyh-hidden-tonight.mp3",
           "slamdunk-style": "slamdunk-kimi-ga-suki.mp3",
           "soccer-hero-style": "soccer-tsubasa-burning-hero.mid",
-          "dragon-ball-style": "dragonball-makafushigi-adventure.mp3"
+          "dragon-ball-style": "dragonball-makafushigi-adventure.mp3",
+          "dragon-ball-shenron-hidden": "dragonball-shenron-cha-la-head-cha-la.mp3"
         },
-        "rule": "主题音乐默认静音，通常只在用户主动点击播放按钮后播放；RH 鸭鸭隐藏模式会自动切换 rh-hidden-saya.mp3，幽游白书肖像大师隐藏模式会自动切换 yyh-hidden-tonight.mp3，二者都会解除静音。模板编辑器支持上传替换，导出模板可携带 data:audio/*。"
+        "rule": "主题音乐默认静音，通常只在用户主动点击播放按钮后播放；RH 鸭鸭隐藏模式会自动切换 rh-hidden-saya.mp3，幽游白书肖像大师隐藏模式会自动切换 yyh-hidden-tonight.mp3，七龙珠神龙隐藏模式会自动切换 dragonball-shenron-cha-la-head-cha-la.mp3。模板编辑器支持上传替换，导出模板可携带 data:audio/*。"
       }
     },
     "styles": {
@@ -692,7 +921,7 @@
           "nodeFrame": "capsule-card",
           "headerMark": "DRAGON RADAR"
         },
-        "music": "dragonball-makafushigi-adventure.mp3；ThemeMusicToggle 以 URL 音频播放，ki-burst 仅作为合成兜底 preset；默认静音，用户可在主题模板中上传或填写授权音频 URL 替换，公开分发前确认音频授权边界"
+        "music": "普通模式使用 dragonball-makafushigi-adventure.mp3；神龙隐藏模式使用 dragonball-shenron-cha-la-head-cha-la.mp3；ThemeMusicToggle 以 URL 音频播放，ki-burst / shenron-aura 仅作为合成兜底 preset；默认静音，用户可在主题模板中上传或填写授权音频 URL 替换，公开分发前确认音频授权边界"
       }
     },
     "defaultStyle": "pixel",
@@ -1152,14 +1381,14 @@
       ]
     },
     "phase23": {
-      "label": "API Key 设置眼睛预览修复 + 7 类分类独立 Key (gpt-image / nano-banana / mj / veo / grok / seedance / suno)",
+      "label": "API Key 设置眼睛预览修复 + 8 类分类独立 Key (gpt-image / nano-banana / mj / veo / sora2 / grok / seedance / suno)",
       "status": "complete",
       "items": [
         "问题症状 1: 打开 API Key 设置弹窗点眼睛无论如何都看不到已存 Key 明文——原 input 受控于用户输入为空且后端只返回脱敏字段时永远呢呢看不到",
         "修复 1: 新增 GET /api/settings/raw 前端调用 (services/api.ts getRawSettings)，点眼睛 且 input 为空 且 已存 同时成立时 拉一次明文填回 input;同时 useRef 缓存避免重复请求;眼睛拉出明文后不修改则不重复提交(revealed===input 跳过)",
         "修复 2: ApiSettings 重构 —— 用 inputs/shows Record 统一 10 个 Key 状态;增加弹窗 max-h-[90vh] + overflow-y-auto 防防陈类列表爆高",
-        "需求 2: 新增 7 类分类独立 Key,独立于贞贞工坊通用 Key (gpt-image 系列 / nano-banana 系列 / mj 系列 / veo 系列 / grok 系列 / seedance 系列 / suno 系列)",
-        "后端 settings.js: DEFAULT_SETTINGS 增加 7 个字段 (gptImageApiKey/nanoBananaApiKey/mjApiKey/veoApiKey/grokApiKey/seedanceApiKey/sunoApiKey),GET /api/settings 同步脱敏返回",
+        "需求 2: 新增 8 类分类独立 Key,独立于贞贞工坊通用 Key (gpt-image 系列 / nano-banana 系列 / mj 系列 / veo 系列 / sora2 系列 / grok 系列 / seedance 系列 / suno 系列)",
+        "后端 settings.js: DEFAULT_SETTINGS 增加 8 个字段 (gptImageApiKey/nanoBananaApiKey/mjApiKey/veoApiKey/soraApiKey/grokApiKey/seedanceApiKey/sunoApiKey),GET /api/settings 同步脱敏返回",
         "后端 proxy.js: 新增 pickApiKey(settings, hint) 按模型名/endpoint/路由名选择分类 key,未填时 fallback 到贞贞通用 Key;新增 applyClassifiedKey(settings, hint) 临时覆盖 settings.zhenzhenApiKey,后续原逻辑零侵入",
         "后端 router 注入点: /image · /image/submit · /image/status (可传 ?model=) · /image/fal/submit · /image/fal/query · /mj/* (三条,hint='mj') · /video/submit · /video/query · /video/fal/submit · /video/fal/query · /seedance/* (hint='seedance') · /audio/submit · /audio/query (hint='suno')",
         "前端 ApiSettings 分区展示: 上半区 三套通用 Key (贞贞/RH/LLM);下半区 分类独立 API Key (可选) · 未填时 fallback 提示“未设置 · 使用通用 Key”",
@@ -2104,7 +2333,7 @@
       "status": "complete",
       "items": [
         "API Key 设置弹窗底部在「取消」左侧新增「导入设置」和「导出设置」按钮，作为更换版本时的一键配置备份入口。",
-        "导出设置会读取 /api/settings/raw 明文配置，并生成 t8-penguin-canvas-settings JSON，覆盖贞贞工坊 / RunningHub / LLM 通用 Key、7 类分类独立 Key、文件自动保存路径、画布自动保存路径、资源库路径、主题模板路径和 Eagle 本地接口。",
+        "导出设置会读取 /api/settings/raw 明文配置，并生成 t8-penguin-canvas-settings JSON，覆盖贞贞工坊 / RunningHub / LLM 通用 Key、8 类分类独立 Key、文件自动保存路径、画布自动保存路径、资源库路径、主题模板路径和 Eagle 本地接口。",
         "导入设置只接受白名单字段，自动跳过空值、未知字段和 ****1234 这类脱敏 Key；导入后先回填表单，用户确认后点击「保存」才写入后端，避免误选文件直接覆盖本地设置。",
         "导出的 JSON 标记 containsSecrets=true 并提示包含明文 API Key，属于私密备份，不能上传 GitHub 或公开分享。"
       ]
@@ -2251,7 +2480,7 @@
         "Grok Video 1.5 对齐 gpt-image-2-web v4.5U：走 xai/grok-imagine-video/v1.5/image-to-video，只支持图生视频，最多 1 张参考图，不发送 aspect_ratio 参数。",
         "Grok Video 1.5 的图像传入模式默认 base64；前端提交固定 image_mode=base64，后端默认使用 refToBananaImage 转换本地/远端参考图后写入 image_url。",
         "Grok Video FAL 旧版链路继续支持 image-to-video、reference-to-video 和无图 text-to-video fallback；Grok Video 1.5 缺少参考图时会前后端明确报错。",
-        "模型注意事项弹窗同步补充最新视频模型说明：Grok Video 1.5 可作为 SD 平替图生视频，Sora2 当前先不建议使用，Seedance 预扣/退补规则保持清晰提示。",
+        "模型注意事项弹窗同步补充最新视频模型说明：Grok Video 1.5 可作为 SD 平替图生视频，Sora2 支持 sora-vip 分组与 default 默认分组的 FAL 模型，Seedance 预扣/退补规则保持清晰提示。",
         "公开版本同步到 1.7.8：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 同步；skill.md 仅本地更新，继续禁止推送 GitHub；本次按规范打包 Electron。"
       ]
     },
@@ -2766,6 +2995,61 @@
         "README 当前版本、badge 与节点数量同步到 2.0.6 / 50 个节点，避免文档落后于 Topaz、ComfyUI 和扩展平台能力。",
         "features.json 记录 v2.0.6 为 source-only 版本；本次只推 GitHub 源码，不打包 Electron，不发布 GitHub Release 自动更新资产。"
       ]
+    },
+    "phase151": {
+      "label": "七龙珠神龙过场与 Electron 自动更新发布 (v2.0.7)",
+      "status": "implemented",
+      "items": [
+        "七龙珠神龙隐藏模式过场改为 src/assets/theme-dragonball/shenron-dragon.png 透明 PNG 资产，不再使用 CSS 线框；过场包含雷达扫描、能量雾、光束、七龙珠聚合和 reduced-motion 兜底。",
+        "DragonBallRadar、theme-dragonball.css 与 tests/dragonBallRadar.test.ts 锁定雷达工具栏、经典星位、15 分钟龙珠倒计时、3 秒收集反馈、隐藏模式成就和 PNG 过场资产。",
+        "3D 全景节点完成机位书签、默认视线中心、热点导览和跨全景节点跳转；Panorama3DNode / panorama3d utils / tests/panorama3d.test.ts 同步。",
+        "火山引擎扩展 API 修复连接检测、Seedream/Seedance 签名与视频提交路径，避免 Seedance 2.0 视频提交 HTTP 404。",
+        "成就系统补齐主题详情、完成度、隐藏模式仪式感、有效时长持久化和导入导出；奖励影片未提供前继续显示待解锁占位。",
+        "本地私有扩展拆分为 local-private ignored overlay，公开源码只保留通用 extension hook；本机 Electron 打包可包含加密私有扩展，GitHub 源码不包含实现。",
+        "公开版本同步到 2.0.7：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 与 release-notes/v2.0.7.md 同步；本次按规范打包 Electron 并发布 GitHub Release 自动更新资产。"
+      ]
+    },
+    "phase152": {
+      "label": "火山 Seedance 2.0 结果解析与 Electron 自动更新发布 (v2.0.8)",
+      "status": "implemented",
+      "items": [
+        "Volcengine provider 的视频 URL 收集器对齐 Infinite-Canvas 思路，兼容 content/result/output/mp4_url/output_url/src/path/preview_url 和 JSON 字符串返回，避免成功任务误报空视频。",
+        "新增 tests/volcengineProvider.test.ts 回归：嵌套 Ark task content、content JSON 字符串、ModelNotOpen 友好提示和真实 URL 提取边界。",
+        "成就系统与隐藏模式补记继续修复，确保统计关闭/重新开启、七龙珠神龙和 RH 隐藏模式事件能正确影响成就进度。",
+        "七龙珠神龙模式补齐隐藏音乐、普通/隐藏双模式切换、雷达状态和主题可读性；相关 CSS、store、Tracker 与测试同步。",
+        "公开版本同步到 2.0.8：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 与 release-notes/v2.0.8.md 同步；本次按规范打包 Electron 并发布 GitHub Release 自动更新资产。"
+      ]
+    },
+    "phase153": {
+      "label": "Sora2 Zhenzhen API 双通道与独立 Key",
+      "status": "implemented",
+      "items": [
+        "视频节点 Sora2 在保留原 `sora-2 (FAL)` 入口不迁移的前提下，新增 `sora-2 (Zhenzhen API)` 具体模型；内部值为 `sora-2-zhenzhen`，后端提交到 /v2/videos/generations 时映射为上游真实 model=`sora-2`。",
+        "Sora2 Zhenzhen API 通道对齐 gpt-image-2-web 非 FAL 实现：支持 16:9 / 9:16、15 秒、seed、private 和最多 1 张 base64 参考图；FAL 通道仍使用独立的 mode / duration / resolution / character ids / IP 阻断参数。",
+        "分类独立 API Key 从 7 类扩展为 8 类：新增 `soraApiKey` 与设置页「sora2 系列」，Sora2 FAL 与 Zhenzhen API 都优先使用该 Key，未填时 fallback 到贞贞通用 Key；`veoApiKey` 改回只负责 Veo / Veo3.1。",
+        "新增回归测试锁定 Sora2 双通道、`soraApiKey` 设置字段、后端 key 选择和 `sora-2-zhenzhen` → `sora-2` 映射，防止后续误把旧 FAL 入口改走普通视频提交。"
+      ]
+    },
+    "phase154": {
+      "label": "Veo 分类默认模型切到 veo-omni-10s",
+      "status": "implemented",
+      "items": [
+        "视频节点主模型分类显示名从 `Veo 3.1` 改为 `Veo`，但保留内部主分类 id，避免旧画布的 Veo 节点失配。",
+        "Veo 具体模型新增并默认选择 `veo-omni-10s`；旧 `veo3.1`、`veo3.1-fal` 等子模型继续保留可选，不迁移、不删除。",
+        "`veo-omni-10s` 对齐 Comfly_veo_omini：前端保存公开模型值，后端提交时映射为 `omni_flash-10s`，通过 `/v1/videos` multipart 发送 `input_reference`，轮询改查 `/v1/videos/{task_id}`。",
+        "新增回归测试锁定 Veo 显示名、默认子模型、旧 Veo 选项保留和后端 `/v1/videos` multipart 协议，避免误套旧 `/v2/videos/generations` 协议。"
+      ]
+    },
+    "phase155": {
+      "label": "3D 全景导演台、Veo Omni 与 Sora2 双通道 Electron 发布 (v2.0.9)",
+      "status": "implemented",
+      "items": [
+        "3D 全景节点把多人彩色小人、100+ 动作预设、自然语言动作生成、关键帧时间轴、遮挡参考、画面关节拖拽、序列帧素材集和全屏导演台作为本次发布能力收口。",
+        "Sora2 新增 Zhenzhen API 通道和独立 sora2 分类 API Key，原 FAL 通道保持默认选项与旧参数兼容。",
+        "Veo 分类显示名改为 Veo，默认具体模型切到 `veo-omni-10s`，后端按 `/v1/videos` multipart 与 `omni_flash-10s` 上游模型调用。",
+        "上传素材 20MB 上限、画布崩溃恢复、模型注意事项文案、3D 节点右栏布局和视频模型帮助一起进入公开源码。",
+        "公开版本同步到 2.0.9：package.json、package-lock.json、vite.config.ts/js、electron/main.cjs、backend/src/config.js APP_VERSION、features.json、README.md 与 release-notes/v2.0.9.md 同步；本次按规范打包 Electron 并发布 GitHub Release 自动更新资产。"
+      ]
     }
   },
   "categories": {
@@ -3237,17 +3521,26 @@
         ]
       },
       {
-        "id": "veo-3.1",
-        "label": "Veo 3.1",
+        "id": "veo",
+        "label": "Veo",
         "provider": "zhenzhen",
-        "endpoint": "/v1/videos/generations"
+        "endpoint": "/v1/videos 或 /v2/videos/generations",
+        "defaultModel": "veo-omni-10s",
+        "extraModels": [
+          "veo-omni-10s",
+          "veo3.1",
+          "veo3.1-fal"
+        ]
       },
       {
         "id": "sora-2",
         "label": "Sora2",
         "provider": "zhenzhen",
-        "endpoint": "/fal/fal-ai/sora-2/{text-to-video|image-to-video}",
+        "endpoint": "/fal/fal-ai/sora-2/{text-to-video|image-to-video} 或 /v2/videos/generations",
         "defaultModel": "sora-2",
+        "extraModels": [
+          "sora-2-zhenzhen"
+        ],
         "imageMode": "base64",
         "maxRefs": 1
       },
@@ -3434,6 +3727,12 @@
           "label": "veo 系列",
           "matches": [
             "veo"
+          ]
+        },
+        "soraApiKey": {
+          "label": "sora2 系列",
+          "matches": [
+            "sora"
           ]
         },
         "grokApiKey": {
@@ -3738,5 +4037,157 @@
     "中键 / 右键拖动": "平移画布",
     "空格 + 拖拽": "平移画布(备选)",
     "ESC (拖拽素材中)": "取消跨节点拖拽"
+  },
+  "panorama3dSceneActors": {
+    "version": "2.0.9-dev",
+    "status": "implemented-dev",
+    "date": "2026-06-06",
+    "description": "3D 全景节点新增多人彩色低多边形小人、动作姿势、场景快照、构图安全区、布局导入导出和视频参考提示词，用于控制全景场景中的人物位置、朝向和动作参考。",
+    "sourceFiles": [
+      "src/utils/panorama3d.ts",
+      "src/components/nodes/Panorama3DNode.tsx",
+      "src/components/Canvas.tsx",
+      "tests/panorama3d.test.ts"
+    ],
+    "dataFields": [
+      "panoramaAvatars",
+      "panoramaActiveAvatarId",
+      "panoramaSceneSnapshot",
+      "panoramaControlSnapshotUrl",
+      "panoramaAvatarKeyframes",
+      "panoramaKeyframeSequenceCount",
+      "panoramaOcclusionMasks",
+      "panoramaOcclusionMaskVisible",
+      "panoramaActorOverlayVisible",
+      "panoramaAvatarIkEditMode",
+      "panoramaCompositionGuide",
+      "panoramaSceneLegendVisible",
+      "panoramaScenePrompt",
+      "panoramaActionPrompt",
+      "panoramaActionPlan",
+      "PanoramaAvatar.groundMode",
+      "PanoramaAvatar.rootHeight",
+      "PanoramaAvatar.rootPitch",
+      "PanoramaAvatar.rootRoll",
+      "PanoramaAvatar.poseParams.armLBendOffsetZ",
+      "PanoramaAvatar.poseParams.armRBendOffsetZ",
+      "PanoramaAvatar.poseParams.legLBendOffsetZ",
+      "PanoramaAvatar.poseParams.legRBendOffsetZ",
+      "PanoramaAvatar.poseParams.armLOffsetZ",
+      "PanoramaAvatar.poseParams.armROffsetZ",
+      "PanoramaAvatar.poseParams.legLOffsetZ",
+      "PanoramaAvatar.poseParams.legROffsetZ",
+      "panoramaShotCamera.mode",
+      "panoramaShotCamera.presetId",
+      "panoramaShotCamera.targetAvatarId",
+      "panoramaShotCamera.targetBone",
+      "panoramaShotCamera.framingRatio",
+      "panoramaShotCamera.closeupStrength",
+      "panoramaShotCamera.lowAngle"
+    ],
+    "capabilities": [
+      "同一全景内最多 8 个彩色 3D 小人。",
+      "点击画面放置、数字控制点或移动手柄拖动平移角色、选中角色下方旋转手柄可左右调整朝向并上下调整前后倾，角色图例点击可选中并跳转定位。",
+      "动作预设扩展到 100+ 种常用姿态，覆盖基础移动、手势表演、跆拳道/拳击/武器、运动、舞蹈和剧情动作；每个新动作都带 root 默认值、关键词和 poseParams 骨骼参数。",
+      "Phase A 动作底座新增贴地/离地/手动高度、角色整体离地高度、前后倾和左右翻滚，可表达飞踢、受击后仰、单膝跪地、倒地等不钉地动作。",
+      "Phase B.1 骨架底座把四肢拆成上臂/前臂、大腿/小腿；角色面板支持左/右上臂、左/右大腿、左/右肘、左/右膝附加弯曲微调。",
+      "Phase B.2 选中角色时把手/脚端点投影为低干扰 DOM IK 手柄，可直接拖动左手、右手、左脚、右脚微调肢体方向和肘膝弯曲。",
+      "Phase C 导演镜头支持全身动作、双人打斗、低机位、脚部特写、手部特写、肩后视角和被击者视角，可绑定角色和身体部位并导出镜头提示词。",
+      "Phase D 可在预览右上角打开全屏导演台，集中调整视角、角色、骨骼、导演镜头、构图和导出参数。",
+      "Phase D.1 3D 全景节点改为左预览/参数、右角色双列布局，右栏独立滚动；摄像机/导览移到左侧预览下方并常展开，热点取点表单不溢出，并修正快捷键帮助弹窗在龙珠主题下的高对比可读性。",
+      "3D 全景节点选中或全屏导演台打开时支持节点级快捷键：1-8 选中并跳转角色、Tab 切换角色、I 进入画面关节编辑、O 打开全屏、? 查看帮助。",
+      "Phase E 补齐后续导演台能力：支持控制快照、动作关键帧时间轴和手动遮挡参考区，三者都会进入 panoramaSceneSnapshot 与 promptText。",
+      "Phase E.1 强化画面直接编辑：遮挡区可在预览里拖动和拖角缩放，关节模式可直接拖肩/肘/手/髋/膝/脚，关键帧快照可按帧数输出 F01-Fxx 序列帧。",
+      "Phase E.2 继续修正画面编辑可用性：全屏导演台左侧预览也支持直接拖角色/关节/遮挡，Delete/Backspace 会优先删除选中的遮挡或当前小人，不再误删整个节点；动作预设左右肢体改为顺侧外展，避免手脚互相交叉乱折。",
+      "Phase E.4 右栏常展开并取消普通节点内侧 maxHeight 滚动，普通节点动作生成移到左栏摄像机/导览下方空白区，序列帧数量输入支持先输入 1 再组成 12，多帧快照自动输出为一个图像素材集，角色平移/旋转按钮贴近角色右侧并在靠右边缘时换边，避免被身体、关节点或预览边缘挡住。",
+      "Phase F 新增动作生成：可把自然语言导演指令解析为 PanoramaActionPlan 草案，支持本地规则、AI JSON 增强、应用当前、新增角色、替换场景，并自动写入小人、关键帧、导演镜头和序列帧参数。",
+      "Phase F.1 动作生成升级：本地解析可识别跆拳道等非旧模板动作，AI 草案可用 poseParams 自定义动作，关键帧清洗会避免 K1/K2/K3 全静态，并按每段最多 6 帧限制序列帧数量。",
+      "Phase F.2 序列帧导出修复：每个 F01-Fxx 快照渲染前都会同步 Three 小人 mesh 到插值后的姿态，并强化空手道直拳等动作终点，让序列缩略图能看出动作变化。",
+      "可调远近、大小、脚底高度、透明度、朝向和面向镜头。",
+      "场景快照导出会合成当前全景视角与小人，并写入 panoramaSceneSnapshot；panoramaSourceUrl 保持原始全景贴图。",
+      "支持 16:9、9:16、1:1、4:3 构图安全区、快照图例、场景词复制和布局 JSON 导入导出。",
+      "场景快照可通过现有发送素材弹窗作为图片发送到其他画布/节点，sourceNodeData 保留结构化人物布局。",
+      "检测同画布姿势大师节点，可把姿势提示和预设轻量导入当前小人的动作、角色设定与 poseParams，后续可继续深化为精确骨架映射。"
+    ],
+    "actionDirectorPhaseA": [
+      "PanoramaAvatar 新增 groundMode/rootHeight/rootPitch/rootRoll 字段，并进入 sanitize、upsert、scene snapshot 和 promptText。",
+      "飞踢、受击后仰、单膝跪地、倒地动作预设会设置合理 root 默认姿态，用户可继续手动调整。",
+      "数字角色点增加 nodrag/nopan 和 touch-action 边界，只移动小人不旋转全景；选中角色下方新增旋转手柄并写入 heading/faceMode。",
+      "场景词会输出 Root状态，要求下游保持离地高度、身体倾斜和动作关系。"
+    ],
+    "actionDirectorPhaseB1": [
+      "Three.js 小人从单段四肢升级为 segmented limb：arm/leg 主关节 + lower joint + hand/foot endpoint。",
+      "动作预设开始使用 elbow/knee bend，让坐下、蹲下、飞踢、跪地、受击后仰更接近人体结构。",
+      "poseParams 支持 armLBendOffsetZ / armRBendOffsetZ / legLBendOffsetZ / legRBendOffsetZ，在当前预设基础上微调肘膝弯曲。"
+    ],
+    "actionDirectorPhaseB2": [
+      "手/脚 endpoint 控制点通过 Three world position 投影为 DOM 按钮，并复用 nodrag/nopan/touch-action 事件边界；Phase D 起仅在关节编辑模式中显示，避免普通预览遮挡画面。",
+      "拖动 IK 手柄期间只更新 avatarsRef、poseParams 和 Three mesh，松手再写回 ReactFlow node data。",
+      "首版轻量屏幕 IK 写入 arm/leg OffsetZ 与 BendOffsetZ，用于快速修正手脚位置；后续可继续升级为严格 2-bone IK。",
+      "动作预设数值收敛为保守可读姿态，手动切换动作时清空上一动作的 poseParams 偏移，避免默认动作被旧 IK 偏移污染。",
+      "画面 IK 手柄在该阶段先只保留手/脚小圆点，肘/膝和上半段由面板滑杆控制；Phase E.1 已升级为肩/肘/手/髋/膝/脚都可直接拖动。"
+    ],
+    "actionDirectorPhaseB3": [
+      "选中角色新增移动手柄，和数字角色点一样用于平移角色在全景中的 yaw/pitch 站位。",
+      "旋转手柄从环绕角度算法改为直接拖拽映射：左右拖调整 heading，上下拖调整 rootPitch，避免起拖时方向跳变。",
+      "快照图例里的角色 chip 点击会调用 focusAvatar，直接选中并跳转到对应角色附近视角。"
+    ],
+    "actionDirectorPhaseC": [
+      "新增 panoramaShotCamera 协议，mode 区分 panorama-view 当前视角和 shot-camera 动作参考镜头，不宣称单张全景具备真实 xyz 平移视差。",
+      "导演镜头预设覆盖全身动作、双人打斗、低机位、脚部特写、手部特写、肩后视角和被击者视角，支持 targetAvatarId 与 targetBone 绑定。",
+      "角色 / 场景面板新增快照模式、镜头预设、镜头目标、身体部位、镜头比例、特写强度、低机位和套用按钮。",
+      "预览层显示独立导演取景框、中心到目标部位的目标线和目标标签；导出场景快照会把该框线绘入参考图。",
+      "buildPanoramaSceneSnapshot 会写入 shotCamera 和 shotTarget，promptText 追加导演镜头语言，适合传给图生视频/首帧参考链路。"
+    ],
+    "actionDirectorPhaseD": [
+      "补齐所有内置动作的 root 默认姿态，切换动作时统一重置 groundMode/rootHeight/rootPitch/rootRoll 与 poseParams，避免飞踢、倒地、受击等动作污染挥手/指向/对话。",
+      "重新收敛挥手、指向、持物、对话、战斗、飞踢、受击后仰等默认肢体角度，以可读人体轮廓优先，极端动作主要由离地和整体倾斜表达。",
+      "panoramaAvatarIkEditMode 控制画面关节编辑点显隐；节点面板新增“关节”按钮，快捷键 I 可切换，关闭后立即清理 DOM 控制点。",
+      "3D 全景预览右上角新增全屏导演台与快捷键帮助按钮；节点头部也提供 ? 入口。",
+      "节点内角色面板默认只保留高频动作、朝向、关节、重置、复制和全屏入口，导演镜头与高级骨骼/位置参数改为折叠区。",
+      "全屏导演台通过 createPortal 打开，左侧显示大预览，右侧集中提供视角、角色、骨骼、导演镜头、构图安全区、快照、发送、入库和场景词全参数。",
+      "节点级快捷键只在当前 3D 全景节点被选中或全屏导演台打开时响应，并跳过 input/textarea/select/contentEditable。"
+    ],
+    "actionDirectorPhaseE": [
+      "新增 panoramaControlSnapshotUrl，控制快照导出时临时隐藏全景球背景，在深色背景上输出低模角色、导演镜头框、遮挡参考和图例，用作姿势/构图控制参考图。",
+      "新增 panoramaAvatarKeyframes，节点面板和全屏导演台都可把当前角色姿态记录为关键帧，并可一键应用/删除；buildPanoramaScenePrompt 会输出动作时间轴说明。",
+      "新增 panoramaOcclusionMasks 与 panoramaOcclusionMaskVisible，用户可手动标注画面百分比遮挡区；遮挡框会显示在预览层、绘入场景/控制快照，并写入 promptText。",
+      "发送素材时如果同时存在场景快照与控制快照，会一并发送，sourceNodeData 保留完整 panoramaSceneSnapshot。"
+    ],
+    "actionDirectorPhaseE1": [
+      "遮挡参考从只靠右侧滑杆升级为预览内直接编辑：拖遮挡框主体移动，拖 8 个边角/边缘手柄调整大小；快照里使用更高对比填充、斜线纹理、虚线边框和标签，避免透明遮挡难以理解。",
+      "画面关节编辑从手/脚端点扩展到 shoulder / elbow / hand / hip / knee / foot；按钮文案改为“关节”，提示用户可直接在画面拖动肩、肘、手、髋、膝、脚。",
+      "新增 panoramaKeyframeSequenceCount，场景快照在存在至少两个关键帧时会自动插值生成 F01-Fxx 序列帧，并把 sequenceFrameCount / sequenceFrames 写入 panoramaSceneSnapshot。",
+      "节点右侧设置栏使用 nodrag/nowheel 并拦截 wheel，鼠标滚轮可以滚动右侧参数面板而不是误操作画布；摄像机/导览移到左侧预览下方，右侧聚焦角色、关节、时间轴和遮挡设置。"
+    ],
+    "actionDirectorPhaseE2": [
+      "全屏导演台不再只显示静态 img，左侧预览增加 directorStageRef 交互层，并复用角色点、移动/旋转手柄、关节点和遮挡拖拽/缩放手柄。",
+      "预览右上角快捷键和全屏按钮改成高对比圆形按钮，叠在深色或复杂全景图上仍可辨认。",
+      "新增 activeOcclusionMaskId；点击或拖动遮挡会选中该遮挡，Delete/Backspace 优先删除选中遮挡，其次删除当前小人，并在节点级快捷键捕获阶段阻止 ReactFlow 删除整个 3D 全景节点。",
+      "挥手、指向、坐下、奔跑、蹲下、飞踢、受击后仰等预设统一改为左右手脚顺侧外展：左肢体根关节与肘/膝下段为负向，右肢体为正向，默认站立和各动作脚部不再向中线交叉。",
+      "关节拖拽从固定 dx/dy 符号改为屏幕空间目标求解，拖上/下/左/右都会按鼠标方向靠近；节点小预览和全屏导演台舞台都增加 window pointerdown 捕获、舞台捕获阶段 IK 命中测试、previewStageRef 捕获指针、mousedown 拦截与 window pointermove/up 兜底，避免 ReactFlow、遮挡层或按钮重绘打断非放大模式关节拖拽。",
+      "遮挡参考标签改为浅琥珀底、深色粗体、深色边框和白色外描边，并同步到场景/控制快照绘制，叠在蓝色斜线遮挡区上仍能看清。"
+    ],
+    "actionDirectorPhaseE4": [
+      "普通节点右侧栏从内部 maxHeight 滚动和 details 折叠改为常展开自然占高，角色/场景、导演镜头、时间轴、遮挡参考、高级姿态和场景词预览都在右栏直接可见；动作生成移到左栏摄像机/导览下方空白区。",
+      "panoramaKeyframeSequenceCount 输入框改成本地草稿态，onChange 只在合法 2-48 时写回节点，onBlur/Enter 再清洗，用户可以直接输入 12 而不会被即时改成 2。",
+      "场景快照导出时主快照仍写入 imageUrl/imageUrls/urls；F01-Fxx 序列帧不再进入通用 imageUrls，改为自动创建或更新一个 image material-set 节点，避免 autoOutput 一帧一个节点铺满画布。",
+      "发送序列帧时默认使用 material-set 模式；需要单帧时可从素材集拆散或使用取用节点。",
+      "选中角色的平移/旋转按钮改为贴近角色右侧的浮动工具组，靠近画面右边缘时才自动换到左侧；活跃角色浮层层级高于 IK 关节点，减少被身体轮廓、关节点和预览边缘遮挡导致点不到。"
+    ],
+    "actionDirectorPhaseF": [
+      "新增 PanoramaActionPlan 协议与 PANORAMA_ACTION_TERMS 动作词库，覆盖飞踢、受击后仰、闪避、扶起、脚部特写、低机位等常用导演指令。",
+      "PANORAMA_AVATAR_POSES 扩展为 100+ 种数据化动作定义；动作词库会从 pose 定义自动生成，包含跆拳道横踢/前踢/侧踢/下劈/后踢、拳击、持武器、运动、舞蹈和剧情动作。",
+      "buildPanoramaLocalActionPlan 可离线把“角色B飞踢角色A，角色A受击后仰，脚部特写，8帧”解析成角色站位、动作 root、poseParams、关键帧和 shotCamera；帧数会按每段最多 6 帧收敛。",
+      "sanitizePanoramaActionPlan 会为 poseId 合并默认 root/poseParams，修正 AI 返回的重复大时间点和全静态 K1/K2/K3，并把 48 帧这类过量序列帧限制到动作段需要的数量。",
+      "buildPanoramaActionPlannerSystemPrompt / UserPrompt 复用现有 generateLlm 的 /api/proxy/llm 生成 JSON 草案，parsePanoramaActionPlanJson 和 sanitizePanoramaActionPlan 负责提取、校验和数值钳制；AI 失败时自动回退本地草案。",
+      "3D 全景普通节点左栏摄像机/导览下方与全屏导演台右栏新增“动作生成”面板：解析后先显示草案摘要，用户可选择应用当前、新增角色或替换场景，再写入 panoramaAvatars / panoramaAvatarKeyframes / panoramaShotCamera / panoramaKeyframeSequenceCount。",
+      "序列帧导出循环在每帧 drawFrame 前调用 updateAvatarMeshes，确保 poseId、poseParams、rootPitch/rootRoll/rootHeight 的插值真正进入 Three 渲染结果。"
+    ],
+    "verification": [
+      "node --test tests\\panorama3d.test.ts",
+      "npm run type-check",
+      "npm run build"
+    ]
   }
 }

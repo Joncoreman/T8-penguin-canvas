@@ -1,18 +1,30 @@
 import { create } from 'zustand';
 import * as api from '../services/api';
 import { resolveThemeTemplate } from '../theme/defaultTemplates';
-import { normalizeAchievementTheme, type AchievementThemeStyle } from '../data/achievementManifest';
+import { getAchievementTheme, normalizeAchievementTheme, type AchievementThemeStyle } from '../data/achievementManifest';
 import { useThemeStore } from './theme';
 
 export type AchievementDrawerTab = 'overview' | 'themes' | 'medals' | 'films';
+export type HiddenModeCeremonyKind = 'rh-duck' | 'yyh-portrait' | 'dragon-ball-shenron' | 'generic';
 
 export interface AchievementNotification {
   id: string;
   title: string;
+  themeId: AchievementThemeStyle;
   theme: string;
   rarity: string;
   createdAt: number;
   filmTitle?: string;
+}
+
+export interface HiddenModeCeremony {
+  id: string;
+  kind: HiddenModeCeremonyKind;
+  themeId: AchievementThemeStyle;
+  themeLabel: string;
+  title: string;
+  subtitle: string;
+  createdAt: number;
 }
 
 interface AchievementState {
@@ -24,12 +36,16 @@ interface AchievementState {
   error: string | null;
   drawerOpen: boolean;
   activeTab: AchievementDrawerTab;
+  activeTheme: AchievementThemeStyle | null;
   notifications: AchievementNotification[];
+  ceremonies: HiddenModeCeremony[];
   loadProfile: () => Promise<void>;
   recordEvent: (payload: api.AchievementEventPayload) => Promise<void>;
-  openDrawer: (tab?: AchievementDrawerTab) => void;
+  openDrawer: (tab?: AchievementDrawerTab, theme?: AchievementThemeStyle | string | null) => void;
   closeDrawer: () => void;
+  setActiveTheme: (theme: AchievementThemeStyle | string | null) => void;
   dismissNotification: (id: string) => void;
+  dismissCeremony: (id: string) => void;
   setPreferences: (patch: Partial<api.AchievementProfile['preferences']>) => Promise<void>;
   reset: () => Promise<void>;
   exportData: () => Promise<api.AchievementProfile | null>;
@@ -52,6 +68,57 @@ function applyProfileResponse(set: (patch: Partial<AchievementState>) => void, d
   });
 }
 
+function hiddenCeremonyKind(kind?: string | null): HiddenModeCeremonyKind {
+  const raw = String(kind || '').trim();
+  if (raw === 'rh-duck') return 'rh-duck';
+  if (raw === 'yyh-portrait') return 'yyh-portrait';
+  if (raw === 'dragon-ball-shenron') return 'dragon-ball-shenron';
+  return 'generic';
+}
+
+function hiddenCeremonyCopy(kind: HiddenModeCeremonyKind, themeId: AchievementThemeStyle) {
+  if (kind === 'rh-duck') {
+    return {
+      title: '隐藏解码模式已开启',
+      subtitle: '红色终端通道已接入，RUN 将优先尝试鸭鸭图解码。',
+    };
+  }
+  if (kind === 'yyh-portrait') {
+    return {
+      title: '隐藏词库已开启',
+      subtitle: '灵界肖像词库开始响应，肖像大师将进入特殊提示流。',
+    };
+  }
+  if (kind === 'dragon-ball-shenron') {
+    return {
+      title: '神龙模式已开启',
+      subtitle: '七星归位，画布进入青色神龙主题。',
+    };
+  }
+  const theme = getAchievementTheme(themeId);
+  return {
+    title: '隐藏模式已开启',
+    subtitle: `${theme.shortLabel || theme.label} 的隐藏通道已经点亮。`,
+  };
+}
+
+function buildHiddenCeremony(payload: api.AchievementEventPayload, theme: AchievementThemeStyle): HiddenModeCeremony | null {
+  if (payload.type !== 'hidden_mode.enabled') return null;
+  const kind = hiddenCeremonyKind(payload.kind);
+  const themeManifest = getAchievementTheme(theme);
+  const copy = hiddenCeremonyCopy(kind, theme);
+  const createdAt = Date.now();
+  return {
+    id: `${kind}-${theme}-${createdAt}`,
+    kind,
+    themeId: theme,
+    themeLabel: themeManifest.label,
+    title: copy.title,
+    subtitle: copy.subtitle,
+    createdAt,
+  };
+}
+
 export const useAchievementStore = create<AchievementState>((set, get) => ({
   profile: null,
   manifest: null,
@@ -61,7 +128,9 @@ export const useAchievementStore = create<AchievementState>((set, get) => ({
   error: null,
   drawerOpen: false,
   activeTab: 'overview',
+  activeTheme: null,
   notifications: [],
+  ceremonies: [],
 
   async loadProfile() {
     if (get().loading) return;
@@ -84,6 +153,14 @@ export const useAchievementStore = create<AchievementState>((set, get) => ({
     }
     applyProfileResponse(set, res.data);
     const profile = res.data.profile;
+    const ceremony = res.data.ignored || profile?.preferences?.showToast === false
+      ? null
+      : buildHiddenCeremony({ ...payload, theme }, theme);
+    if (ceremony) {
+      set((state) => ({
+        ceremonies: [ceremony, ...state.ceremonies].slice(0, 3),
+      }));
+    }
     const recentUnlocks = res.data.summary?.recentUnlocks || [];
     if (res.data.ignored || profile?.preferences?.showToast === false || recentUnlocks.length === 0) return;
     const recentFilms = res.data.summary?.recentFilms || [];
@@ -92,6 +169,7 @@ export const useAchievementStore = create<AchievementState>((set, get) => ({
     const nextNotifications = recentUnlocks.map((achievement) => ({
       id: `${achievement.id}-${createdAt}`,
       title: achievement.title,
+      themeId: normalizeAchievementTheme(achievement.theme),
       theme: achievement.themeLabel || achievement.theme,
       rarity: achievement.rarity,
       createdAt,
@@ -102,8 +180,9 @@ export const useAchievementStore = create<AchievementState>((set, get) => ({
     }));
   },
 
-  openDrawer(tab = 'overview') {
-    set({ drawerOpen: true, activeTab: tab });
+  openDrawer(tab = 'overview', theme = null) {
+    const activeTheme = tab === 'themes' && theme ? normalizeAchievementTheme(theme) : (tab === 'themes' ? get().activeTheme : null);
+    set({ drawerOpen: true, activeTab: tab, activeTheme });
     void get().loadProfile();
   },
 
@@ -111,8 +190,16 @@ export const useAchievementStore = create<AchievementState>((set, get) => ({
     set({ drawerOpen: false });
   },
 
+  setActiveTheme(theme) {
+    set({ activeTheme: theme ? normalizeAchievementTheme(theme) : null });
+  },
+
   dismissNotification(id) {
     set((state) => ({ notifications: state.notifications.filter((item) => item.id !== id) }));
+  },
+
+  dismissCeremony(id) {
+    set((state) => ({ ceremonies: state.ceremonies.filter((item) => item.id !== id) }));
   },
 
   async setPreferences(patch) {
@@ -131,7 +218,7 @@ export const useAchievementStore = create<AchievementState>((set, get) => ({
       return;
     }
     applyProfileResponse(set, res.data);
-    set({ notifications: [] });
+    set({ notifications: [], ceremonies: [], activeTheme: null });
   },
 
   async exportData() {

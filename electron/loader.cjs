@@ -107,6 +107,11 @@ function generateScript(cachedData, filename) {
   return script;
 }
 
+function canFallbackToLoaderRequire(id) {
+  const text = String(id || '');
+  return Boolean(text) && !text.startsWith('.') && !path.isAbsolute(text);
+}
+
 // ---------- 注册 .t8c require hook ----------
 function registerLoader() {
   if (require.extensions['.t8c']) return; // 防重复注册
@@ -131,6 +136,7 @@ function registerLoader() {
         // 因此需要在获不到外部依赖时回退到 loader.cjs(在 asar 内)的 require。
         // 这使得加密后端能访问主包 node_modules 里的 express/cors/multer/sharp 等。
         if (e && e.code === 'MODULE_NOT_FOUND') {
+          if (!canFallbackToLoaderRequire(id)) throw e;
           return require(id);
         }
         throw e;
@@ -141,6 +147,7 @@ function registerLoader() {
         return Module._resolveFilename(request, fileModule, false, options);
       } catch (e) {
         if (e && e.code === 'MODULE_NOT_FOUND') {
+          if (!canFallbackToLoaderRequire(request)) throw e;
           return require.resolve(request, options);
         }
         throw e;

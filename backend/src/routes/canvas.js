@@ -7,17 +7,58 @@ const config = require('../config');
 const router = express.Router();
 
 // 工具函数
+function readJsonFile(file) {
+  const raw = fs.readFileSync(file, 'utf-8').replace(/^\uFEFF/, '').replace(/\0/g, '');
+  return JSON.parse(raw);
+}
+
+function canvasCreatedAtFromId(id, fallback) {
+  const match = String(id || '').match(/^canvas-(\d+)-/);
+  if (!match) return fallback;
+  const parsed = Number(match[1]);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function recoverCanvasListFromFiles() {
+  if (!fs.existsSync(config.DATA_DIR)) return [];
+  const items = [];
+  for (const entry of fs.readdirSync(config.DATA_DIR, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    if (!/^canvas_canvas-[\w-]+\.json$/.test(entry.name)) continue;
+    const id = entry.name.replace(/^canvas_/, '').replace(/\.json$/, '');
+    const file = path.join(config.DATA_DIR, entry.name);
+    try {
+      const data = readJsonFile(file);
+      if (!Array.isArray(data?.nodes) || !Array.isArray(data?.edges)) continue;
+      const stat = fs.statSync(file);
+      const updatedAt = Math.max(1, Math.round(stat.mtimeMs));
+      items.push({
+        id,
+        name: id,
+        nodeCount: data.nodes.length,
+        createdAt: canvasCreatedAtFromId(id, updatedAt),
+        updatedAt,
+      });
+    } catch {
+      // Ignore corrupt canvas payloads; the list should still recover valid canvases.
+    }
+  }
+  return items.sort((a, b) => a.createdAt - b.createdAt);
+}
+
 function loadCanvasList() {
-  if (!fs.existsSync(config.CANVAS_FILE)) return [];
+  if (!fs.existsSync(config.CANVAS_FILE)) return recoverCanvasListFromFiles();
   try {
-    return JSON.parse(fs.readFileSync(config.CANVAS_FILE, 'utf-8'));
-  } catch {
-    return [];
+    const list = readJsonFile(config.CANVAS_FILE);
+    return Array.isArray(list) ? list : recoverCanvasListFromFiles();
+  } catch (e) {
+    console.warn(`⚠ 画布列表读取失败，尝试从单画布文件恢复: ${e?.message || e}`);
+    return recoverCanvasListFromFiles();
   }
 }
 
 function saveCanvasList(list) {
-  fs.writeFileSync(config.CANVAS_FILE, JSON.stringify(list, null, 2), 'utf-8');
+  atomicWriteJson(config.CANVAS_FILE, list);
 }
 
 function getCanvasFile(id) {
@@ -93,11 +134,7 @@ router.post('/', (req, res) => {
   list.push(canvas);
   saveCanvasList(list);
   // 初始化空画布数据
-  fs.writeFileSync(
-    getCanvasFile(id),
-    JSON.stringify({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, nextNodeSerialId: 1 }, null, 2),
-    'utf-8'
-  );
+  atomicWriteJson(getCanvasFile(id), { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, nextNodeSerialId: 1 });
   res.json({ success: true, data: canvas });
 });
 
@@ -108,7 +145,7 @@ router.get('/:id', (req, res) => {
     return res.status(404).json({ success: false, error: '画布不存在' });
   }
   try {
-    const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    const data = readJsonFile(file);
     res.json({ success: true, data });
   } catch (e) {
     res.status(500).json({ success: false, error: '读取失败: ' + e.message });
@@ -126,7 +163,7 @@ router.put('/:id', (req, res) => {
     !Array.isArray(incoming.nodes) ||
     (!allowEmptyOverwrite && incoming.nodes.length === 0 && fs.existsSync(file))
   ) {
-    const existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : null;
+    const existing = fs.existsSync(file) ? readJsonFile(file) : null;
     if (existing && Array.isArray(existing.nodes) && existing.nodes.length > 0) {
       console.warn(`⚠ 拒绝空数据覆盖画布 ${req.params.id}(原 ${existing.nodes.length} 节点)`);
       return res.status(400).json({ success: false, error: '拒绝空数据覆盖' });
@@ -138,7 +175,7 @@ router.put('/:id', (req, res) => {
     viewport: incoming?.viewport || { x: 0, y: 0, zoom: 1 },
     nextNodeSerialId: deriveNextNodeSerialId(incoming?.nodes, incoming?.nextNodeSerialId),
   };
-  fs.writeFileSync(file, JSON.stringify(persisted, null, 2), 'utf-8');
+  atomicWriteJson(file, persisted);
   // 更新列表元数据
   const list = loadCanvasList();
   const item = list.find((x) => x.id === req.params.id);

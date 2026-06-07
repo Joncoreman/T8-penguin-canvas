@@ -32,19 +32,53 @@ const upload = multer({
   limits: { fileSize: config.MAX_FILE_SIZE },
 });
 
-// POST /api/files/upload — 上传文件
-router.post('/upload', upload.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ success: false, error: '未收到文件' });
+function formatUploadLimit(bytes) {
+  const mb = bytes / (1024 * 1024);
+  return `${Number.isInteger(mb) ? mb : mb.toFixed(1)}MB`;
+}
+
+function sendUploadError(res, err) {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        success: false,
+        code: 'file_too_large',
+        error: `文件超过上传上限 ${formatUploadLimit(config.MAX_FILE_SIZE)}，请压缩后重试`,
+        limit: config.MAX_FILE_SIZE,
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      code: err.code || 'upload_error',
+      error: err.message || '文件上传失败',
+    });
   }
-  res.json({
-    success: true,
-    data: {
-      filename: req.file.filename,
-      url: `/files/input/${req.file.filename}`,
-      size: req.file.size,
-      mime: req.file.mimetype,
-    },
+  console.error('文件上传错误:', err);
+  return res.status(500).json({
+    success: false,
+    code: 'upload_failed',
+    error: err?.message || '文件上传失败',
+  });
+}
+
+const uploadSingleFile = upload.single('file');
+
+// POST /api/files/upload — 上传文件
+router.post('/upload', (req, res) => {
+  uploadSingleFile(req, res, (err) => {
+    if (err) return sendUploadError(res, err);
+    if (!req.file) {
+      return res.status(400).json({ success: false, code: 'missing_file', error: '未收到文件' });
+    }
+    return res.json({
+      success: true,
+      data: {
+        filename: req.file.filename,
+        url: `/files/input/${req.file.filename}`,
+        size: req.file.size,
+        mime: req.file.mimetype,
+      },
+    });
   });
 });
 

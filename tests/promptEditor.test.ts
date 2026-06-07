@@ -33,6 +33,10 @@ test('shared prompt editor components expose modal and textarea affordances', ()
   assert.match(textarea, /matchesAnyShortcut\(expandCombos,\s*event\.nativeEvent\)/);
   assert.match(textarea, /shortcuts\['editor\.expand-prompt'\]/);
   assert.match(textarea, /editorKind=\{editorKind\}/);
+  assert.match(textarea, /composingRef/);
+  assert.match(textarea, /isImeCompositionInput/);
+  assert.match(textarea, /onBeforeInput=\{handleBeforeInput\}/);
+  assert.match(textarea, /onCompositionEnd=\{handleCompositionEnd\}/);
 });
 
 test('mention prompt input keeps media mentions in expanded editor', () => {
@@ -43,6 +47,9 @@ test('mention prompt input keeps media mentions in expanded editor', () => {
   assert.match(mention, /PromptExpandModal/);
   assert.match(mention, /data-prompt-expand-trigger/);
   assert.match(mention, /matchesAnyShortcut\(expandShortcuts,\s*e\.nativeEvent\)/);
+  assert.match(mention, /isImeCompositionInput/);
+  assert.match(mention, /onBeforeInput=\{\(event\) =>/);
+  assert.match(mention, /if \(isImeCompositionInput\(event\.nativeEvent\)\) composingRef\.current = true/);
   assert.match(mention, /zIndex:\s*expandable \? 10050 : 10120/);
   assert.match(mention, /height:\s*expandable \? style\?\.height : '100%'/);
   assert.match(mention, /minHeight:\s*expandable \? \(style\?\.minHeight \?\? 56\) : '100%'/);

@@ -380,8 +380,9 @@ export interface VideoModelDef {
   maxRefImages: number;
 }
 
-// veo3.1 完整 13 个子模型(主项目 index.html line 1350)
+// Veo 系列子模型。第一项是切到 Veo 分类时的默认具体模型。
 const VEO_MODELS = [
+  { value: 'veo-omni-10s', label: 'veo-omni-10s' },
   { value: 'veo3', label: 'veo3' },
   { value: 'veo3-fast', label: 'veo3-fast' },
   { value: 'veo3-pro', label: 'veo3-pro' },
@@ -425,14 +426,15 @@ export const VIDEO_MODELS: VideoModelDef[] = [
   },
   {
     id: 'veo3.1',
-    label: 'Veo 3.1',
+    label: 'Veo',
     kind: 'veo',
     provider: 'zhenzhen',
-    description: 'Google Veo 3.1 系列 (最多 3 张参考图)',
+    description: 'Google Veo 系列 (默认 veo-omni-10s)',
     apiModelOptions: VEO_MODELS,
     // 主项目 veo_ratio 只有 16:9 / 9:16(line 1352)
     ratios: ['16:9', '9:16'],
     defaultRatio: '16:9',
+    defaultDuration: 10,
     supportImages: true,
     maxRefImages: 3,
   },
@@ -441,16 +443,17 @@ export const VIDEO_MODELS: VideoModelDef[] = [
     label: 'Sora2',
     kind: 'sora',
     provider: 'zhenzhen',
-    description: 'Sora2 FAL 文生/图生视频 (默认 Base64 参考图)',
+    description: 'Sora2 支持 FAL 与 Zhenzhen API 双渠道；旧 sora-2 保持 FAL',
     apiModelOptions: [
       { value: 'sora-2', label: 'sora-2 (FAL)' },
+      { value: 'sora-2-zhenzhen', label: 'sora-2 (Zhenzhen API)' },
     ],
-    ratios: ['16:9', '9:16', 'auto'],
+    ratios: ['16:9', '9:16'],
     defaultRatio: '16:9',
-    durations: [4, 8, 12, 16, 20],
-    defaultDuration: 4,
-    resolutions: ['720p', 'auto'],
-    defaultResolution: '720p',
+    durations: [15],
+    defaultDuration: 15,
+    resolutions: [],
+    defaultResolution: '',
     supportImages: true,
     maxRefImages: 1,
   },

@@ -123,6 +123,23 @@ test('advancedProviderModelOptions uses explicit lists before safe provider defa
       'doubao-seedance-1-0-lite-i2v-250428',
     ],
   );
+  assert.deepEqual(
+    advancedProviderModelOptions({
+      id: 'volcengine',
+      protocol: 'volcengine',
+      videoModels: [
+        'doubao-seedance-2-0-260128',
+        'doubao-seedance-2-0-fast-260128',
+      ],
+      defaults: {
+        videoModel: 'doubao-seedance-2-0-fast-260128',
+      },
+    } as any, 'video'),
+    [
+      'doubao-seedance-2-0-fast-260128',
+      'doubao-seedance-2-0-260128',
+    ],
+  );
 });
 
 test('externalImageSizeFor maps T8 ratio and size labels to stable WxH values', () => {

@@ -1,7 +1,10 @@
 import {
   forwardRef,
+  useEffect,
   useRef,
   useState,
+  type CompositionEvent as ReactCompositionEvent,
+  type InputEvent as ReactInputEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MutableRefObject,
   type TextareaHTMLAttributes,
@@ -39,11 +42,15 @@ const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProps>(func
   className,
   style: textareaStyle,
   onKeyDown,
+  onBeforeInput,
+  onCompositionStart,
+  onCompositionEnd,
   placeholder,
   readOnly,
   ...rest
 }: PromptTextareaProps, forwardedRef) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composingRef = useRef(false);
   const { theme, style: themeStyle } = useThemeStore();
   const shortcuts = useShortcutStore((s) => s.shortcuts);
   const expandCombos = shortcuts['editor.expand-prompt'];
@@ -51,13 +58,28 @@ const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProps>(func
   const isPixel = propIsPixel ?? themeStyle === 'pixel';
   const [expanded, setExpanded] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
+  const [localValue, setLocalValue] = useState(value || '');
   const [draft, setDraft] = useState(value || '');
   const shortcutText = formatShortcutList(expandCombos);
   const templateEnabled = promptTemplateKind !== false;
   const effectiveTemplateKind = promptTemplateKind || 'image';
 
+  useEffect(() => {
+    if (!composingRef.current) setLocalValue(value || '');
+  }, [value]);
+
+  const commitValue = (nextValue: string) => {
+    setLocalValue(nextValue);
+    if (!readOnly) onValueChange(nextValue);
+  };
+
+  const isImeCompositionInput = (event: Event | null | undefined) => {
+    const native = event as (InputEvent & { isComposing?: boolean }) | null | undefined;
+    return !!native?.isComposing || /Composition/i.test(String(native?.inputType || ''));
+  };
+
   const openExpanded = () => {
-    setDraft(value || '');
+    setDraft(localValue || '');
     setExpanded(true);
   };
 
@@ -67,11 +89,15 @@ const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProps>(func
   };
 
   const applyExpanded = () => {
-    if (!readOnly) onValueChange(draft);
+    commitValue(draft);
     closeExpanded();
   };
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (composingRef.current || event.nativeEvent.isComposing) {
+      onKeyDown?.(event);
+      return;
+    }
     if (matchesAnyShortcut(expandCombos, event.nativeEvent)) {
       event.preventDefault();
       event.stopPropagation();
@@ -79,6 +105,26 @@ const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProps>(func
       return;
     }
     onKeyDown?.(event);
+  };
+
+  const handleBeforeInput = (event: ReactInputEvent<HTMLTextAreaElement>) => {
+    if (isImeCompositionInput(event.nativeEvent)) composingRef.current = true;
+    onBeforeInput?.(event);
+  };
+
+  const handleCompositionStart = (event: ReactCompositionEvent<HTMLTextAreaElement>) => {
+    composingRef.current = true;
+    onCompositionStart?.(event);
+  };
+
+  const handleCompositionEnd = (event: ReactCompositionEvent<HTMLTextAreaElement>) => {
+    onCompositionEnd?.(event);
+    const fallbackValue = event.currentTarget.value;
+    window.setTimeout(() => {
+      const nextValue = textareaRef.current?.value ?? fallbackValue;
+      composingRef.current = false;
+      commitValue(nextValue);
+    }, 0);
   };
 
   const expandButtonCls = isPixel
@@ -101,9 +147,17 @@ const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProps>(func
       <textarea
         {...rest}
         ref={setTextareaRef}
-        value={value}
+        value={localValue}
         readOnly={readOnly}
-        onChange={(event) => onValueChange(event.target.value)}
+        onBeforeInput={handleBeforeInput}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          setLocalValue(nextValue);
+          if (composingRef.current || isImeCompositionInput(event.nativeEvent)) return;
+          if (!readOnly) onValueChange(nextValue);
+        }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         className={className}
@@ -168,7 +222,7 @@ const PromptTextarea = forwardRef<HTMLTextAreaElement, PromptTextareaProps>(func
         initialKind={effectiveTemplateKind}
         value={value || ''}
         onApply={(nextValue) => {
-          if (!readOnly) onValueChange(nextValue);
+          commitValue(nextValue);
         }}
         onClose={() => {
           setTemplateOpen(false);

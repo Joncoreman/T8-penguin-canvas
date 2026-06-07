@@ -1,54 +1,139 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { Handle, Position, useReactFlow, type NodeProps } from '@xyflow/react';
 import {
   AlertCircle,
   Box,
+  Camera,
   CheckCircle2,
   Copy,
+  Crosshair,
   Download,
+  Eye,
+  EyeOff,
+  FileJson,
   Globe2,
+  HelpCircle,
   History,
+  Image as ImageIcon,
+  Lock,
   Loader2,
+  MapPin,
+  Maximize2,
+  Move,
   PackagePlus,
+  Palette,
   Pause,
   Play,
+  Plus,
   RotateCcw,
+  ScanLine,
   Sparkles,
+  Trash2,
+  Unlock,
   Upload,
+  UserPlus,
+  Users,
+  X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
 import { useRunTrigger } from '../../hooks/useRunTrigger';
 import { uploadDataUrl, uploadFileBlob } from '../../services/imageOps';
-import { queryImageStatus, submitImageAsync } from '../../services/generation';
+import { generateLlm, queryImageStatus, submitImageAsync } from '../../services/generation';
 import * as api from '../../services/api';
 import { logBus } from '../../stores/logs';
 import { taskCompletionSound } from '../../stores/taskCompletionSound';
 import { trackAchievementEvent } from '../../stores/achievements';
 import {
   PANORAMA_FIXED_PROMPT,
+  PANORAMA_CAMERA_PRESETS,
+  PANORAMA_AVATAR_COLORS,
+  PANORAMA_AVATAR_POSES,
+  PANORAMA_ACTION_TERMS,
+  PANORAMA_COMPOSITION_GUIDES,
   PANORAMA_PROMPT_TEMPLATES,
   PANORAMA_RATIO_OPTIONS,
+  PANORAMA_SHOT_PRESETS,
+  PANORAMA_SHOT_TARGET_BONES,
+  PANORAMA_KEYFRAME_SEQUENCE_DEFAULT,
+  PANORAMA_KEYFRAME_SEQUENCE_MAX,
   PANORAMA_SIZE_LEVELS,
+  buildPanoramaActionPlannerSystemPrompt,
+  buildPanoramaActionPlannerUserPrompt,
+  buildPanoramaAvatarSequenceFrames,
+  buildPanoramaLocalActionPlan,
+  buildPanoramaScenePrompt,
+  buildPanoramaSceneSnapshot,
   buildPanoramaImageRequest,
   buildPanoramaPromptFinal,
   clampPanoramaNumber,
+  deletePanoramaAvatarKeyframe,
+  deletePanoramaAvatar,
+  deletePanoramaCameraView,
+  deletePanoramaHotspot,
+  deletePanoramaOcclusionMask,
   estimatePanoramaImageQuality,
   isLikelyPanoramaImage,
+  markPanoramaDefaultCameraView,
+  normalizePanoramaYaw,
+  inferPanoramaAvatarPoseFromText,
+  panoramaAvatarPoseDefaultParams,
+  panoramaAvatarPoseRootDefaults,
   panoramaRenderSize,
   prependPanoramaHistory,
+  projectPanoramaAvatar,
+  projectPanoramaHotspot,
+  projectPanoramaShotTarget,
+  parsePanoramaActionPlanJson,
   resolvePanoramaRatio,
+  safePanoramaAvatarFaceMode,
+  safePanoramaAvatarGroundMode,
+  safePanoramaAvatarPose,
+  safePanoramaCompositionGuide,
+  sanitizePanoramaSequenceFrameCount,
+  sanitizePanoramaShotCamera,
+  sanitizePanoramaActionPlan,
+  sanitizePanoramaAvatarKeyframes,
+  sanitizePanoramaAvatars,
+  sanitizePanoramaCameraViews,
+  sanitizePanoramaHotspots,
+  sanitizePanoramaOcclusionMasks,
+  sanitizePanoramaViewAngles,
+  screenPointToPanoramaAngles,
   safePanoramaGenerationMode,
   safePanoramaPanelMode,
   safePanoramaSizeLevel,
+  updatePanoramaAvatar,
+  updatePanoramaHotspot,
+  upsertPanoramaAvatarKeyframe,
+  upsertPanoramaAvatar,
+  upsertPanoramaCameraView,
+  upsertPanoramaHotspot,
+  upsertPanoramaOcclusionMask,
   validatePanoramaGeneration,
+  type PanoramaActionPlan,
+  type PanoramaActionPlanAvatar,
+  type PanoramaActionPlanKeyframe,
+  type PanoramaAvatar,
+  type PanoramaAvatarKeyframe,
+  type PanoramaAvatarFaceMode,
+  type PanoramaAvatarGroundMode,
+  type PanoramaAvatarPoseId,
+  type PanoramaCameraView,
+  type PanoramaCompositionGuideId,
   type PanoramaGenerationHistoryItem,
   type PanoramaGenerationMode,
+  type PanoramaHotspot,
+  type PanoramaOcclusionMask,
   type PanoramaPanelMode,
   type PanoramaImageQuality,
   type PanoramaRatioId,
+  type PanoramaShotCamera,
   type PanoramaSizeLevel,
 } from '../../utils/panorama3d';
+import { materialSetItemsToData, type MaterialSetItem } from '../../utils/materialSet';
+import { placeSingleNode } from '../../utils/nodePlacement';
 import { useUpdateNodeData } from './useUpdateNodeData';
 import { useUpstreamMaterials } from './useUpstreamMaterials';
 import { useHasAutoOutput } from './useHasAutoOutput';
@@ -66,6 +151,8 @@ interface PanoramaRuntime {
   scene?: any;
   camera?: any;
   sphere?: any;
+  avatarRoot?: any;
+  avatarMeshes?: Map<string, any>;
   texture?: any;
   image?: HTMLImageElement;
   animationId?: number;
@@ -78,6 +165,115 @@ interface DragState {
   y: number;
   yaw: number;
   pitch: number;
+}
+
+interface AvatarDragState {
+  pointerId: number;
+  avatarId: string;
+  rect: DOMRect;
+}
+
+interface AvatarRotateState {
+  pointerId: number;
+  avatarId: string;
+  startX: number;
+  startY: number;
+  heading: number;
+  rootPitch: number;
+}
+
+type AvatarIkHandleId =
+  | 'shoulderL'
+  | 'shoulderR'
+  | 'elbowL'
+  | 'elbowR'
+  | 'handL'
+  | 'handR'
+  | 'hipL'
+  | 'hipR'
+  | 'kneeL'
+  | 'kneeR'
+  | 'footL'
+  | 'footR';
+
+interface AvatarIkControl {
+  id: AvatarIkHandleId;
+  label: string;
+  kind: 'joint' | 'end';
+  avatarId: string;
+  x: number;
+  y: number;
+}
+
+interface AvatarIkDragState {
+  pointerId: number;
+  avatarId: string;
+  handleId: AvatarIkHandleId;
+  rect: DOMRect;
+}
+
+type OcclusionDragMode = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+type PanoramaInteractionSurface = 'node' | 'director';
+
+const OCCLUSION_MASK_LABEL_CLASS = 'pointer-events-none absolute left-1 top-1 z-40 max-w-[90%] truncate rounded-md border border-slate-950/75 bg-amber-100 px-2 py-1 text-[10px] font-black text-slate-950 shadow-[0_0_0_2px_rgba(255,255,255,.86),0_5px_12px_rgba(2,6,23,.42)]';
+const OCCLUSION_MASK_LABEL_STYLE = {
+  backgroundColor: '#fef3c7',
+  color: '#0f172a',
+  textShadow: '0 1px 0 rgba(255,255,255,.72)',
+} as const;
+const PANORAMA_FLOATING_ICON_BUTTON_STYLE = {
+  backgroundColor: '#ffffff',
+  color: '#0f172a',
+  borderColor: '#0f172a',
+  boxShadow: '0 0 0 2px rgba(255,255,255,.92), 0 5px 14px rgba(15,23,42,.42)',
+} as const;
+const PANORAMA_MOVE_HANDLE_STYLE = {
+  backgroundColor: '#ffffff',
+  color: '#0f172a',
+  borderColor: '#0f172a',
+  boxShadow: '0 0 0 2px rgba(255,255,255,.82), 0 4px 10px rgba(15,23,42,.38)',
+} as const;
+const PANORAMA_ROTATE_HANDLE_STYLE = {
+  backgroundColor: '#fef3c7',
+  color: '#0f172a',
+  borderColor: '#92400e',
+  boxShadow: '0 0 0 2px rgba(255,255,255,.85), 0 4px 10px rgba(15,23,42,.38)',
+} as const;
+
+const getAvatarToolDockStyle = (
+  avatar: Pick<PanoramaAvatar, 'scale'>,
+  pos: { x: number; y: number },
+  surface: PanoramaInteractionSurface,
+) => {
+  const scale = clampPanoramaNumber(avatar.scale, 0.35, 2.6, 1);
+  const horizontal = Math.round((surface === 'director' ? 34 : 28) + scale * (surface === 'director' ? 10 : 8));
+  const dockLeft = pos.x > 88;
+  const pinToTop = pos.y < 12;
+  const pinToBottom = pos.y > 88;
+  return {
+    left: dockLeft ? undefined : `${horizontal}px`,
+    right: dockLeft ? `${horizontal}px` : undefined,
+    top: pinToBottom ? undefined : pinToTop ? '-2px' : '50%',
+    bottom: pinToBottom ? '-2px' : undefined,
+    transform: pinToTop || pinToBottom ? undefined : 'translateY(-50%)',
+  };
+};
+
+interface OcclusionMaskDragState {
+  pointerId: number;
+  maskId: string;
+  mode: OcclusionDragMode;
+  startX: number;
+  startY: number;
+  rect: DOMRect;
+  mask: PanoramaOcclusionMask;
+}
+
+interface DirectorStageBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }
 
 function clampFov(value: unknown) {
@@ -100,6 +296,463 @@ function compactPrompt(value: string, fallback = '全景场景') {
   const text = value.replace(/\s+/g, ' ').trim();
   if (!text) return fallback;
   return text.length > 24 ? `${text.slice(0, 24)}...` : text;
+}
+
+function avatarName(index: number) {
+  return `角色 ${index + 1}`;
+}
+
+function inferAvatarPoseFromText(value: unknown): PanoramaAvatarPoseId {
+  return inferPanoramaAvatarPoseFromText(value) || 'standing';
+}
+
+function avatarWorldPosition(THREE: ThreeModule, avatar: PanoramaAvatar) {
+  const phi = THREE.MathUtils.degToRad(90 - avatar.pitch);
+  const theta = THREE.MathUtils.degToRad(avatar.yaw);
+  const radius = clampPanoramaNumber(avatar.distance, 80, 420, 220);
+  return new THREE.Vector3(
+    radius * Math.sin(phi) * Math.cos(theta),
+    radius * Math.cos(phi) + avatar.heightOffset,
+    radius * Math.sin(phi) * Math.sin(theta),
+  );
+}
+
+function poseParamNumber(poseParams: Record<string, number | string | boolean> | undefined, key: string, fallback: number) {
+  const value = poseParams?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function poseParamMaybeNumber(poseParams: Record<string, number | string | boolean> | undefined, key: string) {
+  const value = poseParams?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function poseRotationWithOffset(
+  poseParams: Record<string, number | string | boolean> | undefined,
+  absoluteKey: string,
+  offsetKey: string,
+  current: number,
+) {
+  const absolute = poseParamMaybeNumber(poseParams, absoluteKey);
+  if (absolute !== undefined) return absolute;
+  return current + poseParamNumber(poseParams, offsetKey, 0);
+}
+
+const AVATAR_IK_CONTROL_META: Array<{ id: AvatarIkHandleId; objectName: string; label: string; kind: 'joint' | 'end' }> = [
+  { id: 'shoulderL', objectName: 'armL', label: '左肩', kind: 'joint' },
+  { id: 'shoulderR', objectName: 'armR', label: '右肩', kind: 'joint' },
+  { id: 'elbowL', objectName: 'armLLower', label: '左肘', kind: 'joint' },
+  { id: 'elbowR', objectName: 'armRLower', label: '右肘', kind: 'joint' },
+  { id: 'handL', objectName: 'handL-control', label: '左手', kind: 'end' },
+  { id: 'handR', objectName: 'handR-control', label: '右手', kind: 'end' },
+  { id: 'hipL', objectName: 'legL', label: '左髋', kind: 'joint' },
+  { id: 'hipR', objectName: 'legR', label: '右髋', kind: 'joint' },
+  { id: 'kneeL', objectName: 'legLLower', label: '左膝', kind: 'joint' },
+  { id: 'kneeR', objectName: 'legRLower', label: '右膝', kind: 'joint' },
+  { id: 'footL', objectName: 'footL-control', label: '左脚', kind: 'end' },
+  { id: 'footR', objectName: 'footR-control', label: '右脚', kind: 'end' },
+];
+
+function projectThreeObjectToCanvas(THREE: ThreeModule, camera: any, canvas: HTMLCanvasElement, object: any) {
+  const world = new THREE.Vector3();
+  object.getWorldPosition(world);
+  const projected = world.clone().project(camera);
+  if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y) || projected.z < -1 || projected.z > 1) {
+    return null;
+  }
+  return {
+    x: ((projected.x + 1) / 2) * 100,
+    y: ((1 - projected.y) / 2) * 100,
+  };
+}
+
+function collectAvatarIkControls(
+  THREE: ThreeModule,
+  rt: PanoramaRuntime,
+  canvas: HTMLCanvasElement,
+  avatarId: string,
+): AvatarIkControl[] {
+  if (!avatarId || !rt.camera || !rt.avatarMeshes) return [];
+  const mesh = rt.avatarMeshes.get(avatarId);
+  if (!mesh?.visible) return [];
+  return AVATAR_IK_CONTROL_META
+    .map((item) => {
+      const object = mesh.getObjectByName?.(item.objectName);
+      if (!object) return null;
+      const pos = projectThreeObjectToCanvas(THREE, rt.camera, canvas, object);
+      if (!pos || pos.x < -5 || pos.x > 105 || pos.y < -5 || pos.y > 105) return null;
+      return { id: item.id, label: item.label, kind: item.kind, avatarId, x: pos.x, y: pos.y };
+    })
+    .filter((item): item is AvatarIkControl => Boolean(item));
+}
+
+function clampAvatarIkRotation(value: number) {
+  return Math.max(-1.65, Math.min(1.65, value));
+}
+
+function stopPanoramaMouseDown(event: ReactMouseEvent<HTMLElement>) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function setPointerCaptureSafe(target: Element | null | undefined, pointerId: number) {
+  try {
+    target?.setPointerCapture?.(pointerId);
+  } catch {
+    // ReactFlow may have already claimed or released this pointer.
+  }
+}
+
+function releasePointerCaptureSafe(target: (EventTarget & Element) | null | undefined, pointerId: number) {
+  try {
+    target?.releasePointerCapture?.(pointerId);
+  } catch {
+    // The fallback stage may receive the pointer-up even when the original handle owns capture.
+  }
+}
+
+function avatarIkKeys(handleId: AvatarIkHandleId) {
+  if (handleId === 'shoulderL') return { root: 'armLOffsetZ', bend: '', side: -1, rootScale: 0.012, bendScale: 0 };
+  if (handleId === 'shoulderR') return { root: 'armROffsetZ', bend: '', side: 1, rootScale: 0.012, bendScale: 0 };
+  if (handleId === 'elbowL') return { root: '', bend: 'armLBendOffsetZ', side: -1, rootScale: 0, bendScale: 0.012 };
+  if (handleId === 'elbowR') return { root: '', bend: 'armRBendOffsetZ', side: 1, rootScale: 0, bendScale: 0.012 };
+  if (handleId === 'handL') return { root: 'armLOffsetZ', bend: 'armLBendOffsetZ', side: -1, rootScale: 0.01, bendScale: 0.009 };
+  if (handleId === 'handR') return { root: 'armROffsetZ', bend: 'armRBendOffsetZ', side: 1, rootScale: 0.01, bendScale: 0.009 };
+  if (handleId === 'hipL') return { root: 'legLOffsetZ', bend: '', side: -1, rootScale: 0.011, bendScale: 0 };
+  if (handleId === 'hipR') return { root: 'legROffsetZ', bend: '', side: 1, rootScale: 0.011, bendScale: 0 };
+  if (handleId === 'kneeL') return { root: '', bend: 'legLBendOffsetZ', side: -1, rootScale: 0, bendScale: 0.011 };
+  if (handleId === 'kneeR') return { root: '', bend: 'legRBendOffsetZ', side: 1, rootScale: 0, bendScale: 0.011 };
+  if (handleId === 'footL') return { root: 'legLOffsetZ', bend: 'legLBendOffsetZ', side: -1, rootScale: 0.01, bendScale: 0.009 };
+  return { root: 'legROffsetZ', bend: 'legRBendOffsetZ', side: 1, rootScale: 0.01, bendScale: 0.009 };
+}
+
+function avatarIkTrackedObjectName(handleId: AvatarIkHandleId) {
+  if (handleId === 'shoulderL') return 'armLLower';
+  if (handleId === 'shoulderR') return 'armRLower';
+  if (handleId === 'elbowL' || handleId === 'handL') return 'handL-control';
+  if (handleId === 'elbowR' || handleId === 'handR') return 'handR-control';
+  if (handleId === 'hipL') return 'legLLower';
+  if (handleId === 'hipR') return 'legRLower';
+  if (handleId === 'kneeL' || handleId === 'footL') return 'footL-control';
+  return 'footR-control';
+}
+
+function setLimb(
+  group: any,
+  name: string,
+  rotZ: number,
+  rotX = 0,
+  bendZ = 0,
+  bendX = 0,
+) {
+  const limb = group.getObjectByName?.(name);
+  if (!limb) return;
+  limb.rotation.z = rotZ;
+  limb.rotation.x = rotX;
+  limb.rotation.y = 0;
+  const lower = group.getObjectByName?.(`${name}Lower`);
+  if (lower) {
+    lower.rotation.z = bendZ;
+    lower.rotation.x = bendX;
+    lower.rotation.y = 0;
+  }
+}
+
+function setJoint(group: any, name: string, x: number, y: number, z = 0) {
+  const joint = group.getObjectByName?.(name);
+  if (!joint) return;
+  joint.position.set(x, y, z);
+}
+
+function applyAvatarPose(
+  group: any,
+  poseId: PanoramaAvatarPoseId,
+  poseParams?: Record<string, number | string | boolean>,
+) {
+  const pi = Math.PI;
+  const resolvedPoseParams = {
+    ...(panoramaAvatarPoseDefaultParams(poseId) || {}),
+    ...(poseParams || {}),
+  };
+  group.userData.poseYOffset = 0;
+  group.userData.poseRootPitch = 0;
+  group.userData.poseRootRoll = 0;
+  group.rotation.x = 0;
+  group.rotation.z = 0;
+  setLimb(group, 'armL', -0.08, 0, -0.08);
+  setLimb(group, 'armR', 0.08, 0, 0.08);
+  setLimb(group, 'legL', -0.04, 0, -0.04);
+  setLimb(group, 'legR', 0.04, 0, 0.04);
+  const head = group.getObjectByName?.('head');
+  const torso = group.getObjectByName?.('torso');
+  const neck = group.getObjectByName?.('neck');
+  if (head) head.rotation.set(0, 0, 0);
+  if (torso) {
+    torso.position.y = 32;
+    torso.scale.set(1, 1, 1);
+    torso.rotation.set(0, 0, 0);
+  }
+  if (neck) {
+    neck.position.y = 50;
+    neck.rotation.set(0, 0, 0);
+  }
+  if (head) head.position.y = 58;
+  setJoint(group, 'armL', -8.8, 43);
+  setJoint(group, 'armR', 8.8, 43);
+  setJoint(group, 'legL', -3.8, 20);
+  setJoint(group, 'legR', 3.8, 20);
+  if (poseId === 'walking') {
+    setLimb(group, 'armL', -0.22, 0.03, -0.12);
+    setLimb(group, 'armR', 0.2, -0.03, 0.12);
+    setLimb(group, 'legL', -0.18, -0.04, -0.14);
+    setLimb(group, 'legR', 0.2, 0.04, 0.14);
+  } else if (poseId === 'running') {
+    setLimb(group, 'armL', -0.48, 0.08, -0.14);
+    setLimb(group, 'armR', 0.52, -0.08, 0.14);
+    setLimb(group, 'legL', -0.3, -0.08, -0.28);
+    setLimb(group, 'legR', 0.34, 0.08, 0.28);
+  } else if (poseId === 'sitting') {
+    setLimb(group, 'armL', -0.12, 0, -0.08);
+    setLimb(group, 'armR', 0.12, 0, 0.08);
+    setLimb(group, 'legL', -0.38, -0.12, -0.58);
+    setLimb(group, 'legR', 0.38, -0.12, 0.58);
+    if (torso) torso.position.y = 27;
+    if (neck) neck.position.y = 45;
+    if (head) head.position.y = 53;
+    setJoint(group, 'armL', -8.6, 37);
+    setJoint(group, 'armR', 8.6, 37);
+    setJoint(group, 'legL', -4.2, 12);
+    setJoint(group, 'legR', 4.2, 12);
+  } else if (poseId === 'wave') {
+    setLimb(group, 'armL', -0.08, 0, -0.08);
+    setLimb(group, 'armR', 2.34, -0.04, 0.34, 0.02);
+    setJoint(group, 'armR', 8.4, 44);
+    if (head) head.rotation.y = -0.08;
+  } else if (poseId === 'pointing') {
+    setLimb(group, 'armL', -0.08, 0, -0.08);
+    setLimb(group, 'armR', 1.34, -0.08, 0.02);
+    setJoint(group, 'armR', 8.7, 42);
+  } else if (poseId === 'look-back') {
+    if (head) head.rotation.y = pi * 0.62;
+    if (torso) torso.rotation.y = 0.18;
+  } else if (poseId === 'hold-object') {
+    setLimb(group, 'armL', -0.58, -0.18, -0.18, 0.04);
+    setLimb(group, 'armR', 0.58, -0.18, 0.18, 0.04);
+    setJoint(group, 'armL', -8.4, 41);
+    setJoint(group, 'armR', 8.4, 41);
+  } else if (poseId === 'talking') {
+    setLimb(group, 'armL', -0.14, -0.04, -0.06);
+    setLimb(group, 'armR', 0.82, -0.06, 0.18);
+    if (head) head.rotation.y = -0.06;
+  } else if (poseId === 'combat') {
+    setLimb(group, 'armL', -0.72, -0.08, -0.18);
+    setLimb(group, 'armR', 0.86, 0.06, 0.18);
+    setLimb(group, 'legL', -0.28, -0.04, -0.16);
+    setLimb(group, 'legR', 0.36, 0.04, 0.16);
+    if (torso) torso.position.y = 30;
+  } else if (poseId === 'jump') {
+    setLimb(group, 'armL', -1.02, -0.04, -0.16);
+    setLimb(group, 'armR', 1.02, -0.04, 0.16);
+    setLimb(group, 'legL', -0.3, 0.04, -0.32);
+    setLimb(group, 'legR', 0.32, -0.04, 0.32);
+    group.userData.poseYOffset = 10;
+  } else if (poseId === 'crouch') {
+    setLimb(group, 'armL', -0.22, -0.04, -0.12);
+    setLimb(group, 'armR', 0.22, -0.04, 0.12);
+    setLimb(group, 'legL', -0.44, -0.12, -0.62);
+    setLimb(group, 'legR', 0.44, -0.12, 0.62);
+    if (torso) {
+      torso.position.y = 24;
+      torso.scale.y = 0.82;
+    }
+    if (neck) neck.position.y = 42;
+    if (head) head.position.y = 49;
+    setJoint(group, 'armL', -8.4, 35);
+    setJoint(group, 'armR', 8.4, 35);
+    setJoint(group, 'legL', -4.2, 14);
+    setJoint(group, 'legR', 4.2, 14);
+  } else if (poseId === 'flying-kick') {
+    setLimb(group, 'armL', -0.6, -0.08, -0.16);
+    setLimb(group, 'armR', 0.72, 0.08, 0.16);
+    setLimb(group, 'legL', -0.56, -0.1, -0.44);
+    setLimb(group, 'legR', 1.08, 0.08, 0.04);
+    group.userData.poseYOffset = 12;
+    group.userData.poseRootPitch = -4;
+    group.userData.poseRootRoll = 0;
+    if (torso) torso.position.y = 31;
+    setJoint(group, 'armL', -8.8, 41);
+    setJoint(group, 'armR', 8.8, 41);
+    setJoint(group, 'legL', -3.6, 18);
+    setJoint(group, 'legR', 3.6, 18);
+  } else if (poseId === 'hit-back') {
+    setLimb(group, 'armL', -0.82, 0.04, -0.14);
+    setLimb(group, 'armR', 0.9, 0.04, 0.14);
+    setLimb(group, 'legL', -0.2, -0.04, -0.08);
+    setLimb(group, 'legR', 0.26, 0.04, 0.08);
+    group.userData.poseYOffset = 4;
+    group.userData.poseRootPitch = 4;
+    group.userData.poseRootRoll = 0;
+    if (head) head.rotation.y = -0.12;
+    if (torso) torso.position.y = 31;
+    setJoint(group, 'armL', -8.8, 42);
+    setJoint(group, 'armR', 8.8, 42);
+    setJoint(group, 'legL', -4.4, 19);
+    setJoint(group, 'legR', 4.2, 20);
+  } else if (poseId === 'kneel') {
+    setLimb(group, 'armL', -0.24, -0.04, -0.1);
+    setLimb(group, 'armR', 0.22, 0.04, 0.1);
+    setLimb(group, 'legL', -0.18, -0.14, -0.62);
+    setLimb(group, 'legR', 0.48, 0.08, 0.48);
+    group.userData.poseRootPitch = 0;
+    if (torso) torso.position.y = 25;
+    if (neck) neck.position.y = 43;
+    if (head) head.position.y = 50;
+    setJoint(group, 'armL', -8.4, 36);
+    setJoint(group, 'armR', 8.4, 36);
+    setJoint(group, 'legL', -4.2, 12);
+    setJoint(group, 'legR', 4.2, 12);
+  } else if (poseId === 'lying') {
+    setLimb(group, 'armL', -0.38, -0.04, -0.08);
+    setLimb(group, 'armR', 0.38, 0.04, 0.08);
+    setLimb(group, 'legL', -0.08, -0.04, -0.08);
+    setLimb(group, 'legR', 0.1, 0.04, 0.08);
+    group.userData.poseRootRoll = 0;
+    if (torso) torso.position.y = 25;
+    if (neck) neck.position.y = 43;
+    if (head) head.position.y = 50;
+    setJoint(group, 'armL', -8.6, 36);
+    setJoint(group, 'armR', 8.6, 36);
+    setJoint(group, 'legL', -4.2, 14);
+    setJoint(group, 'legR', 4.2, 14);
+  }
+  group.userData.poseYOffset += poseParamNumber(resolvedPoseParams, 'poseYOffset', 0);
+  group.userData.poseRootPitch += poseParamNumber(resolvedPoseParams, 'poseRootPitch', 0);
+  group.userData.poseRootRoll += poseParamNumber(resolvedPoseParams, 'poseRootRoll', 0);
+  setLimb(group, 'armL',
+    poseRotationWithOffset(resolvedPoseParams, 'armLZ', 'armLOffsetZ', group.getObjectByName?.('armL')?.rotation.z || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'armLX', 'armLOffsetX', group.getObjectByName?.('armL')?.rotation.x || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'armLBendZ', 'armLBendOffsetZ', group.getObjectByName?.('armLLower')?.rotation.z || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'armLBendX', 'armLBendOffsetX', group.getObjectByName?.('armLLower')?.rotation.x || 0),
+  );
+  setLimb(group, 'armR',
+    poseRotationWithOffset(resolvedPoseParams, 'armRZ', 'armROffsetZ', group.getObjectByName?.('armR')?.rotation.z || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'armRX', 'armROffsetX', group.getObjectByName?.('armR')?.rotation.x || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'armRBendZ', 'armRBendOffsetZ', group.getObjectByName?.('armRLower')?.rotation.z || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'armRBendX', 'armRBendOffsetX', group.getObjectByName?.('armRLower')?.rotation.x || 0),
+  );
+  setLimb(group, 'legL',
+    poseRotationWithOffset(resolvedPoseParams, 'legLZ', 'legLOffsetZ', group.getObjectByName?.('legL')?.rotation.z || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'legLX', 'legLOffsetX', group.getObjectByName?.('legL')?.rotation.x || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'legLBendZ', 'legLBendOffsetZ', group.getObjectByName?.('legLLower')?.rotation.z || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'legLBendX', 'legLBendOffsetX', group.getObjectByName?.('legLLower')?.rotation.x || 0),
+  );
+  setLimb(group, 'legR',
+    poseRotationWithOffset(resolvedPoseParams, 'legRZ', 'legROffsetZ', group.getObjectByName?.('legR')?.rotation.z || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'legRX', 'legROffsetX', group.getObjectByName?.('legR')?.rotation.x || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'legRBendZ', 'legRBendOffsetZ', group.getObjectByName?.('legRLower')?.rotation.z || 0),
+    poseRotationWithOffset(resolvedPoseParams, 'legRBendX', 'legRBendOffsetX', group.getObjectByName?.('legRLower')?.rotation.x || 0),
+  );
+}
+
+function makeAvatarMesh(THREE: ThreeModule, avatar: PanoramaAvatar, selected: boolean) {
+  const group = new THREE.Group();
+  group.userData.avatarId = avatar.id;
+  const material = new THREE.MeshBasicMaterial({
+    color: avatar.color,
+    transparent: true,
+    opacity: avatar.opacity,
+    depthTest: true,
+  });
+  const helperMaterial = new THREE.MeshBasicMaterial({
+    color: selected ? 0xffffff : avatar.color,
+    transparent: true,
+    opacity: selected ? 0.52 : 0,
+    depthTest: false,
+  });
+  const controlMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: selected ? 0.88 : 0,
+    depthTest: false,
+  });
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(6.5, 24, 4, 10), material);
+  torso.name = 'torso';
+  torso.position.y = 32;
+  group.add(torso);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.8, 5, 10), material);
+  neck.name = 'neck';
+  neck.position.y = 50;
+  group.add(neck);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(6.8, 18, 14), material);
+  head.name = 'head';
+  head.scale.set(0.9, 1.08, 0.86);
+  head.position.y = 58;
+  group.add(head);
+  const makeSegmentedLimb = (
+    name: string,
+    x: number,
+    y: number,
+    upperLength: number,
+    lowerLength: number,
+    radius: number,
+    endName: string,
+    endRadius: number,
+  ) => {
+    const joint = new THREE.Group();
+    joint.name = name;
+    joint.position.set(x, y, 0);
+    const upper = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 0.92, upperLength, 10), material);
+    upper.name = `${name}-upper-bone`;
+    upper.position.y = -upperLength / 2;
+    joint.add(upper);
+    const lowerJoint = new THREE.Group();
+    lowerJoint.name = `${name}Lower`;
+    lowerJoint.position.y = -upperLength;
+    const lower = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.88, radius * 0.78, lowerLength, 10), material);
+    lower.name = `${name}-lower-bone`;
+    lower.position.y = -lowerLength / 2;
+    lowerJoint.add(lower);
+    const end = new THREE.Mesh(new THREE.SphereGeometry(endRadius, 10, 8), material);
+    end.name = endName;
+    end.position.y = -lowerLength;
+    lowerJoint.add(end);
+    const endControl = new THREE.Mesh(new THREE.SphereGeometry(endRadius * 0.72, 10, 8), controlMaterial);
+    endControl.name = `${endName}-control`;
+    endControl.position.y = -lowerLength;
+    endControl.visible = selected;
+    lowerJoint.add(endControl);
+    joint.add(lowerJoint);
+    group.add(joint);
+    return joint;
+  };
+  makeSegmentedLimb('armL', -8.8, 43, 13.5, 13.5, 1.7, 'handL', 2.4);
+  makeSegmentedLimb('armR', 8.8, 43, 13.5, 13.5, 1.7, 'handR', 2.4);
+  makeSegmentedLimb('legL', -3.8, 20, 14.5, 14.5, 2.1, 'footL', 2.8);
+  makeSegmentedLimb('legR', 3.8, 20, 14.5, 14.5, 2.1, 'footR', 2.8);
+  const makeControlPoint = (name: string, x: number, y: number, z = 0, radius = 1.9) => {
+    const control = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 8), controlMaterial);
+    control.name = name;
+    control.position.set(x, y, z);
+    control.visible = selected;
+    group.add(control);
+    return control;
+  };
+  makeControlPoint('head-control', 0, 58, 0, 2.3);
+  makeControlPoint('pelvis-control', 0, 20, 0, 2.1);
+  const foot = new THREE.Mesh(new THREE.RingGeometry(10, 11.6, 28), helperMaterial);
+  foot.name = 'foot-ring';
+  foot.rotation.x = -Math.PI / 2;
+  foot.position.y = -11.5;
+  foot.visible = selected;
+  group.add(foot);
+  const arrow = new THREE.Mesh(new THREE.ConeGeometry(3.2, 12, 12), helperMaterial);
+  arrow.name = 'heading-arrow';
+  arrow.rotation.x = Math.PI / 2;
+  arrow.position.set(0, -10, -17);
+  arrow.visible = selected;
+  group.add(arrow);
+  applyAvatarPose(group, avatar.poseId, avatar.poseParams);
+  return group;
 }
 
 async function copyText(value: string) {
@@ -126,6 +779,191 @@ function downloadUrl(url: string, filename: string) {
   a.remove();
 }
 
+function shotFrameRect(canvas: HTMLCanvasElement, shotCamera: PanoramaShotCamera) {
+  const guide = PANORAMA_COMPOSITION_GUIDES.find((item) => item.id === shotCamera.framingRatio)?.ratio || { w: 16, h: 9 };
+  const canvasAspect = canvas.width / Math.max(1, canvas.height);
+  const targetAspect = guide.w / Math.max(1, guide.h);
+  const scale = 0.92 - clampPanoramaNumber(shotCamera.closeupStrength, 0, 100, 50) * 0.0034;
+  let width = canvas.width * scale;
+  let height = width / targetAspect;
+  if (height > canvas.height * scale) {
+    height = canvas.height * scale;
+    width = height * targetAspect;
+  }
+  if (targetAspect >= canvasAspect) {
+    width = Math.min(width, canvas.width * scale);
+    height = width / targetAspect;
+  }
+  return {
+    x: (canvas.width - width) / 2,
+    y: (canvas.height - height) / 2,
+    width,
+    height,
+  };
+}
+
+function drawShotCameraOverlay(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  shotCamera: PanoramaShotCamera,
+  shotTarget: { visible: boolean; x: number; y: number; label: string },
+) {
+  if (shotCamera.mode !== 'shot-camera') return;
+  const rect = shotFrameRect(canvas, shotCamera);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(251, 191, 36, 0.95)';
+  ctx.lineWidth = Math.max(3, Math.round(canvas.width * 0.0022));
+  ctx.setLineDash([Math.max(12, canvas.width * 0.01), Math.max(7, canvas.width * 0.006)]);
+  ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.75)';
+  ctx.fillRect(rect.x + 8, rect.y + 8, 150, 28);
+  ctx.fillStyle = '#fde68a';
+  ctx.font = `700 ${Math.max(13, Math.round(canvas.height * 0.018))}px sans-serif`;
+  ctx.fillText('导演镜头', rect.x + 18, rect.y + 27);
+  if (shotTarget.visible) {
+    const targetX = (shotTarget.x / 100) * canvas.width;
+    const targetY = (shotTarget.y / 100) * canvas.height;
+    ctx.strokeStyle = 'rgba(251, 191, 36, 0.72)';
+    ctx.lineWidth = Math.max(2, Math.round(canvas.width * 0.0014));
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2, canvas.height / 2);
+    ctx.lineTo(targetX, targetY);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(251, 191, 36, 0.95)';
+    ctx.beginPath();
+    ctx.arc(targetX, targetY, Math.max(7, Math.round(canvas.height * 0.012)), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawOcclusionMaskOverlay(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  masks: PanoramaOcclusionMask[],
+) {
+  if (masks.length === 0) return;
+  ctx.save();
+  masks.forEach((mask, index) => {
+    const x = (mask.x / 100) * canvas.width;
+    const y = (mask.y / 100) * canvas.height;
+    const w = (mask.w / 100) * canvas.width;
+    const h = (mask.h / 100) * canvas.height;
+    const alpha = Math.min(0.78, 0.22 + mask.strength / 180);
+    ctx.fillStyle = `rgba(14, 165, 233, ${alpha})`;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.lineWidth = Math.max(2, Math.round(canvas.width * 0.0014));
+    ctx.fillRect(x, y, w, h);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(2, 6, 23, 0.42)';
+    ctx.lineWidth = Math.max(1, Math.round(canvas.width * 0.0009));
+    const step = Math.max(12, Math.round(canvas.width * 0.012));
+    for (let lineX = x - h; lineX < x + w + h; lineX += step) {
+      ctx.beginPath();
+      ctx.moveTo(lineX, y + h);
+      ctx.lineTo(lineX + h, y);
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.setLineDash([Math.max(8, canvas.width * 0.006), Math.max(5, canvas.width * 0.004)]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+    const labelW = Math.max(76, Math.min(Math.max(76, w - 12), 184));
+    ctx.fillStyle = 'rgba(254, 243, 199, 0.96)';
+    ctx.fillRect(x + 6, y + 6, labelW, 28);
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.84)';
+    ctx.lineWidth = Math.max(1, Math.round(canvas.width * 0.0008));
+    ctx.strokeRect(x + 6.5, y + 6.5, labelW, 28);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = `700 ${Math.max(11, Math.round(canvas.height * 0.015))}px sans-serif`;
+    ctx.fillText(`${index + 1}. ${mask.label}`, x + 14, y + 25, Math.max(60, labelW - 18));
+  });
+  ctx.restore();
+}
+
+function drawControlSnapshotBadge(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) {
+  ctx.save();
+  const label = '控制快照';
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.78)';
+  ctx.fillRect(canvas.width - 132, 12, 112, 30);
+  ctx.strokeStyle = 'rgba(255,255,255,0.32)';
+  ctx.strokeRect(canvas.width - 132.5, 12.5, 112, 30);
+  ctx.fillStyle = '#dbeafe';
+  ctx.font = `700 ${Math.max(13, Math.round(canvas.height * 0.018))}px sans-serif`;
+  ctx.fillText(label, canvas.width - 112, 32);
+  ctx.restore();
+}
+
+function drawSequenceFrameBadge(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, label: string) {
+  if (!label) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.82)';
+  ctx.fillRect(12, canvas.height - 44, 132, 30);
+  ctx.strokeStyle = 'rgba(255,255,255,0.36)';
+  ctx.strokeRect(12.5, canvas.height - 43.5, 132, 30);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `700 ${Math.max(13, Math.round(canvas.height * 0.018))}px sans-serif`;
+  ctx.fillText(label, 26, canvas.height - 23);
+  ctx.restore();
+}
+
+async function canvasDataUrlWithLegend(
+  canvas: HTMLCanvasElement,
+  avatars: PanoramaAvatar[],
+  showLegend: boolean,
+  shotCamera: PanoramaShotCamera,
+  shotTarget: { visible: boolean; x: number; y: number; label: string },
+  occlusionMasks: PanoramaOcclusionMask[] = [],
+  options: { controlSnapshot?: boolean; sequenceLabel?: string } = {},
+) {
+  const dataUrl = canvas.toDataURL('image/png');
+  const visible = avatars.filter((item) => item.visible);
+  if ((!showLegend || visible.length === 0) && shotCamera.mode !== 'shot-camera' && occlusionMasks.length === 0 && !options.controlSnapshot && !options.sequenceLabel) return dataUrl;
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('生成图例失败'));
+    img.src = dataUrl;
+  });
+  const out = document.createElement('canvas');
+  out.width = canvas.width;
+  out.height = canvas.height;
+  const ctx = out.getContext('2d');
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0);
+  if (options.controlSnapshot) drawControlSnapshotBadge(ctx, canvas);
+  if (options.sequenceLabel) drawSequenceFrameBadge(ctx, canvas, options.sequenceLabel);
+  drawOcclusionMaskOverlay(ctx, canvas, occlusionMasks);
+  drawShotCameraOverlay(ctx, canvas, shotCamera, shotTarget);
+  if (!showLegend || visible.length === 0) return out.toDataURL('image/png');
+  const pad = Math.max(12, Math.round(canvas.width * 0.012));
+  const rowH = Math.max(22, Math.round(canvas.height * 0.032));
+  const fontSize = Math.max(12, Math.round(canvas.height * 0.018));
+  const legendW = Math.min(Math.round(canvas.width * 0.32), 260);
+  const legendH = pad + visible.length * rowH + 6;
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.72)';
+  ctx.fillRect(pad, pad, legendW, legendH);
+  ctx.strokeStyle = 'rgba(255,255,255,0.38)';
+  ctx.strokeRect(pad + 0.5, pad + 0.5, legendW - 1, legendH - 1);
+  ctx.font = `700 ${fontSize}px sans-serif`;
+  ctx.textBaseline = 'middle';
+  visible.forEach((avatar, index) => {
+    const y = pad + 15 + index * rowH;
+    ctx.fillStyle = avatar.color;
+    ctx.beginPath();
+    ctx.arc(pad + 15, y, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`${index + 1}. ${avatar.name}`, pad + 30, y, legendW - 42);
+  });
+  return out.toDataURL('image/png');
+}
+
 async function ensurePanoramaResourceCategory() {
   const categories = await api.getResourceCategories('panorama');
   if (!categories.success) throw new Error(categories.error || '读取资源库分类失败');
@@ -143,15 +981,68 @@ async function ensurePanoramaResourceCategory() {
   return created.data;
 }
 
+async function ensureImageResourceCategory(name = '3D全景场景') {
+  const categories = await api.getResourceCategories('image');
+  if (!categories.success) throw new Error(categories.error || '读取图片资源分类失败');
+  const imageCategories = categories.data.filter((cat) => cat.kind === 'image');
+  const existing =
+    imageCategories.find((cat) => cat.name === name) ||
+    imageCategories.find((cat) => cat.id === 'image_uncategorized') ||
+    imageCategories.find((cat) => cat.name === '未分类') ||
+    imageCategories[0];
+  if (existing?.name === name) return existing;
+  const created = await api.addResourceCategory('image', name);
+  if (!created.success) {
+    if (existing) return existing;
+    throw new Error(created.error || '创建图片资源分类失败');
+  }
+  return created.data;
+}
+
+const PANORAMA_DIRECTOR_SHORTCUTS = [
+  ['1-8', '切换并定位对应角色'],
+  ['Tab / Shift+Tab', '下一个 / 上一个角色'],
+  ['A', '在当前视角中心添加小人'],
+  ['P', '进入或退出放置角色模式'],
+  ['F', '定位当前角色'],
+  ['H', '显示或隐藏角色控制点'],
+  ['I', '进入或退出画面关节编辑'],
+  ['[ / ]', '上一个 / 下一个动作'],
+  ['R', '重置当前角色姿势微调'],
+  ['M', '当前视角 / 导演镜头切换'],
+  ['O', '打开全屏导演台'],
+  ['Ctrl+Enter', '动作生成输入框内本地解析'],
+  ['C', '复制场景词'],
+  ['E', '导出场景快照'],
+  ['Esc', '退出放置、关节编辑或全屏'],
+  ['?', '查看快捷键'],
+] as const;
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
+}
+
 const Panorama3DNode = (p: NodeProps) => {
   const update = useUpdateNodeData(p.id);
+  const rf = useReactFlow();
   const upstream = useUpstreamMaterials(p.id);
   const hasAutoOutput = useHasAutoOutput(p.id);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewStageRef = useRef<HTMLDivElement | null>(null);
+  const directorPreviewWrapRef = useRef<HTMLDivElement | null>(null);
+  const directorStageRef = useRef<HTMLDivElement | null>(null);
   const refInputRef = useRef<HTMLInputElement | null>(null);
   const runtimeRef = useRef<PanoramaRuntime>({ loadToken: 0 });
   const dragRef = useRef<DragState | null>(null);
+  const avatarDragRef = useRef<AvatarDragState | null>(null);
+  const avatarRotateRef = useRef<AvatarRotateState | null>(null);
+  const avatarIkDragRef = useRef<AvatarIkDragState | null>(null);
+  const avatarIkControlsRef = useRef<AvatarIkControl[]>([]);
+  const occlusionMaskDragRef = useRef<OcclusionMaskDragState | null>(null);
   const viewRef = useRef({ yaw: 0, pitch: 0, fov: 75 });
+  const avatarsRef = useRef<PanoramaAvatar[]>([]);
   const d = (p.data as any) || {};
 
   const connectedSource = upstream.images[0];
@@ -169,7 +1060,16 @@ const Panorama3DNode = (p: NodeProps) => {
   const outputUrl = typeof d.imageUrl === 'string' ? d.imageUrl : '';
   const sizeLevel: PanoramaSizeLevel = safePanoramaSizeLevel(d.panoramaSizeLevel);
   const userPrompt = typeof d.panoramaPrompt === 'string' ? d.panoramaPrompt : '';
-  const promptFinal = buildPanoramaPromptFinal(userPrompt);
+  const viewerPosition = typeof d.panoramaViewerPosition === 'string' ? d.panoramaViewerPosition : '';
+  const viewCenter = typeof d.panoramaViewCenter === 'string' ? d.panoramaViewCenter : '';
+  const buildPromptFinalFor = useCallback(
+    (prompt: string, nextContext: { viewerPosition?: string; viewCenter?: string } = {}) => buildPanoramaPromptFinal(prompt, {
+      viewerPosition: nextContext.viewerPosition ?? viewerPosition,
+      viewCenter: nextContext.viewCenter ?? viewCenter,
+    }),
+    [viewCenter, viewerPosition],
+  );
+  const promptFinal = buildPromptFinalFor(userPrompt);
   const localReferenceUrl = typeof d.panoramaReferenceUrl === 'string' ? d.panoramaReferenceUrl : '';
   const imageReferenceUrl = connectedSource?.url || localReferenceUrl;
   const generatedHistory: PanoramaGenerationHistoryItem[] = Array.isArray(d.panoramaGeneratedHistory)
@@ -181,6 +1081,74 @@ const Panorama3DNode = (p: NodeProps) => {
   const yaw = clampPanoramaNumber(d.panoramaYaw, -99999, 99999, 0);
   const pitch = clampPitch(d.panoramaPitch);
   const fov = clampFov(d.panoramaFov);
+  const cameraViews: PanoramaCameraView[] = useMemo(
+    () => sanitizePanoramaCameraViews(d.panoramaCameraViews),
+    [d.panoramaCameraViews],
+  );
+  const hotspots: PanoramaHotspot[] = useMemo(
+    () => sanitizePanoramaHotspots(d.panoramaHotspots),
+    [d.panoramaHotspots],
+  );
+  const avatars: PanoramaAvatar[] = useMemo(
+    () => sanitizePanoramaAvatars(d.panoramaAvatars),
+    [d.panoramaAvatars],
+  );
+  const avatarKeyframes: PanoramaAvatarKeyframe[] = useMemo(
+    () => sanitizePanoramaAvatarKeyframes(d.panoramaAvatarKeyframes, avatars),
+    [d.panoramaAvatarKeyframes, avatars],
+  );
+  const occlusionMasks: PanoramaOcclusionMask[] = useMemo(
+    () => sanitizePanoramaOcclusionMasks(d.panoramaOcclusionMasks),
+    [d.panoramaOcclusionMasks],
+  );
+  const keyframeSequenceCount = sanitizePanoramaSequenceFrameCount(d.panoramaKeyframeSequenceCount ?? PANORAMA_KEYFRAME_SEQUENCE_DEFAULT);
+  const activeCameraViewId = typeof d.panoramaActiveCameraViewId === 'string' ? d.panoramaActiveCameraViewId : '';
+  const activeAvatarId = typeof d.panoramaActiveAvatarId === 'string' ? d.panoramaActiveAvatarId : '';
+  const activeAvatar = avatars.find((item) => item.id === activeAvatarId) || avatars[0] || null;
+  const avatarPickMode = Boolean(d.panoramaAvatarPickMode);
+  const avatarOverlayVisible = d.panoramaActorOverlayVisible !== false;
+  const avatarIkEditMode = Boolean(d.panoramaAvatarIkEditMode);
+  const occlusionMaskVisible = d.panoramaOcclusionMaskVisible !== false;
+  const sceneLegendVisible = d.panoramaSceneLegendVisible !== false;
+  const compositionGuide: PanoramaCompositionGuideId = safePanoramaCompositionGuide(d.panoramaCompositionGuide);
+  const shotCamera: PanoramaShotCamera = useMemo(
+    () => sanitizePanoramaShotCamera(d.panoramaShotCamera),
+    [d.panoramaShotCamera],
+  );
+  const effectiveShotCamera: PanoramaShotCamera = useMemo(
+    () => sanitizePanoramaShotCamera({
+      ...shotCamera,
+      targetAvatarId: shotCamera.targetAvatarId || activeAvatar?.id || avatars[0]?.id || '',
+    }),
+    [activeAvatar?.id, avatars, shotCamera],
+  );
+  const panoramaTargets = useMemo(
+    () => rf.getNodes()
+      .filter((node) => node.type === 'panorama-3d')
+      .map((node) => ({
+        id: node.id,
+        label: node.id === p.id
+          ? '当前全景'
+          : String((node.data as any)?.title || (node.data as any)?.label || `3D全景 #${String((node.data as any)?.nodeSerialId || node.id).slice(0, 5)}`),
+      })),
+    [activeCameraViewId, hotspots.length, p.id, rf],
+  );
+  const poseTargets = useMemo(
+    () => rf.getNodes()
+      .filter((node) => node.type === 'pose-master')
+      .map((node) => {
+        const data = (node.data as any) || {};
+        return {
+          id: node.id,
+          label: String(data.title || data.label || `姿势大师 #${String(data.nodeSerialId || node.id).slice(0, 5)}`),
+          prompt: String(data.posePrompt || data.outputText || data.prompt || data.text || ''),
+          presetId: String(data.posePresetId || data.presetId || ''),
+          viewId: String(data.poseViewId || data.viewId || ''),
+          shotId: String(data.poseShotId || data.shotId || ''),
+        };
+      }),
+    [avatars.length, activeAvatarId, rf],
+  );
   const autoRotate = Boolean(d.panoramaAutoRotate);
   const isGenerating = d.status === 'generating';
   const ratio = useMemo(() => resolvePanoramaRatio(ratioId, customW, customH), [customH, customW, ratioId]);
@@ -196,6 +1164,136 @@ const Panorama3DNode = (p: NodeProps) => {
   const [copyState, setCopyState] = useState('');
   const [resourceState, setResourceState] = useState('');
   const [quality, setQuality] = useState<PanoramaImageQuality | null>(null);
+  const [cameraName, setCameraName] = useState('入口视角');
+  const [hotspotLabel, setHotspotLabel] = useState('前往');
+  const [hotspotTargetId, setHotspotTargetId] = useState(p.id);
+  const [hotspotPickMode, setHotspotPickMode] = useState(false);
+  const [sceneCopyState, setSceneCopyState] = useState('');
+  const [layoutIoState, setLayoutIoState] = useState('');
+  const [sceneResourceState, setSceneResourceState] = useState('');
+  const [poseSourceId, setPoseSourceId] = useState('');
+  const [avatarIkControls, setAvatarIkControls] = useState<AvatarIkControl[]>([]);
+  const [directorFullscreenOpen, setDirectorFullscreenOpen] = useState(false);
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  const [directorPreviewUrl, setDirectorPreviewUrl] = useState('');
+  const [activeOcclusionMaskId, setActiveOcclusionMaskId] = useState('');
+  const [keyframeSequenceDraft, setKeyframeSequenceDraft] = useState(String(keyframeSequenceCount));
+  const [actionPrompt, setActionPrompt] = useState<string>(typeof d.panoramaActionPrompt === 'string' ? d.panoramaActionPrompt : '');
+  const [actionPlan, setActionPlan] = useState<PanoramaActionPlan | null>(
+    d.panoramaActionPlan ? sanitizePanoramaActionPlan(d.panoramaActionPlan) : null,
+  );
+  const [actionPlanStatus, setActionPlanStatus] = useState('');
+  const [isPlanningAction, setIsPlanningAction] = useState(false);
+  const [directorStageBox, setDirectorStageBox] = useState<DirectorStageBox>({ left: 0, top: 0, width: 100, height: 100 });
+
+  useEffect(() => {
+    setKeyframeSequenceDraft(String(keyframeSequenceCount));
+  }, [keyframeSequenceCount]);
+
+  const updateKeyframeSequenceDraft = useCallback((value: string) => {
+    const next = value.replace(/[^\d]/g, '').slice(0, 2);
+    setKeyframeSequenceDraft(next);
+    const parsed = Number(next);
+    if (Number.isFinite(parsed) && parsed >= 2 && parsed <= PANORAMA_KEYFRAME_SEQUENCE_MAX) {
+      update({ panoramaKeyframeSequenceCount: parsed });
+    }
+  }, [update]);
+
+  const commitKeyframeSequenceDraft = useCallback(() => {
+    const next = sanitizePanoramaSequenceFrameCount(keyframeSequenceDraft);
+    setKeyframeSequenceDraft(String(next));
+    update({ panoramaKeyframeSequenceCount: next });
+  }, [keyframeSequenceDraft, update]);
+
+  useEffect(() => {
+    if (!directorFullscreenOpen) return;
+    const host = directorPreviewWrapRef.current;
+    if (!host) return;
+    const updateStageBox = () => {
+      const rect = host.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const aspect = ratio.w / Math.max(1, ratio.h);
+      let stageWidth = rect.width;
+      let stageHeight = stageWidth / aspect;
+      if (stageHeight > rect.height) {
+        stageHeight = rect.height;
+        stageWidth = stageHeight * aspect;
+      }
+      const next = {
+        left: ((rect.width - stageWidth) / 2 / rect.width) * 100,
+        top: ((rect.height - stageHeight) / 2 / rect.height) * 100,
+        width: (stageWidth / rect.width) * 100,
+        height: (stageHeight / rect.height) * 100,
+      };
+      setDirectorStageBox((prev) => (
+        Math.abs(prev.left - next.left) < 0.05 &&
+        Math.abs(prev.top - next.top) < 0.05 &&
+        Math.abs(prev.width - next.width) < 0.05 &&
+        Math.abs(prev.height - next.height) < 0.05
+          ? prev
+          : next
+      ));
+    };
+    updateStageBox();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(updateStageBox) : null;
+    observer?.observe(host);
+    window.addEventListener('resize', updateStageBox);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateStageBox);
+    };
+  }, [directorFullscreenOpen, ratio.h, ratio.w]);
+
+  const updateAvatarMeshes = useCallback(() => {
+    const rt = runtimeRef.current;
+    const THREE = rt.three;
+    if (!THREE || !rt.avatarRoot) return;
+    const view = viewRef.current;
+    avatarsRef.current.forEach((avatar) => {
+      const mesh = rt.avatarMeshes?.get(avatar.id);
+      if (!mesh) return;
+      mesh.visible = avatar.visible;
+      applyAvatarPose(mesh, avatar.poseId, avatar.poseParams);
+      const pos = avatarWorldPosition(THREE, avatar);
+      const rootHeight = avatar.groundMode === 'grounded' ? 0 : clampPanoramaNumber(avatar.rootHeight, -40, 180, 0);
+      pos.y += rootHeight + Number(mesh.userData?.poseYOffset || 0);
+      mesh.position.copy(pos);
+      const baseScale = clampPanoramaNumber(avatar.scale, 0.35, 2.6, 1);
+      mesh.scale.setScalar(baseScale);
+      const heading = avatar.faceMode === 'camera' ? view.yaw : avatar.heading;
+      const rootPitch = clampPanoramaNumber(avatar.rootPitch, -90, 90, 0) + Number(mesh.userData?.poseRootPitch || 0);
+      const rootRoll = clampPanoramaNumber(avatar.rootRoll, -120, 120, 0) + Number(mesh.userData?.poseRootRoll || 0);
+      mesh.rotation.set(
+        THREE.MathUtils.degToRad(rootPitch),
+        THREE.MathUtils.degToRad(-heading + 90),
+        THREE.MathUtils.degToRad(rootRoll),
+      );
+    });
+  }, []);
+
+  const publishAvatarIkControls = useCallback(() => {
+    const canvas = canvasRef.current;
+    const rt = runtimeRef.current;
+    const THREE = rt.three;
+    if (!canvas || !THREE || !rt.camera || !activeAvatarId || !avatarOverlayVisible || !avatarIkEditMode) {
+      if (avatarIkControlsRef.current.length) {
+        avatarIkControlsRef.current = [];
+        setAvatarIkControls([]);
+      }
+      return;
+    }
+    const next = collectAvatarIkControls(THREE, rt, canvas, activeAvatarId);
+    const prevKey = avatarIkControlsRef.current
+      .map((item) => `${item.id}:${item.avatarId}:${item.x.toFixed(2)}:${item.y.toFixed(2)}`)
+      .join('|');
+    const nextKey = next
+      .map((item) => `${item.id}:${item.avatarId}:${item.x.toFixed(2)}:${item.y.toFixed(2)}`)
+      .join('|');
+    if (prevKey !== nextKey) {
+      avatarIkControlsRef.current = next;
+      setAvatarIkControls(next);
+    }
+  }, [activeAvatarId, avatarIkEditMode, avatarOverlayVisible]);
 
   const drawFrame = useCallback(() => {
     const canvas = canvasRef.current;
@@ -220,9 +1318,11 @@ const Panorama3DNode = (p: NodeProps) => {
     );
     rt.camera.position.set(0, 0, 0);
     rt.camera.lookAt(target);
+    updateAvatarMeshes();
     rt.renderer.render(rt.scene, rt.camera);
+    publishAvatarIkControls();
     return true;
-  }, []);
+  }, [publishAvatarIkControls, updateAvatarMeshes]);
 
   const ensureRenderer = useCallback(async () => {
     const canvas = canvasRef.current;
@@ -251,14 +1351,45 @@ const Panorama3DNode = (p: NodeProps) => {
       const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
       rt.sphere = new THREE.Mesh(geometry, material);
       rt.scene.add(rt.sphere);
+      rt.avatarRoot = new THREE.Group();
+      rt.avatarRoot.name = 'panorama-avatar-root';
+      rt.scene.add(rt.avatarRoot);
+      rt.avatarMeshes = new Map();
     }
     return true;
   }, []);
+
+  const rebuildAvatarMeshes = useCallback(() => {
+    const rt = runtimeRef.current;
+    const THREE = rt.three;
+    if (!THREE || !rt.scene || !rt.avatarRoot) return;
+    const root = rt.avatarRoot;
+    while (root.children.length) {
+      const child = root.children.pop();
+      child?.traverse?.((obj: any) => {
+        obj.geometry?.dispose?.();
+        obj.material?.dispose?.();
+      });
+    }
+    rt.avatarMeshes = new Map();
+    avatarsRef.current.forEach((avatar) => {
+      const mesh = makeAvatarMesh(THREE, avatar, avatar.id === activeAvatarId);
+      rt.avatarMeshes?.set(avatar.id, mesh);
+      root.add(mesh);
+    });
+    updateAvatarMeshes();
+    drawFrame();
+  }, [activeAvatarId, drawFrame, updateAvatarMeshes]);
 
   useEffect(() => {
     viewRef.current = { yaw, pitch, fov };
     drawFrame();
   }, [drawFrame, fov, pitch, yaw]);
+
+  useEffect(() => {
+    avatarsRef.current = avatars;
+    rebuildAvatarMeshes();
+  }, [avatars, rebuildAvatarMeshes]);
 
   const disposeTexture = useCallback(() => {
     const rt = runtimeRef.current;
@@ -323,6 +1454,7 @@ const Panorama3DNode = (p: NodeProps) => {
           }
           setTextureStatus('ready');
           setQuality(estimatePanoramaImageQuality(img));
+          rebuildAvatarMeshes();
           drawFrame();
         };
         img.onerror = () => {
@@ -344,7 +1476,7 @@ const Panorama3DNode = (p: NodeProps) => {
     return () => {
       cancelled = true;
     };
-  }, [applyTexture, disposeTexture, drawFrame, ensureRenderer, sourceUrl]);
+  }, [applyTexture, disposeTexture, drawFrame, ensureRenderer, rebuildAvatarMeshes, sourceUrl]);
 
   useEffect(() => {
     const rt = runtimeRef.current;
@@ -377,6 +1509,10 @@ const Panorama3DNode = (p: NodeProps) => {
     const rt = runtimeRef.current;
     if (rt.animationId) cancelAnimationFrame(rt.animationId);
     disposeTexture();
+    rt.avatarRoot?.traverse?.((obj: any) => {
+      obj.geometry?.dispose?.();
+      obj.material?.dispose?.();
+    });
     rt.sphere?.geometry?.dispose?.();
     rt.sphere?.material?.dispose?.();
     rt.renderer?.dispose?.();
@@ -385,11 +1521,1013 @@ const Panorama3DNode = (p: NodeProps) => {
 
   const setView = (patch: Record<string, any>) => update(patch);
 
-  const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+  const applyView = useCallback((patch: Partial<{ yaw: number; pitch: number; fov: number }>, extra: Record<string, any> = {}) => {
+    const next = sanitizePanoramaViewAngles({
+      ...viewRef.current,
+      ...patch,
+    });
+    viewRef.current = next;
+    drawFrame();
+    update({
+      panoramaYaw: next.yaw,
+      panoramaPitch: next.pitch,
+      panoramaFov: next.fov,
+      ...extra,
+    });
+    return next;
+  }, [drawFrame, update]);
+
+  const getInteractionElement = useCallback((surface: PanoramaInteractionSurface = 'node') => (
+    surface === 'director'
+      ? directorStageRef.current
+      : previewStageRef.current || canvasRef.current
+  ), []);
+
+  const getInteractionRect = useCallback((surface: PanoramaInteractionSurface = 'node') => {
+    const target = getInteractionElement(surface);
+    return target?.getBoundingClientRect() || canvasRef.current?.getBoundingClientRect() || null;
+  }, [getInteractionElement]);
+
+  const saveCameraView = useCallback(() => {
+    const view = sanitizePanoramaViewAngles(viewRef.current);
+    const next = upsertPanoramaCameraView(cameraViews, {
+      name: cameraName,
+      yaw: view.yaw,
+      pitch: view.pitch,
+      fov: view.fov,
+    });
+    const saved = next[0];
+    update({
+      panoramaCameraViews: next,
+      panoramaActiveCameraViewId: saved?.id || '',
+      panoramaYaw: saved?.yaw ?? view.yaw,
+      panoramaPitch: saved?.pitch ?? view.pitch,
+      panoramaFov: saved?.fov ?? view.fov,
+    });
+  }, [cameraName, cameraViews, update]);
+
+  const applyCameraView = useCallback((item: PanoramaCameraView) => {
+    applyView(item, { panoramaActiveCameraViewId: item.id });
+  }, [applyView]);
+
+  const setDefaultCameraView = useCallback((item: PanoramaCameraView) => {
+    const next = markPanoramaDefaultCameraView(cameraViews, item.id);
+    applyView(item, {
+      panoramaCameraViews: next,
+      panoramaActiveCameraViewId: item.id,
+    });
+  }, [applyView, cameraViews]);
+
+  const removeCameraView = useCallback((item: PanoramaCameraView) => {
+    const next = deletePanoramaCameraView(cameraViews, item.id);
+    update({
+      panoramaCameraViews: next,
+      panoramaActiveCameraViewId: activeCameraViewId === item.id ? '' : activeCameraViewId,
+    });
+  }, [activeCameraViewId, cameraViews, update]);
+
+  const addHotspotAt = useCallback((view: Partial<{ yaw: number; pitch: number; fov: number }>) => {
+    const angles = sanitizePanoramaViewAngles(view);
+    const target = hotspotTargetId || p.id;
+    const targetAngles = target === p.id ? angles : sanitizePanoramaViewAngles(viewRef.current);
+    const next = upsertPanoramaHotspot(hotspots, {
+      label: hotspotLabel,
+      yaw: angles.yaw,
+      pitch: angles.pitch,
+      fov: angles.fov,
+      targetNodeId: target,
+      targetYaw: targetAngles.yaw,
+      targetPitch: targetAngles.pitch,
+      targetFov: targetAngles.fov,
+    });
+    update({ panoramaHotspots: next });
+  }, [hotspotLabel, hotspotTargetId, hotspots, p.id, update]);
+
+  const removeHotspot = useCallback((item: PanoramaHotspot) => {
+    update({ panoramaHotspots: deletePanoramaHotspot(hotspots, item.id) });
+  }, [hotspots, update]);
+
+  const patchHotspot = useCallback((item: PanoramaHotspot, patch: Partial<PanoramaHotspot>) => {
+    update({ panoramaHotspots: updatePanoramaHotspot(hotspots, item.id, patch) });
+  }, [hotspots, update]);
+
+  const jumpToHotspot = useCallback((item: PanoramaHotspot) => {
+    const targetNodeId = item.targetNodeId || p.id;
+    const targetView = {
+      yaw: item.targetYaw ?? item.yaw,
+      pitch: item.targetPitch ?? item.pitch,
+      fov: item.targetFov ?? item.fov ?? fov,
+    };
+    if (!targetNodeId || targetNodeId === p.id) {
+      applyView(targetView);
+      return;
+    }
+    const targetNode = rf.getNodes().find((node) => node.id === targetNodeId);
+    rf.setNodes((nodes) => nodes.map((node) => {
+      if (node.id !== targetNodeId) return { ...node, selected: false };
+      return {
+        ...node,
+        selected: true,
+        data: {
+          ...(node.data as any),
+          panoramaYaw: targetView.yaw,
+          panoramaPitch: targetView.pitch,
+          panoramaFov: targetView.fov,
+          panoramaActiveCameraViewId: '',
+        },
+      };
+    }));
+    if (targetNode) {
+      const width = Number((targetNode as any).measured?.width || (targetNode as any).width || 760);
+      const height = Number((targetNode as any).measured?.height || (targetNode as any).height || 720);
+      window.setTimeout(() => {
+        rf.setCenter(targetNode.position.x + width / 2, targetNode.position.y + height / 2, { zoom: 0.85, duration: 420 });
+      }, 40);
+    }
+  }, [applyView, fov, p.id, rf]);
+
+  const visibleHotspots = useMemo(
+    () => hotspots
+      .map((item) => ({
+        item,
+        pos: projectPanoramaHotspot({
+          hotspot: item,
+          view: { yaw, pitch, fov },
+          aspect: ratio.w / Math.max(1, ratio.h),
+        }),
+      }))
+      .filter((entry) => entry.pos.visible),
+    [fov, hotspots, pitch, ratio.h, ratio.w, yaw],
+  );
+
+  const scenePrompt = useMemo(
+    () => buildPanoramaScenePrompt({
+      avatars,
+      view: { yaw, pitch, fov },
+      shotCamera: effectiveShotCamera,
+      keyframes: avatarKeyframes,
+      sequenceFrameCount: keyframeSequenceCount,
+      occlusionMasks,
+    }),
+    [avatarKeyframes, avatars, effectiveShotCamera, fov, keyframeSequenceCount, occlusionMasks, pitch, yaw],
+  );
+
+  const actionQuickTerms = useMemo(
+    () => PANORAMA_ACTION_TERMS.filter((term) => (
+      ['flying-kick', 'hit-back', 'dodge', 'help-up', 'foot-closeup', 'low-angle', 'wave', 'pointing'].includes(term.id)
+    )),
+    [],
+  );
+  const actionPlanSummary = useMemo(() => {
+    if (!actionPlan) return [];
+    const poseLabel = (poseId?: string) => PANORAMA_AVATAR_POSES.find((pose) => pose.id === poseId)?.label || '动作';
+    const shotLabel = actionPlan.shotCamera?.presetId
+      ? PANORAMA_SHOT_PRESETS.find((shot) => shot.id === actionPlan.shotCamera?.presetId)?.label
+      : '';
+    return [
+      ...actionPlan.avatars.map((avatar, index) => `${index + 1}. ${avatar.name || avatar.ref} · ${poseLabel(avatar.poseId)}${avatar.groundMode === 'floating' ? ' · 离地' : ''}`),
+      actionPlan.keyframes?.length ? `关键帧 ${actionPlan.keyframes.length} 个 · 序列 ${actionPlan.sequenceFrameCount || keyframeSequenceCount} 帧` : '',
+      shotLabel ? `导演镜头 · ${shotLabel}` : '',
+      ...(actionPlan.warnings || []).map((item) => `提示 · ${item}`),
+    ].filter(Boolean);
+  }, [actionPlan, keyframeSequenceCount]);
+
+  const visibleAvatarMarkers = useMemo(
+    () => avatars
+      .filter((item) => item.visible)
+      .map((item, index) => ({
+        item,
+        index,
+        pos: projectPanoramaAvatar({
+          avatar: item,
+          view: { yaw, pitch, fov },
+          aspect: ratio.w / Math.max(1, ratio.h),
+        }),
+      }))
+      .filter((entry) => entry.pos.visible),
+    [avatars, fov, pitch, ratio.h, ratio.w, yaw],
+  );
+  const guideRatio = PANORAMA_COMPOSITION_GUIDES.find((item) => item.id === compositionGuide)?.ratio || null;
+  const guideStyle = useMemo(() => {
+    if (!guideRatio) return null;
+    const canvasAspect = ratio.w / Math.max(1, ratio.h);
+    const targetAspect = guideRatio.w / Math.max(1, guideRatio.h);
+    if (targetAspect >= canvasAspect) {
+      const h = Math.min(92, 92 * (canvasAspect / targetAspect));
+      return { width: '92%', height: `${h}%` };
+    }
+    const w = Math.min(92, 92 * (targetAspect / canvasAspect));
+    return { width: `${w}%`, height: '92%' };
+  }, [guideRatio, ratio.h, ratio.w]);
+  const shotTarget = useMemo(
+    () => projectPanoramaShotTarget({
+      shotCamera: effectiveShotCamera,
+      avatars,
+      view: { yaw, pitch, fov },
+      aspect: ratio.w / Math.max(1, ratio.h),
+    }),
+    [avatars, effectiveShotCamera, fov, pitch, ratio.h, ratio.w, yaw],
+  );
+  const shotGuideRatio = effectiveShotCamera.mode === 'shot-camera'
+    ? PANORAMA_COMPOSITION_GUIDES.find((item) => item.id === effectiveShotCamera.framingRatio)?.ratio || { w: 16, h: 9 }
+    : null;
+  const shotGuideStyle = useMemo(() => {
+    if (!shotGuideRatio) return null;
+    const canvasAspect = ratio.w / Math.max(1, ratio.h);
+    const targetAspect = shotGuideRatio.w / Math.max(1, shotGuideRatio.h);
+    const scale = 92 - effectiveShotCamera.closeupStrength * 0.34;
+    if (targetAspect >= canvasAspect) {
+      const h = Math.min(scale, scale * (canvasAspect / targetAspect));
+      return { width: `${scale}%`, height: `${h}%` };
+    }
+    const w = Math.min(scale, scale * (targetAspect / canvasAspect));
+    return { width: `${w}%`, height: `${scale}%` };
+  }, [effectiveShotCamera.closeupStrength, ratio.h, ratio.w, shotGuideRatio]);
+  const shotTargetLineStyle = useMemo(() => {
+    if (!shotGuideStyle || !shotTarget.visible) return null;
+    const dx = shotTarget.x - 50;
+    const dy = shotTarget.y - 50;
+    const length = Math.hypot(dx, dy);
+    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    return {
+      left: '50%',
+      top: '50%',
+      width: `${length}%`,
+      transform: `rotate(${angle}deg)`,
+    };
+  }, [shotGuideStyle, shotTarget]);
+
+  const addAvatarAt = useCallback((view: Partial<{ yaw: number; pitch: number; fov: number }>) => {
+    setActiveOcclusionMaskId('');
+    const angles = sanitizePanoramaViewAngles(view);
+    const next = upsertPanoramaAvatar(avatars, {
+      name: avatarName(avatars.length),
+      yaw: angles.yaw,
+      pitch: Math.min(30, angles.pitch),
+      distance: 220,
+      scale: 1,
+      heading: angles.yaw,
+      faceMode: 'camera',
+      poseId: 'standing',
+      groundMode: 'grounded',
+      rootHeight: 0,
+      rootPitch: 0,
+      rootRoll: 0,
+      color: PANORAMA_AVATAR_COLORS[avatars.length % PANORAMA_AVATAR_COLORS.length],
+      opacity: 0.9,
+    });
+    update({
+      panoramaAvatars: next,
+      panoramaActiveAvatarId: next[0]?.id || '',
+      panoramaAvatarPickMode: false,
+      panoramaActorOverlayVisible: true,
+    });
+  }, [avatars, update]);
+
+  const addAvatarAtCenter = useCallback(() => {
+    addAvatarAt({ ...viewRef.current, pitch: Math.min(viewRef.current.pitch - 12, 20) });
+  }, [addAvatarAt]);
+
+  const patchAvatar = useCallback((avatar: PanoramaAvatar, patch: Partial<PanoramaAvatar>) => {
+    update({ panoramaAvatars: updatePanoramaAvatar(avatars, avatar.id, patch) });
+  }, [avatars, update]);
+
+  const patchAvatarPoseParam = useCallback((avatar: PanoramaAvatar, key: string, value: number) => {
+    patchAvatar(avatar, {
+      poseParams: {
+        ...(avatar.poseParams || {}),
+        [key]: Math.round(value * 1000) / 1000,
+      },
+    });
+  }, [patchAvatar]);
+
+  const patchShotCamera = useCallback((patch: Partial<PanoramaShotCamera>) => {
+    update({ panoramaShotCamera: sanitizePanoramaShotCamera({ ...effectiveShotCamera, ...patch }) });
+  }, [effectiveShotCamera, update]);
+
+  const saveAvatarKeyframe = useCallback(() => {
+    if (!activeAvatar) return;
+    const existingForAvatar = avatarKeyframes.filter((item) => item.avatarId === activeAvatar.id);
+    const nextIndex = existingForAvatar.length + 1;
+    const next = upsertPanoramaAvatarKeyframe(avatarKeyframes, {
+      ...activeAvatar,
+      avatarId: activeAvatar.id,
+      avatarName: activeAvatar.name,
+      label: `K${nextIndex}`,
+      time: existingForAvatar.length,
+      note: `${PANORAMA_AVATAR_POSES.find((pose) => pose.id === activeAvatar.poseId)?.label || '动作'}参考`,
+    }, avatars);
+    update({ panoramaAvatarKeyframes: next });
+  }, [activeAvatar, avatarKeyframes, avatars, update]);
+
+  const applyAvatarKeyframe = useCallback((keyframe: PanoramaAvatarKeyframe) => {
+    const target = avatars.find((item) => item.id === keyframe.avatarId) || activeAvatar;
+    if (!target) return;
+    const next = updatePanoramaAvatar(avatars, target.id, {
+      yaw: keyframe.yaw,
+      pitch: keyframe.pitch,
+      distance: keyframe.distance,
+      heightOffset: keyframe.heightOffset,
+      rootHeight: keyframe.rootHeight,
+      rootPitch: keyframe.rootPitch,
+      rootRoll: keyframe.rootRoll,
+      groundMode: keyframe.groundMode,
+      scale: keyframe.scale,
+      heading: keyframe.heading,
+      faceMode: keyframe.faceMode,
+      poseId: keyframe.poseId,
+      poseParams: keyframe.poseParams || {},
+    });
+    update({ panoramaAvatars: next, panoramaActiveAvatarId: target.id });
+  }, [activeAvatar, avatars, update]);
+
+  const removeAvatarKeyframe = useCallback((keyframe: PanoramaAvatarKeyframe) => {
+    update({ panoramaAvatarKeyframes: deletePanoramaAvatarKeyframe(avatarKeyframes, keyframe.id, avatars) });
+  }, [avatarKeyframes, avatars, update]);
+
+  const addOcclusionMask = useCallback(() => {
+    const id = `mask_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    const next = upsertPanoramaOcclusionMask(occlusionMasks, {
+      id,
+      label: `遮挡 ${occlusionMasks.length + 1}`,
+      x: 35,
+      y: 55,
+      w: 30,
+      h: 16,
+      strength: 70,
+      note: '前景遮挡或接触边界',
+    });
+    setActiveOcclusionMaskId(id);
+    update({ panoramaOcclusionMasks: next, panoramaOcclusionMaskVisible: true });
+  }, [occlusionMasks, update]);
+
+  const patchOcclusionMask = useCallback((mask: PanoramaOcclusionMask, patch: Partial<PanoramaOcclusionMask>) => {
+    update({ panoramaOcclusionMasks: upsertPanoramaOcclusionMask(occlusionMasks, { ...mask, ...patch }) });
+  }, [occlusionMasks, update]);
+
+  const removeOcclusionMask = useCallback((mask: PanoramaOcclusionMask) => {
+    if (activeOcclusionMaskId === mask.id) setActiveOcclusionMaskId('');
+    update({ panoramaOcclusionMasks: deletePanoramaOcclusionMask(occlusionMasks, mask.id) });
+  }, [activeOcclusionMaskId, occlusionMasks, update]);
+
+  const patchOcclusionMaskById = useCallback((id: string, patch: Partial<PanoramaOcclusionMask>) => {
+    const target = occlusionMasks.find((item) => item.id === id);
+    if (!target) return;
+    update({ panoramaOcclusionMasks: upsertPanoramaOcclusionMask(occlusionMasks, { ...target, ...patch }) });
+  }, [occlusionMasks, update]);
+
+  const startOcclusionMaskDrag = (
+    event: ReactPointerEvent<HTMLElement>,
+    mask: PanoramaOcclusionMask,
+    mode: OcclusionDragMode,
+    surface: PanoramaInteractionSurface = 'node',
+  ) => {
+    const rect = getInteractionRect(surface);
+    if (!rect) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setPointerCaptureSafe(getInteractionElement(surface) || event.currentTarget, event.pointerId);
+    setActiveOcclusionMaskId(mask.id);
+    dragRef.current = null;
+    avatarDragRef.current = null;
+    avatarRotateRef.current = null;
+    avatarIkDragRef.current = null;
+    occlusionMaskDragRef.current = {
+      pointerId: event.pointerId,
+      maskId: mask.id,
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      rect,
+      mask,
+    };
+    update({ panoramaOcclusionMaskVisible: true });
+  };
+
+  const moveOcclusionMaskDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = occlusionMaskDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const dx = drag.rect.width > 0 ? ((event.clientX - drag.startX) / drag.rect.width) * 100 : 0;
+    const dy = drag.rect.height > 0 ? ((event.clientY - drag.startY) / drag.rect.height) * 100 : 0;
+    let x = drag.mask.x;
+    let y = drag.mask.y;
+    let w = drag.mask.w;
+    let h = drag.mask.h;
+    const minSize = 4;
+    if (drag.mode === 'move') {
+      x += dx;
+      y += dy;
+    } else {
+      if (drag.mode.includes('w')) {
+        x += dx;
+        w -= dx;
+      }
+      if (drag.mode.includes('e')) w += dx;
+      if (drag.mode.includes('n')) {
+        y += dy;
+        h -= dy;
+      }
+      if (drag.mode.includes('s')) h += dy;
+    }
+    w = Math.max(minSize, Math.min(100, w));
+    h = Math.max(minSize, Math.min(100, h));
+    x = Math.max(0, Math.min(100 - w, x));
+    y = Math.max(0, Math.min(100 - h, y));
+    patchOcclusionMaskById(drag.maskId, {
+      x: Math.round(x * 10) / 10,
+      y: Math.round(y * 10) / 10,
+      w: Math.round(w * 10) / 10,
+      h: Math.round(h * 10) / 10,
+    });
+  };
+
+  const endOcclusionMaskDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = occlusionMaskDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    releasePointerCaptureSafe(event.currentTarget, event.pointerId);
+    occlusionMaskDragRef.current = null;
+  };
+
+  const changeShotPreset = useCallback((presetId: string) => {
+    const preset = PANORAMA_SHOT_PRESETS.find((item) => item.id === presetId) || PANORAMA_SHOT_PRESETS[0];
+    patchShotCamera({
+      mode: 'shot-camera',
+      presetId: preset.id,
+      targetAvatarId: effectiveShotCamera.targetAvatarId || activeAvatar?.id || avatars[0]?.id || '',
+      targetBone: preset.targetBone,
+      framingRatio: preset.framingRatio,
+      closeupStrength: preset.closeupStrength,
+      lowAngle: preset.lowAngle,
+    });
+  }, [activeAvatar?.id, avatars, effectiveShotCamera.targetAvatarId, patchShotCamera]);
+
+  const applyDirectorShotView = useCallback(() => {
+    const target =
+      avatars.find((item) => item.id === effectiveShotCamera.targetAvatarId) ||
+      activeAvatar ||
+      avatars[0];
+    if (!target) return;
+    const bonePitchOffset: Record<string, number> = {
+      body: 0,
+      head: 10,
+      torso: 3,
+      pelvis: -5,
+      leftHand: 1,
+      rightHand: 1,
+      leftFoot: -16,
+      rightFoot: -16,
+    };
+    const closeupFov = clampFov(82 - effectiveShotCamera.closeupStrength * 0.42);
+    const lowAngleLift = (effectiveShotCamera.lowAngle - 45) * 0.12;
+    applyView({
+      yaw: target.yaw,
+      pitch: clampPanoramaNumber(target.pitch + (bonePitchOffset[effectiveShotCamera.targetBone] || 0) + lowAngleLift, -85, 85, target.pitch),
+      fov: closeupFov,
+    }, {
+      panoramaActiveAvatarId: target.id,
+      panoramaShotCamera: sanitizePanoramaShotCamera({
+        ...effectiveShotCamera,
+        mode: 'shot-camera',
+        targetAvatarId: target.id,
+      }),
+      panoramaActiveCameraViewId: '',
+    });
+  }, [activeAvatar, applyView, avatars, effectiveShotCamera]);
+
+  const storeActionPlanDraft = useCallback((plan: PanoramaActionPlan, status: string) => {
+    const next = sanitizePanoramaActionPlan({
+      ...plan,
+      prompt: plan.prompt || actionPrompt,
+    });
+    setActionPlan(next);
+    setActionPlanStatus(status);
+    update({
+      panoramaActionPrompt: actionPrompt,
+      panoramaActionPlan: next,
+    });
+    return next;
+  }, [actionPrompt, update]);
+
+  const createLocalActionPlan = useCallback((mode: PanoramaActionPlan['mode'] = 'append') => {
+    const next = buildPanoramaLocalActionPlan({
+      prompt: actionPrompt,
+      view: viewRef.current,
+      avatars,
+      activeAvatarId: activeAvatar?.id,
+      mode,
+    });
+    storeActionPlanDraft(next, next.warnings?.length ? next.warnings[0] : '已生成本地动作草案');
+  }, [actionPrompt, activeAvatar?.id, avatars, storeActionPlanDraft]);
+
+  const createAiActionPlan = useCallback(async () => {
+    if (!actionPrompt.trim()) {
+      createLocalActionPlan();
+      return;
+    }
+    setIsPlanningAction(true);
+    setActionPlanStatus('AI解析中...');
+    try {
+      const res = await generateLlm({
+        model: 'gpt-4o-mini',
+        temperature: 0.15,
+        max_tokens: 2800,
+        messages: [
+          { role: 'system', content: buildPanoramaActionPlannerSystemPrompt() },
+          {
+            role: 'user',
+            content: buildPanoramaActionPlannerUserPrompt({
+              prompt: actionPrompt,
+              view: viewRef.current,
+              avatars,
+              activeAvatarId: activeAvatar?.id,
+            }),
+          },
+        ],
+      });
+      const parsed = parsePanoramaActionPlanJson(res.content);
+      if (!parsed || parsed.avatars.length === 0) {
+        throw new Error('AI 未返回有效动作 JSON');
+      }
+      storeActionPlanDraft({ ...parsed, prompt: parsed.prompt || actionPrompt }, '已生成 AI 动作草案');
+    } catch (e: any) {
+      const fallback = buildPanoramaLocalActionPlan({
+        prompt: actionPrompt,
+        view: viewRef.current,
+        avatars,
+        activeAvatarId: activeAvatar?.id,
+        mode: 'append',
+      });
+      storeActionPlanDraft(fallback, `AI解析失败，已用本地草案：${e?.message || '调用失败'}`);
+    } finally {
+      setIsPlanningAction(false);
+    }
+  }, [actionPrompt, activeAvatar?.id, avatars, createLocalActionPlan, storeActionPlanDraft]);
+
+  const planAvatarPatch = useCallback((
+    planAvatar: PanoramaActionPlanAvatar,
+    index: number,
+    targetId: string,
+    existing?: PanoramaAvatar,
+  ): Partial<PanoramaAvatar> => {
+    const view = sanitizePanoramaViewAngles(viewRef.current);
+    const resolvedPoseId = planAvatar.poseId ?? existing?.poseId ?? 'standing';
+    const poseRootDefaults = panoramaAvatarPoseRootDefaults(resolvedPoseId);
+    const poseChanged = Boolean(planAvatar.poseId && planAvatar.poseId !== existing?.poseId);
+    return {
+      id: targetId,
+      name: planAvatar.name || existing?.name || (planAvatar.ref === '当前角色' ? `角色 ${index + 1}` : planAvatar.ref),
+      visible: planAvatar.visible ?? existing?.visible ?? true,
+      yaw: planAvatar.yaw ?? existing?.yaw ?? normalizePanoramaYaw(view.yaw + (index - 0.5) * 12),
+      pitch: planAvatar.pitch ?? existing?.pitch ?? clampPanoramaNumber(view.pitch - 10, -50, 25, -12),
+      distance: planAvatar.distance ?? existing?.distance ?? 220,
+      heightOffset: planAvatar.heightOffset ?? existing?.heightOffset ?? 0,
+      rootHeight: planAvatar.rootHeight ?? (poseChanged ? poseRootDefaults.rootHeight : existing?.rootHeight) ?? poseRootDefaults.rootHeight,
+      rootPitch: planAvatar.rootPitch ?? (poseChanged ? poseRootDefaults.rootPitch : existing?.rootPitch) ?? poseRootDefaults.rootPitch,
+      rootRoll: planAvatar.rootRoll ?? (poseChanged ? poseRootDefaults.rootRoll : existing?.rootRoll) ?? poseRootDefaults.rootRoll,
+      groundMode: planAvatar.groundMode ?? (poseChanged ? poseRootDefaults.groundMode : existing?.groundMode) ?? poseRootDefaults.groundMode,
+      scale: planAvatar.scale ?? existing?.scale ?? 1,
+      heading: planAvatar.heading ?? existing?.heading ?? planAvatar.yaw ?? view.yaw,
+      faceMode: planAvatar.faceMode ?? existing?.faceMode ?? (actionPlan?.avatars.length && actionPlan.avatars.length > 1 ? 'heading' : 'camera'),
+      poseId: resolvedPoseId,
+      poseParams: {
+        ...(panoramaAvatarPoseDefaultParams(resolvedPoseId) || {}),
+        ...(poseChanged ? {} : existing?.poseParams || {}),
+        ...(planAvatar.poseParams || {}),
+      },
+      color: planAvatar.color || existing?.color || PANORAMA_AVATAR_COLORS[index % PANORAMA_AVATAR_COLORS.length],
+      opacity: planAvatar.opacity ?? existing?.opacity ?? 0.9,
+      locked: existing?.locked,
+      characterPrompt: planAvatar.characterPrompt ?? existing?.characterPrompt ?? '',
+      createdAt: existing?.createdAt || new Date().toISOString(),
+    };
+  }, [actionPlan?.avatars.length]);
+
+  const applyActionPlan = useCallback((modeOverride?: PanoramaActionPlan['mode']) => {
+    const basePlan = actionPlan || buildPanoramaLocalActionPlan({
+      prompt: actionPrompt,
+      view: viewRef.current,
+      avatars,
+      activeAvatarId: activeAvatar?.id,
+      mode: modeOverride || 'append',
+    });
+    if (!actionPlan) {
+      storeActionPlanDraft(basePlan, '已生成本地动作草案');
+    }
+    const plan = sanitizePanoramaActionPlan({
+      ...basePlan,
+      mode: modeOverride || basePlan.mode,
+      prompt: actionPrompt || basePlan.prompt,
+    });
+    if (plan.avatars.length === 0) {
+      setActionPlanStatus('没有可应用的角色草案');
+      return;
+    }
+    const mode = plan.mode;
+    const refToId = new Map<string, string>();
+    let nextAvatars = mode === 'replace-actors' ? [] as PanoramaAvatar[] : avatars;
+    const planAvatars = mode === 'update-selected' && activeAvatar
+      ? plan.avatars.slice(0, 1)
+      : plan.avatars;
+    planAvatars.forEach((planAvatar, index) => {
+      const existing =
+        mode === 'update-selected' && activeAvatar
+          ? activeAvatar
+          : avatars.find((item) => item.name === planAvatar.ref || item.name === planAvatar.name);
+      const id = existing?.id || `avatar_action_${Date.now().toString(36)}_${index}_${Math.random().toString(36).slice(2, 6)}`;
+      refToId.set(planAvatar.ref, id);
+      if (planAvatar.name) refToId.set(planAvatar.name, id);
+      if (mode === 'update-selected' && existing) {
+        nextAvatars = updatePanoramaAvatar(nextAvatars, existing.id, planAvatarPatch(planAvatar, index, existing.id, existing));
+      } else {
+        nextAvatars = upsertPanoramaAvatar(nextAvatars, planAvatarPatch(planAvatar, index, id, existing));
+      }
+    });
+    const activeId = refToId.get(planAvatars[0]?.ref || '') || activeAvatar?.id || nextAvatars[0]?.id || '';
+    let nextKeyframes = mode === 'replace-actors' ? [] as PanoramaAvatarKeyframe[] : avatarKeyframes;
+    (plan.keyframes || []).forEach((frame: PanoramaActionPlanKeyframe, index) => {
+      const avatarId = refToId.get(frame.avatarRef);
+      if (!avatarId) return;
+      const linked = nextAvatars.find((item) => item.id === avatarId);
+      if (!linked) return;
+      const framePoseId = frame.poseId ?? linked.poseId;
+      const frameRootDefaults = panoramaAvatarPoseRootDefaults(framePoseId);
+      nextKeyframes = upsertPanoramaAvatarKeyframe(nextKeyframes, {
+        id: `key_action_${Date.now().toString(36)}_${index}_${Math.random().toString(36).slice(2, 6)}`,
+        avatarId,
+        avatarName: linked.name,
+        label: frame.label || `K${index + 1}`,
+        time: frame.time,
+        yaw: frame.yaw ?? linked.yaw,
+        pitch: frame.pitch ?? linked.pitch,
+        distance: frame.distance ?? linked.distance,
+        heightOffset: frame.heightOffset ?? linked.heightOffset,
+        rootHeight: frame.rootHeight ?? frameRootDefaults.rootHeight ?? linked.rootHeight,
+        rootPitch: frame.rootPitch ?? frameRootDefaults.rootPitch ?? linked.rootPitch,
+        rootRoll: frame.rootRoll ?? frameRootDefaults.rootRoll ?? linked.rootRoll,
+        groundMode: frame.groundMode ?? frameRootDefaults.groundMode ?? linked.groundMode,
+        scale: frame.scale ?? linked.scale,
+        heading: frame.heading ?? linked.heading,
+        faceMode: frame.faceMode ?? linked.faceMode,
+        poseId: framePoseId,
+        poseParams: {
+          ...(panoramaAvatarPoseDefaultParams(framePoseId) || {}),
+          ...(linked.poseParams || {}),
+          ...(frame.poseParams || {}),
+        },
+        note: frame.note,
+      }, nextAvatars);
+    });
+    const shotPatch = plan.shotCamera
+      ? sanitizePanoramaShotCamera({
+          ...plan.shotCamera,
+          mode: plan.shotCamera.mode || 'shot-camera',
+          targetAvatarId:
+            refToId.get(plan.shotCamera.targetAvatarRef || '') ||
+            refToId.get(plan.shotCamera.targetAvatarId || '') ||
+            activeId ||
+            nextAvatars[0]?.id ||
+            '',
+        })
+      : effectiveShotCamera;
+    update({
+      panoramaActionPrompt: actionPrompt || plan.prompt,
+      panoramaActionPlan: plan,
+      panoramaAvatars: nextAvatars,
+      panoramaActiveAvatarId: activeId,
+      panoramaAvatarKeyframes: nextKeyframes,
+      panoramaKeyframeSequenceCount: plan.sequenceFrameCount ?? keyframeSequenceCount,
+      panoramaShotCamera: shotPatch,
+      panoramaOcclusionMasks: plan.occlusionMasks?.length
+        ? sanitizePanoramaOcclusionMasks([...(mode === 'replace-actors' ? [] : occlusionMasks), ...plan.occlusionMasks])
+        : occlusionMasks,
+      panoramaActorOverlayVisible: true,
+    });
+    setActionPlan(plan);
+    setActionPlanStatus(
+      mode === 'update-selected'
+        ? '已应用到当前角色'
+        : mode === 'replace-actors'
+        ? '已替换角色场景'
+        : `已新增 ${planAvatars.length} 个动作角色`,
+    );
+    window.setTimeout(drawFrame, 30);
+  }, [
+    actionPlan,
+    actionPrompt,
+    activeAvatar,
+    avatarKeyframes,
+    avatars,
+    drawFrame,
+    effectiveShotCamera,
+    keyframeSequenceCount,
+    occlusionMasks,
+    planAvatarPatch,
+    storeActionPlanDraft,
+    update,
+  ]);
+
+  const changeAvatarPose = useCallback((avatar: PanoramaAvatar, poseId: PanoramaAvatarPoseId) => {
+    const rootDefaults = panoramaAvatarPoseRootDefaults(poseId);
+    patchAvatar(avatar, { poseId, ...rootDefaults, poseParams: panoramaAvatarPoseDefaultParams(poseId) || {} });
+  }, [patchAvatar]);
+
+  const removeAvatar = useCallback((avatar: PanoramaAvatar) => {
+    setActiveOcclusionMaskId('');
+    const next = deletePanoramaAvatar(avatars, avatar.id);
+    update({
+      panoramaAvatars: next,
+      panoramaActiveAvatarId: activeAvatarId === avatar.id ? (next[0]?.id || '') : activeAvatarId,
+    });
+  }, [activeAvatarId, avatars, update]);
+
+  const duplicateAvatar = useCallback((avatar: PanoramaAvatar) => {
+    setActiveOcclusionMaskId('');
+    const next = upsertPanoramaAvatar(avatars, {
+      ...avatar,
+      id: '',
+      name: `${avatar.name} 副本`,
+      yaw: avatar.yaw + 8,
+      createdAt: new Date().toISOString(),
+    });
+    update({ panoramaAvatars: next, panoramaActiveAvatarId: next[0]?.id || '' });
+  }, [avatars, update]);
+
+  const focusAvatar = useCallback((avatar: PanoramaAvatar) => {
+    setActiveOcclusionMaskId('');
+    applyView({ yaw: avatar.yaw, pitch: avatar.pitch + 8, fov: Math.min(fov, 70) }, {
+      panoramaActiveAvatarId: avatar.id,
+      panoramaActiveCameraViewId: '',
+    });
+  }, [applyView, fov]);
+
+  const copyScenePrompt = useCallback(async () => {
+    try {
+      await copyText(scenePrompt || '当前还没有可见角色。');
+      setSceneCopyState('已复制');
+      update({ panoramaScenePrompt: scenePrompt });
+      window.setTimeout(() => setSceneCopyState(''), 1200);
+    } catch (e: any) {
+      setSceneCopyState(e?.message || '复制失败');
+    }
+  }, [scenePrompt, update]);
+
+  const exportAvatarLayout = useCallback(async () => {
+    try {
+      await copyText(JSON.stringify({ schema: 't8-panorama-avatar-layout', version: 1, avatars }, null, 2));
+      setLayoutIoState('布局已复制');
+      window.setTimeout(() => setLayoutIoState(''), 1400);
+    } catch (e: any) {
+      setLayoutIoState(e?.message || '复制失败');
+    }
+  }, [avatars]);
+
+  const importAvatarLayout = useCallback(() => {
+    const raw = window.prompt('粘贴 3D 全景人物布局 JSON');
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      const next = sanitizePanoramaAvatars(Array.isArray(parsed) ? parsed : parsed.avatars);
+      update({ panoramaAvatars: next, panoramaActiveAvatarId: next[0]?.id || '' });
+      setLayoutIoState(`已导入 ${next.length} 人`);
+      window.setTimeout(() => setLayoutIoState(''), 1400);
+    } catch (e: any) {
+      setLayoutIoState(e?.message || '导入失败');
+    }
+  }, [update]);
+
+  const syncSequenceMaterialSet = useCallback((sequenceUrls: string[], snapshot: any) => {
+    const nodes = rf.getNodes();
+    const edges = rf.getEdges();
+    const managedNodes = nodes.filter((node) => {
+      const data = (node.data as any) || {};
+      return node.type === 'material-set' && data.panoramaSequenceSourceId === p.id && data.panoramaSequenceAutoManaged === true;
+    });
+    if (sequenceUrls.length <= 1) {
+      if (managedNodes.length === 0) return;
+      const removeIds = new Set(managedNodes.map((node) => node.id));
+      rf.setNodes((current) => current.filter((node) => !removeIds.has(node.id)));
+      rf.setEdges((current) => current.filter((edge) => !removeIds.has(edge.source) && !removeIds.has(edge.target)));
+      return;
+    }
+
+    const items: MaterialSetItem[] = sequenceUrls.map((url, index) => {
+      const frameLabel = `F${String(index + 1).padStart(2, '0')}`;
+      return {
+        id: `panorama-sequence-${p.id}-${index + 1}`,
+        kind: 'image',
+        url,
+        name: `${frameLabel} · ${cleanFileBase(url)}`,
+      };
+    });
+    const now = Date.now();
+    const sequenceData = {
+      ...materialSetItemsToData('image', items),
+      title: `3D全景序列帧 · ${items.length}帧`,
+      label: `3D全景序列帧 · ${items.length}帧`,
+      panoramaSequenceSourceId: p.id,
+      panoramaSequenceAutoManaged: true,
+      panoramaSequenceFrameCount: items.length,
+      panoramaSceneSnapshot: snapshot,
+      sourceNodeId: p.id,
+      updatedAt: now,
+    };
+    const target = managedNodes[0];
+    const duplicateIds = new Set(managedNodes.slice(1).map((node) => node.id));
+
+    if (target) {
+      rf.setNodes((current) =>
+        current
+          .filter((node) => !duplicateIds.has(node.id))
+          .map((node) => (
+            node.id === target.id
+              ? { ...node, data: { ...(node.data as any), ...sequenceData } }
+              : node
+          )),
+      );
+      rf.setEdges((current) => {
+        const cleaned = current.filter((edge) => !duplicateIds.has(edge.source) && !duplicateIds.has(edge.target));
+        if (cleaned.some((edge) => edge.source === p.id && edge.target === target.id)) return cleaned;
+        return [
+          ...cleaned,
+          { id: `e-auto-panorama-sequence-${target.id}`, source: p.id, target: target.id, type: 'smoothstep' },
+        ];
+      });
+      logBus.success(`3D全景序列帧已更新为素材集 · ${items.length}帧`, `panorama:${p.id.slice(0, 6)}`);
+      return;
+    }
+
+    const self = nodes.find((node) => node.id === p.id);
+    const baseX = (self?.position.x || 0) + 1240;
+    const baseY = (self?.position.y || 0) + 220;
+    const position = placeSingleNode(baseX, baseY, 'material-set', nodes, { source: `placement:panorama-sequence:${p.id}` });
+    const newId = `material-set-auto-panorama-${p.id}-${now}-${Math.random().toString(36).slice(2, 6)}`;
+    rf.addNodes({
+      id: newId,
+      type: 'material-set',
+      position,
+      data: sequenceData,
+    });
+    rf.addEdges({
+      id: `e-auto-panorama-sequence-${newId}`,
+      source: p.id,
+      target: newId,
+      type: 'smoothstep',
+    });
+    logBus.success(`3D全景序列帧已输出为素材集 · ${items.length}帧`, `panorama:${p.id.slice(0, 6)}`);
+  }, [p.id, rf]);
+
+  const sendSceneSnapshot = useCallback(() => {
+    const snapshotUrl = typeof d.panoramaSceneSnapshot?.snapshotUrl === 'string'
+      ? d.panoramaSceneSnapshot.snapshotUrl
+      : outputUrl;
+    const controlSnapshotUrl = typeof d.panoramaSceneSnapshot?.controlSnapshotUrl === 'string'
+      ? d.panoramaSceneSnapshot.controlSnapshotUrl
+      : typeof d.panoramaControlSnapshotUrl === 'string'
+      ? d.panoramaControlSnapshotUrl
+      : '';
+    const sequenceUrls = Array.isArray(d.panoramaSceneSnapshot?.sequenceFrames)
+      ? d.panoramaSceneSnapshot.sequenceFrames
+          .map((frame: any) => (typeof frame?.imageUrl === 'string' ? frame.imageUrl : ''))
+          .filter(Boolean)
+      : [];
+    const hasSequence = sequenceUrls.length > 1;
+    const urls = hasSequence ? Array.from(new Set(sequenceUrls)) : Array.from(new Set([snapshotUrl, controlSnapshotUrl].filter(Boolean)));
+    if (urls.length === 0) {
+      setSceneCopyState('先导出快照');
+      window.setTimeout(() => setSceneCopyState(''), 1200);
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('penguin:open-send-materials', {
+      detail: {
+        materials: urls.map((url, index) => ({
+          id: `${hasSequence ? 'panorama-sequence' : 'panorama-scene'}-${index + 1}-${p.id}`,
+          kind: 'image',
+          url,
+          name: hasSequence
+            ? `F${String(index + 1).padStart(2, '0')} · ${compactPrompt(userPrompt || d.prompt || '3D全景动作序列')}`
+            : `${compactPrompt(userPrompt || d.prompt || '3D全景场景')} · ${url === controlSnapshotUrl ? '控制快照' : '场景快照'}`,
+          sourceNodeId: p.id,
+          sourceType: 'panorama-3d',
+          sourceNodeData: {
+            ...(d as Record<string, any>),
+            panoramaSceneSnapshot: d.panoramaSceneSnapshot,
+            panoramaScenePrompt: scenePrompt,
+          },
+        })),
+        sourceLabel: hasSequence ? '3D全景动作序列帧' : '3D全景场景快照',
+        defaultMode: hasSequence ? 'material-set' : 'upload',
+      },
+    }));
+  }, [d, outputUrl, p.id, scenePrompt, userPrompt]);
+
+  const saveSceneSnapshotResource = useCallback(async () => {
+    const snapshotUrl = typeof d.panoramaSceneSnapshot?.snapshotUrl === 'string'
+      ? d.panoramaSceneSnapshot.snapshotUrl
+      : outputUrl;
+    if (!snapshotUrl) {
+      setSceneResourceState('先导出快照');
+      window.setTimeout(() => setSceneResourceState(''), 1400);
+      return;
+    }
+    setSceneResourceState('保存中');
+    try {
+      const category = await ensureImageResourceCategory();
+      const saved = await api.addResourceItem({
+        url: snapshotUrl,
+        kind: 'image',
+        categoryId: category.id,
+        title: `${compactPrompt(userPrompt || d.prompt || '3D全景场景')} · 人物参考`,
+        tags: [
+          '3D全景场景',
+          '人物参考',
+          'scene-snapshot',
+          avatars.length ? `${avatars.length}角色` : '',
+          compositionGuide !== 'off' ? compositionGuide : '',
+          effectiveShotCamera.mode === 'shot-camera' ? '导演镜头' : '',
+        ].filter(Boolean),
+        sourceNodeId: p.id,
+        favorite: false,
+      });
+      if (!saved.success) throw new Error(saved.error || '保存场景快照失败');
+      window.dispatchEvent(new CustomEvent('penguin:resources-changed'));
+      if (!saved.data.duplicate) trackAchievementEvent({ type: 'resource.saved', kind: 'image', category: category.id });
+      setSceneResourceState(saved.data.duplicate ? '已在资源库' : '已保存');
+      window.setTimeout(() => setSceneResourceState(''), 1600);
+    } catch (e: any) {
+      setSceneResourceState(e?.message || '保存失败');
+    }
+  }, [avatars.length, compositionGuide, d, effectiveShotCamera.mode, outputUrl, p.id, userPrompt]);
+
+  const importPoseToAvatar = useCallback(() => {
+    if (!activeAvatar) return;
+    const source = poseTargets.find((item) => item.id === poseSourceId) || poseTargets[0];
+    if (!source) return;
+    const poseText = [source.prompt, source.presetId, source.viewId, source.shotId].filter(Boolean).join(' ');
+    const nextPose = inferAvatarPoseFromText(poseText);
+    const rootDefaults = panoramaAvatarPoseRootDefaults(nextPose);
+    const characterPrompt = [activeAvatar.characterPrompt, source.prompt].filter(Boolean).join('；').slice(0, 180);
+    patchAvatar(activeAvatar, {
+      poseId: nextPose,
+      ...rootDefaults,
+      characterPrompt,
+      poseParams: {
+        ...(panoramaAvatarPoseDefaultParams(nextPose) || {}),
+        source: 'pose-master',
+        sourceNodeId: source.id,
+        presetId: source.presetId,
+        viewId: source.viewId,
+        shotId: source.shotId,
+      },
+    });
+    setPoseSourceId(source.id);
+  }, [activeAvatar, patchAvatar, poseSourceId, poseTargets]);
+
+  const syncDirectorPreviewFromCanvas = () => {
+    if (!directorFullscreenOpen || !canvasRef.current) return;
+    try {
+      setDirectorPreviewUrl(canvasRef.current.toDataURL('image/png'));
+    } catch {
+      // The preview is best-effort; interaction should keep working even if a data URL cannot be read.
+    }
+  };
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (textureStatus !== 'ready') return;
     event.preventDefault();
     event.stopPropagation();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    if (avatarPickMode) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const view = screenPointToPanoramaAngles({
+        xRatio: rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0.5,
+        yRatio: rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5,
+        view: viewRef.current,
+        aspect: ratio.w / Math.max(1, ratio.h),
+      });
+      if (activeAvatar) {
+        patchAvatar(activeAvatar, { yaw: view.yaw, pitch: view.pitch });
+        update({ panoramaAvatarPickMode: false });
+      } else {
+        addAvatarAt(view);
+      }
+      return;
+    }
+    if (hotspotPickMode) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const view = screenPointToPanoramaAngles({
+        xRatio: rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0.5,
+        yRatio: rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5,
+        view: viewRef.current,
+        aspect: ratio.w / Math.max(1, ratio.h),
+      });
+      addHotspotAt(view);
+      setHotspotPickMode(false);
+      return;
+    }
+    setPointerCaptureSafe(event.currentTarget, event.pointerId);
     dragRef.current = {
       pointerId: event.pointerId,
       x: event.clientX,
@@ -400,36 +2538,384 @@ const Panorama3DNode = (p: NodeProps) => {
     setIsDragging(true);
   };
 
-  const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+  const onPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
     const dx = event.clientX - drag.x;
     const dy = event.clientY - drag.y;
+    viewRef.current = sanitizePanoramaViewAngles({
+      yaw: drag.yaw - dx * 0.18,
+      pitch: clampPitch(drag.pitch + dy * 0.18),
+      fov: viewRef.current.fov,
+    });
+    drawFrame();
+    syncDirectorPreviewFromCanvas();
+  };
+
+  const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    releasePointerCaptureSafe(event.currentTarget, event.pointerId);
+    dragRef.current = null;
+    setIsDragging(false);
+    const view = sanitizePanoramaViewAngles(viewRef.current);
     update({
-      panoramaYaw: drag.yaw - dx * 0.18,
-      panoramaPitch: clampPitch(drag.pitch + dy * 0.18),
+      panoramaYaw: view.yaw,
+      panoramaPitch: view.pitch,
+      panoramaFov: view.fov,
+      panoramaActiveCameraViewId: '',
     });
   };
 
-  const endDrag = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  const startAvatarDrag = (
+    event: ReactPointerEvent<HTMLElement>,
+    avatar: PanoramaAvatar,
+    surface: PanoramaInteractionSurface = 'node',
+  ) => {
+    if (avatar.locked || textureStatus !== 'ready') return;
+    const rect = getInteractionRect(surface);
+    if (!rect) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setActiveOcclusionMaskId('');
+    update({ panoramaActiveAvatarId: avatar.id });
+    setPointerCaptureSafe(getInteractionElement(surface) || event.currentTarget, event.pointerId);
     dragRef.current = null;
-    setIsDragging(false);
+    avatarRotateRef.current = null;
+    avatarIkDragRef.current = null;
+    avatarDragRef.current = {
+      pointerId: event.pointerId,
+      avatarId: avatar.id,
+      rect,
+    };
   };
+
+  const moveAvatarDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = avatarDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = avatarsRef.current.find((item) => item.id === drag.avatarId);
+    if (!target) return;
+    const view = screenPointToPanoramaAngles({
+      xRatio: drag.rect.width > 0 ? (event.clientX - drag.rect.left) / drag.rect.width : 0.5,
+      yRatio: drag.rect.height > 0 ? (event.clientY - drag.rect.top) / drag.rect.height : 0.5,
+      view: viewRef.current,
+      aspect: ratio.w / Math.max(1, ratio.h),
+    });
+    avatarsRef.current = updatePanoramaAvatar(avatarsRef.current, target.id, { yaw: view.yaw, pitch: view.pitch });
+    updateAvatarMeshes();
+    drawFrame();
+    syncDirectorPreviewFromCanvas();
+  };
+
+  const endAvatarDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = avatarDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    releasePointerCaptureSafe(event.currentTarget, event.pointerId);
+    avatarDragRef.current = null;
+    const target = avatarsRef.current.find((item) => item.id === drag.avatarId);
+    if (!target) return;
+    update({
+      panoramaAvatars: updatePanoramaAvatar(avatars, target.id, { yaw: target.yaw, pitch: target.pitch }),
+      panoramaActiveAvatarId: target.id,
+    });
+  };
+
+  const startAvatarRotate = (
+    event: ReactPointerEvent<HTMLElement>,
+    avatar: PanoramaAvatar,
+    surface: PanoramaInteractionSurface = 'node',
+  ) => {
+    if (avatar.locked || textureStatus !== 'ready') return;
+    if (!getInteractionRect(surface)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setActiveOcclusionMaskId('');
+    update({ panoramaActiveAvatarId: avatar.id });
+    setPointerCaptureSafe(getInteractionElement(surface) || event.currentTarget, event.pointerId);
+    dragRef.current = null;
+    avatarDragRef.current = null;
+    avatarIkDragRef.current = null;
+    avatarRotateRef.current = {
+      pointerId: event.pointerId,
+      avatarId: avatar.id,
+      startX: event.clientX,
+      startY: event.clientY,
+      heading: avatar.heading,
+      rootPitch: avatar.rootPitch,
+    };
+  };
+
+  const moveAvatarRotate = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = avatarRotateRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = avatarsRef.current.find((item) => item.id === drag.avatarId);
+    if (!target) return;
+    const dx = event.clientX - drag.startX;
+    const rootPitch = clampPanoramaNumber(drag.rootPitch + (drag.startY - event.clientY) * 0.28, -90, 90, 0);
+    avatarsRef.current = updatePanoramaAvatar(avatarsRef.current, target.id, {
+      heading: normalizePanoramaYaw(drag.heading + dx * 0.7),
+      rootPitch: Math.round(rootPitch),
+      faceMode: 'heading',
+    });
+    updateAvatarMeshes();
+    drawFrame();
+    syncDirectorPreviewFromCanvas();
+  };
+
+  const endAvatarRotate = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = avatarRotateRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    releasePointerCaptureSafe(event.currentTarget, event.pointerId);
+    avatarRotateRef.current = null;
+    const target = avatarsRef.current.find((item) => item.id === drag.avatarId);
+    if (!target) return;
+    update({
+      panoramaAvatars: updatePanoramaAvatar(avatars, target.id, {
+        heading: target.heading,
+        rootPitch: target.rootPitch,
+        faceMode: 'heading',
+      }),
+      panoramaActiveAvatarId: target.id,
+    });
+  };
+
+  const startAvatarIkDrag = (
+    event: ReactPointerEvent<HTMLElement>,
+    control: AvatarIkControl,
+    surface: PanoramaInteractionSurface = 'node',
+  ) => {
+    const target = avatarsRef.current.find((item) => item.id === control.avatarId);
+    if (!target || target.locked || textureStatus !== 'ready') return;
+    const rect = getInteractionRect(surface);
+    if (!rect) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setActiveOcclusionMaskId('');
+    update({ panoramaActiveAvatarId: target.id, panoramaActorOverlayVisible: true, panoramaAvatarIkEditMode: true });
+    setPointerCaptureSafe(getInteractionElement(surface) || event.currentTarget, event.pointerId);
+    dragRef.current = null;
+    avatarDragRef.current = null;
+    avatarRotateRef.current = null;
+    avatarIkDragRef.current = {
+      pointerId: event.pointerId,
+      avatarId: target.id,
+      handleId: control.id,
+      rect,
+    };
+  };
+
+  const moveAvatarIkDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = avatarIkDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = avatarsRef.current.find((item) => item.id === drag.avatarId);
+    if (!target) return;
+    const targetX = drag.rect.width > 0 ? ((event.clientX - drag.rect.left) / drag.rect.width) * 100 : 50;
+    const targetY = drag.rect.height > 0 ? ((event.clientY - drag.rect.top) / drag.rect.height) * 100 : 50;
+    const keys = avatarIkKeys(drag.handleId);
+    const paramKeys = [keys.root, keys.bend].filter(Boolean) as string[];
+    if (!paramKeys.length) return;
+    const trackedObjectName = avatarIkTrackedObjectName(drag.handleId);
+    const projectTrackedPoint = () => {
+      const canvas = canvasRef.current;
+      const rt = runtimeRef.current;
+      const THREE = rt.three;
+      const mesh = rt.avatarMeshes?.get(drag.avatarId);
+      const object = mesh?.getObjectByName?.(trackedObjectName);
+      if (!canvas || !THREE || !rt.camera || !object) return null;
+      return projectThreeObjectToCanvas(THREE, rt.camera, canvas, object);
+    };
+    const applyPoseParams = (poseParams: Record<string, number | string | boolean>) => {
+      avatarsRef.current = updatePanoramaAvatar(avatarsRef.current, target.id, { poseParams });
+      updateAvatarMeshes();
+    };
+    const scorePoseParams = (poseParams: Record<string, number | string | boolean>) => {
+      applyPoseParams(poseParams);
+      const projected = projectTrackedPoint();
+      if (!projected) return Number.POSITIVE_INFINITY;
+      const dx = projected.x - targetX;
+      const dy = projected.y - targetY;
+      return dx * dx + dy * dy;
+    };
+    let bestPoseParams: Record<string, number | string | boolean> = { ...(target.poseParams || {}) };
+    let bestScore = scorePoseParams(bestPoseParams);
+    [0.18, 0.09, 0.045, 0.022].forEach((step) => {
+      paramKeys.forEach((key) => {
+        const current = poseParamNumber(bestPoseParams, key, 0);
+        ([-1, 1] as const).forEach((dir) => {
+          const candidate = {
+            ...bestPoseParams,
+            [key]: clampAvatarIkRotation(current + dir * step),
+          };
+          const score = scorePoseParams(candidate);
+          if (score < bestScore) {
+            bestScore = score;
+            bestPoseParams = candidate;
+          }
+        });
+      });
+    });
+    applyPoseParams(bestPoseParams);
+    drawFrame();
+    syncDirectorPreviewFromCanvas();
+  };
+
+  const endAvatarIkDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = avatarIkDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    releasePointerCaptureSafe(event.currentTarget, event.pointerId);
+    avatarIkDragRef.current = null;
+    const target = avatarsRef.current.find((item) => item.id === drag.avatarId);
+    if (!target) return;
+    update({
+      panoramaAvatars: updatePanoramaAvatar(avatars, target.id, { poseParams: target.poseParams }),
+      panoramaActiveAvatarId: target.id,
+    });
+  };
+
+  const getAvatarIkControlAtPointer = (
+    event: Pick<ReactPointerEvent<HTMLElement>, 'clientX' | 'clientY'>,
+    surface: PanoramaInteractionSurface,
+  ) => {
+    const rect = getInteractionRect(surface);
+    if (!rect || !avatarIkEditMode || !avatarOverlayVisible) return null;
+    const localX = event.clientX - rect.left;
+    const localY = event.clientY - rect.top;
+    if (localX < -24 || localY < -24 || localX > rect.width + 24 || localY > rect.height + 24) return null;
+    const hitRadius = Math.max(20, Math.min(34, Math.min(rect.width, rect.height) * 0.08));
+    let bestControl: AvatarIkControl | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    avatarIkControlsRef.current.forEach((control) => {
+      const x = (control.x / 100) * rect.width;
+      const y = (control.y / 100) * rect.height;
+      const distance = Math.hypot(localX - x, localY - y);
+      if (distance <= hitRadius && distance < bestDistance) {
+        bestControl = control;
+        bestDistance = distance;
+      }
+    });
+    return bestControl;
+  };
+
+  const getInteractionSurfaceAtPointer = (
+    event: Pick<ReactPointerEvent<HTMLElement>, 'clientX' | 'clientY'>,
+  ): PanoramaInteractionSurface | null => {
+    const pointInRect = (rect: DOMRect | null | undefined) => (
+      !!rect
+      && event.clientX >= rect.left
+      && event.clientX <= rect.right
+      && event.clientY >= rect.top
+      && event.clientY <= rect.bottom
+    );
+    const directorRect = directorStageRef.current?.getBoundingClientRect();
+    if (pointInRect(directorRect)) return 'director';
+    const previewRect = previewStageRef.current?.getBoundingClientRect();
+    if (pointInRect(previewRect)) return 'node';
+    return null;
+  };
+
+  const handleInteractionStagePointerDownCapture = (
+    event: ReactPointerEvent<HTMLElement>,
+    surface: PanoramaInteractionSurface,
+  ) => {
+    if (event.button !== 0 || !avatarIkEditMode || !avatarOverlayVisible) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const ikTarget = target?.closest<HTMLElement>('[data-panorama-ik-control="true"]') || null;
+    if (!ikTarget && target?.closest('button')) return;
+    const control = ikTarget
+      ? avatarIkControlsRef.current.find((item) => (
+        item.avatarId === ikTarget.dataset.panoramaIkAvatarId
+        && item.id === ikTarget.dataset.panoramaIkHandleId
+      ))
+      : getAvatarIkControlAtPointer(event, surface);
+    if (!control) return;
+    startAvatarIkDrag(event, control, surface);
+  };
+
+  const handleStagePointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    onPointerMove(event);
+    moveAvatarDrag(event);
+    moveAvatarRotate(event);
+    moveAvatarIkDrag(event);
+    moveOcclusionMaskDrag(event);
+  };
+
+  const handleStagePointerEnd = (event: ReactPointerEvent<HTMLElement>) => {
+    endDrag(event);
+    endAvatarDrag(event);
+    endAvatarRotate(event);
+    endAvatarIkDrag(event);
+    endOcclusionMaskDrag(event);
+  };
+
+  useEffect(() => {
+    const hasActiveDrag = (pointerId: number) => (
+      dragRef.current?.pointerId === pointerId
+      || avatarDragRef.current?.pointerId === pointerId
+      || avatarRotateRef.current?.pointerId === pointerId
+      || avatarIkDragRef.current?.pointerId === pointerId
+      || occlusionMaskDragRef.current?.pointerId === pointerId
+    );
+    const handleWindowPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 || !avatarIkEditMode || !avatarOverlayVisible) return;
+      const surface = getInteractionSurfaceAtPointer(event);
+      if (!surface) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const ikTarget = target?.closest<HTMLElement>('[data-panorama-ik-control="true"]') || null;
+      if (!ikTarget && target?.closest('button')) return;
+      const control = ikTarget
+        ? avatarIkControlsRef.current.find((item) => (
+          item.avatarId === ikTarget.dataset.panoramaIkAvatarId
+          && item.id === ikTarget.dataset.panoramaIkHandleId
+        ))
+        : getAvatarIkControlAtPointer(event, surface);
+      if (!control) return;
+      startAvatarIkDrag(event as unknown as ReactPointerEvent<HTMLElement>, control, surface);
+    };
+    const handleWindowPointerMove = (event: PointerEvent) => {
+      if (!hasActiveDrag(event.pointerId)) return;
+      handleStagePointerMove(event as unknown as ReactPointerEvent<HTMLElement>);
+    };
+    const handleWindowPointerEnd = (event: PointerEvent) => {
+      if (!hasActiveDrag(event.pointerId)) return;
+      handleStagePointerEnd(event as unknown as ReactPointerEvent<HTMLElement>);
+    };
+    window.addEventListener('pointerdown', handleWindowPointerDown, { capture: true, passive: false });
+    window.addEventListener('pointermove', handleWindowPointerMove, { capture: true, passive: false });
+    window.addEventListener('pointerup', handleWindowPointerEnd, { capture: true, passive: false });
+    window.addEventListener('pointercancel', handleWindowPointerEnd, { capture: true, passive: false });
+    return () => {
+      window.removeEventListener('pointerdown', handleWindowPointerDown, true);
+      window.removeEventListener('pointermove', handleWindowPointerMove, true);
+      window.removeEventListener('pointerup', handleWindowPointerEnd, true);
+      window.removeEventListener('pointercancel', handleWindowPointerEnd, true);
+    };
+  }, [handleStagePointerEnd, handleStagePointerMove]);
 
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
     if (textureStatus !== 'ready') return;
     event.preventDefault();
     event.stopPropagation();
     const factor = event.deltaY < 0 ? 0.92 : 1 / 0.92;
-    update({ panoramaFov: clampFov(fov * factor) });
+    applyView({ fov: clampFov(fov * factor) }, { panoramaActiveCameraViewId: '' });
   };
 
-  const resetView = () => update({ panoramaYaw: 0, panoramaPitch: 0, panoramaFov: 75 });
+  const resetView = () => applyView({ yaw: 0, pitch: 0, fov: 75 }, { panoramaActiveCameraViewId: '' });
 
   const exportFrame = useCallback(async () => {
     if (textureStatus !== 'ready' || !canvasRef.current) {
@@ -459,6 +2945,9 @@ const Panorama3DNode = (p: NodeProps) => {
           ratio: ratioId,
           customW,
           customH,
+          cameraViewId: activeCameraViewId,
+          cameraViews: cameraViews.length,
+          hotspots: hotspots.length,
           width: canvasRef.current.width,
           height: canvasRef.current.height,
         },
@@ -468,7 +2957,388 @@ const Panorama3DNode = (p: NodeProps) => {
       update({ status: 'error', panoramaError: msg });
       setError(msg);
     }
-  }, [customH, customW, drawFrame, ratioId, sourceUrl, textureStatus, update]);
+  }, [activeCameraViewId, cameraViews.length, customH, customW, drawFrame, hotspots.length, ratioId, sourceUrl, textureStatus, update]);
+
+  const renderControlSnapshotDataUrl = useCallback(async () => {
+    const rt = runtimeRef.current;
+    const THREE = rt.three;
+    const canvas = canvasRef.current;
+    if (!canvas || !THREE || !rt.renderer || !rt.scene || !rt.sphere) {
+      throw new Error('控制快照不可用');
+    }
+    const oldSphereVisible = rt.sphere.visible;
+    const oldBackground = rt.scene.background;
+    const oldClearColor = new THREE.Color();
+    const oldClearAlpha = typeof rt.renderer.getClearAlpha === 'function' ? rt.renderer.getClearAlpha() : 1;
+    if (typeof rt.renderer.getClearColor === 'function') rt.renderer.getClearColor(oldClearColor);
+    try {
+      rt.sphere.visible = false;
+      rt.scene.background = new THREE.Color(0x111827);
+      rt.renderer.setClearColor?.(0x111827, 1);
+      if (!drawFrame()) throw new Error('控制快照不可导出');
+      return await canvasDataUrlWithLegend(
+        canvas,
+        avatars,
+        true,
+        effectiveShotCamera,
+        shotTarget,
+        occlusionMaskVisible ? occlusionMasks : [],
+        { controlSnapshot: true },
+      );
+    } finally {
+      rt.sphere.visible = oldSphereVisible;
+      rt.scene.background = oldBackground;
+      rt.renderer.setClearColor?.(oldClearColor, oldClearAlpha);
+      drawFrame();
+    }
+  }, [avatars, drawFrame, effectiveShotCamera, occlusionMaskVisible, occlusionMasks, shotTarget]);
+
+  const renderSceneSequenceSnapshots = useCallback(async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || avatarKeyframes.length < 2) return [] as string[];
+    const view = sanitizePanoramaViewAngles(viewRef.current);
+    const sequenceFrames = buildPanoramaAvatarSequenceFrames({
+      keyframes: avatarKeyframes,
+      avatars,
+      view,
+      width: canvas.width,
+      height: canvas.height,
+      frameCount: keyframeSequenceCount,
+    });
+    if (sequenceFrames.length === 0) return [] as string[];
+    const previousAvatars = avatarsRef.current;
+    const urls: string[] = [];
+    const aspect = canvas.width / Math.max(1, canvas.height);
+    try {
+      for (const frame of sequenceFrames) {
+        const frameAvatars = avatars.map((avatar) => {
+          const frameAvatar = frame.avatars.find((item) => item.avatarId === avatar.id);
+          if (!frameAvatar) return avatar;
+          return {
+            ...avatar,
+            yaw: frameAvatar.yaw,
+            pitch: frameAvatar.pitch,
+            distance: frameAvatar.distance,
+            heightOffset: frameAvatar.heightOffset,
+            rootHeight: frameAvatar.rootHeight,
+            rootPitch: frameAvatar.rootPitch,
+            rootRoll: frameAvatar.rootRoll,
+            groundMode: frameAvatar.groundMode,
+            scale: frameAvatar.scale,
+            heading: frameAvatar.heading,
+            faceMode: frameAvatar.faceMode,
+            poseId: frameAvatar.poseId,
+            poseParams: frameAvatar.poseParams || {},
+            visible: true,
+          };
+        });
+        avatarsRef.current = frameAvatars;
+        updateAvatarMeshes();
+        if (!drawFrame()) continue;
+        const frameShotTarget = projectPanoramaShotTarget({
+          shotCamera: effectiveShotCamera,
+          avatars: frameAvatars,
+          view,
+          aspect,
+        });
+        const dataUrl = await canvasDataUrlWithLegend(
+          canvas,
+          frameAvatars,
+          sceneLegendVisible,
+          effectiveShotCamera,
+          frameShotTarget,
+          occlusionMaskVisible ? occlusionMasks : [],
+          { sequenceLabel: `${frame.frameLabel} / ${sequenceFrames.length}` },
+        );
+        const imageUrl = await uploadDataUrl(dataUrl, `${cleanFileBase(sourceUrl)}-panorama-seq-${String(frame.frameIndex).padStart(2, '0')}`);
+        urls.push(imageUrl);
+      }
+    } finally {
+      avatarsRef.current = previousAvatars;
+      updateAvatarMeshes();
+      drawFrame();
+    }
+    return urls;
+  }, [avatarKeyframes, avatars, drawFrame, effectiveShotCamera, keyframeSequenceCount, occlusionMaskVisible, occlusionMasks, sceneLegendVisible, sourceUrl, updateAvatarMeshes]);
+
+  const exportSceneSnapshot = useCallback(async () => {
+    if (textureStatus !== 'ready' || !canvasRef.current) {
+      update({ panoramaError: '请先连接并加载全景图' });
+      return;
+    }
+    update({ status: 'generating', progress: '场景快照导出中', panoramaError: '' });
+    try {
+      if (!drawFrame()) throw new Error('当前场景不可导出');
+      const dataUrl = await canvasDataUrlWithLegend(canvasRef.current, avatars, sceneLegendVisible, effectiveShotCamera, shotTarget, occlusionMaskVisible ? occlusionMasks : []);
+      const imageUrl = await uploadDataUrl(dataUrl, `${cleanFileBase(sourceUrl)}-panorama-scene`);
+      const sequenceUrls = await renderSceneSequenceSnapshots();
+      const view = sanitizePanoramaViewAngles(viewRef.current);
+      const snapshot = buildPanoramaSceneSnapshot({
+        sourceUrl,
+        promptFinal,
+        view,
+        ratioId,
+        width: canvasRef.current.width,
+        height: canvasRef.current.height,
+        avatars,
+        compositionGuide,
+        shotCamera: effectiveShotCamera,
+        keyframes: avatarKeyframes,
+        sequenceFrameCount: keyframeSequenceCount,
+        sequenceFrameUrls: sequenceUrls,
+        occlusionMasks,
+        snapshotUrl: imageUrl,
+        controlSnapshotUrl: d.panoramaControlSnapshotUrl,
+      });
+      syncSequenceMaterialSet(sequenceUrls, snapshot);
+      update({
+        status: 'success',
+        progress: '100%',
+        panoramaError: '',
+        imageUrl,
+        imageUrls: [imageUrl],
+        urls: [imageUrl],
+        panoramaSourceUrl: sourceUrl,
+        panoramaYaw: view.yaw,
+        panoramaPitch: view.pitch,
+        panoramaFov: view.fov,
+        panoramaSceneSnapshot: snapshot,
+        panoramaScenePrompt: snapshot.promptText,
+      });
+      taskCompletionSound.notifyComplete(p.id, 'image');
+    } catch (e: any) {
+      const msg = e?.message || '导出场景快照失败';
+      update({ status: 'error', panoramaError: msg });
+      setError(msg);
+    }
+  }, [avatarKeyframes, avatars, compositionGuide, d.panoramaControlSnapshotUrl, drawFrame, effectiveShotCamera, keyframeSequenceCount, occlusionMaskVisible, occlusionMasks, p.id, promptFinal, ratioId, renderSceneSequenceSnapshots, sceneLegendVisible, shotTarget, sourceUrl, syncSequenceMaterialSet, textureStatus, update]);
+
+  const exportControlSnapshot = useCallback(async () => {
+    if (textureStatus !== 'ready' || !canvasRef.current) {
+      update({ panoramaError: '请先连接并加载全景图' });
+      return;
+    }
+    update({ status: 'generating', progress: '控制快照导出中', panoramaError: '' });
+    try {
+      const dataUrl = await renderControlSnapshotDataUrl();
+      const imageUrl = await uploadDataUrl(dataUrl, `${cleanFileBase(sourceUrl)}-panorama-control`);
+      const view = sanitizePanoramaViewAngles(viewRef.current);
+      const snapshot = buildPanoramaSceneSnapshot({
+        sourceUrl,
+        promptFinal,
+        view,
+        ratioId,
+        width: canvasRef.current.width,
+        height: canvasRef.current.height,
+        avatars,
+        compositionGuide,
+        shotCamera: effectiveShotCamera,
+        keyframes: avatarKeyframes,
+        sequenceFrameCount: keyframeSequenceCount,
+        occlusionMasks,
+        snapshotUrl: d.panoramaSceneSnapshot?.snapshotUrl,
+        controlSnapshotUrl: imageUrl,
+      });
+      update({
+        status: 'success',
+        progress: '100%',
+        panoramaError: '',
+        imageUrl,
+        imageUrls: [imageUrl],
+        urls: [imageUrl],
+        panoramaSourceUrl: sourceUrl,
+        panoramaYaw: view.yaw,
+        panoramaPitch: view.pitch,
+        panoramaFov: view.fov,
+        panoramaControlSnapshotUrl: imageUrl,
+        panoramaSceneSnapshot: snapshot,
+        panoramaScenePrompt: snapshot.promptText,
+      });
+      taskCompletionSound.notifyComplete(p.id, 'image');
+    } catch (e: any) {
+      const msg = e?.message || '导出控制快照失败';
+      update({ status: 'error', panoramaError: msg });
+      setError(msg);
+    }
+  }, [avatarKeyframes, avatars, compositionGuide, d.panoramaSceneSnapshot?.snapshotUrl, effectiveShotCamera, keyframeSequenceCount, occlusionMasks, p.id, promptFinal, ratioId, renderControlSnapshotDataUrl, sourceUrl, textureStatus, update]);
+
+  const selectAvatarAtIndex = useCallback((index: number) => {
+    const avatar = avatars[index];
+    if (!avatar) return false;
+    focusAvatar(avatar);
+    return true;
+  }, [avatars, focusAvatar]);
+
+  const cycleAvatar = useCallback((direction: 1 | -1) => {
+    if (avatars.length === 0) return false;
+    const currentIndex = Math.max(0, avatars.findIndex((item) => item.id === activeAvatarId));
+    const nextIndex = (currentIndex + direction + avatars.length) % avatars.length;
+    focusAvatar(avatars[nextIndex]);
+    return true;
+  }, [activeAvatarId, avatars, focusAvatar]);
+
+  const cycleActivePose = useCallback((direction: 1 | -1) => {
+    if (!activeAvatar) return false;
+    const currentIndex = Math.max(0, PANORAMA_AVATAR_POSES.findIndex((pose) => pose.id === activeAvatar.poseId));
+    const nextPose = PANORAMA_AVATAR_POSES[(currentIndex + direction + PANORAMA_AVATAR_POSES.length) % PANORAMA_AVATAR_POSES.length];
+    changeAvatarPose(activeAvatar, nextPose.id);
+    return true;
+  }, [activeAvatar, changeAvatarPose]);
+
+  const resetActivePoseParams = useCallback(() => {
+    if (!activeAvatar) return false;
+    const rootDefaults = panoramaAvatarPoseRootDefaults(activeAvatar.poseId);
+    patchAvatar(activeAvatar, { ...rootDefaults, poseParams: panoramaAvatarPoseDefaultParams(activeAvatar.poseId) || {} });
+    return true;
+  }, [activeAvatar, patchAvatar]);
+
+  const toggleShotMode = useCallback(() => {
+    patchShotCamera({
+      mode: effectiveShotCamera.mode === 'shot-camera' ? 'panorama-view' : 'shot-camera',
+      targetAvatarId: effectiveShotCamera.targetAvatarId || activeAvatar?.id || avatars[0]?.id || '',
+    });
+    return true;
+  }, [activeAvatar?.id, avatars, effectiveShotCamera.mode, effectiveShotCamera.targetAvatarId, patchShotCamera]);
+
+  const toggleAvatarIkEditMode = useCallback(() => {
+    const next = !avatarIkEditMode;
+    update({ panoramaAvatarIkEditMode: next, panoramaActorOverlayVisible: true });
+    if (!next) {
+      avatarIkControlsRef.current = [];
+      setAvatarIkControls([]);
+    }
+    return true;
+  }, [avatarIkEditMode, update]);
+
+  const refreshDirectorPreview = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    try {
+      drawFrame();
+      setDirectorPreviewUrl(canvas.toDataURL('image/png'));
+    } catch {
+      setDirectorPreviewUrl('');
+    }
+  }, [drawFrame]);
+
+  useEffect(() => {
+    if (!avatarIkEditMode) {
+      avatarIkControlsRef.current = [];
+      setAvatarIkControls([]);
+      return;
+    }
+    drawFrame();
+  }, [avatarIkEditMode, drawFrame]);
+
+  useEffect(() => {
+    if (!directorFullscreenOpen) return;
+    refreshDirectorPreview();
+    const timer = window.setInterval(refreshDirectorPreview, 500);
+    return () => window.clearInterval(timer);
+  }, [directorFullscreenOpen, refreshDirectorPreview]);
+
+  useEffect(() => {
+    if (!p.selected && !directorFullscreenOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || isEditableShortcutTarget(event.target)) return;
+      let handled = false;
+      const key = event.key.toLowerCase();
+
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        const activeMask = activeOcclusionMaskId
+          ? occlusionMasks.find((item) => item.id === activeOcclusionMaskId)
+          : null;
+        if (activeMask) {
+          removeOcclusionMask(activeMask);
+          handled = true;
+        } else if (activeAvatar) {
+          removeAvatar(activeAvatar);
+          handled = true;
+        }
+      } else if (/^[1-8]$/.test(event.key)) {
+        handled = selectAvatarAtIndex(Number(event.key) - 1);
+      } else if (event.key === 'Tab') {
+        handled = cycleAvatar(event.shiftKey ? -1 : 1);
+      } else if (key === 'a') {
+        addAvatarAtCenter();
+        handled = true;
+      } else if (key === 'p') {
+        update({ panoramaAvatarPickMode: !avatarPickMode, panoramaActorOverlayVisible: true });
+        handled = true;
+      } else if (key === 'f') {
+        handled = activeAvatar ? selectAvatarAtIndex(Math.max(0, avatars.findIndex((item) => item.id === activeAvatar.id))) : false;
+      } else if (key === 'h') {
+        update({ panoramaActorOverlayVisible: !avatarOverlayVisible });
+        handled = true;
+      } else if (key === 'i') {
+        handled = toggleAvatarIkEditMode();
+      } else if (event.key === '[') {
+        handled = cycleActivePose(-1);
+      } else if (event.key === ']') {
+        handled = cycleActivePose(1);
+      } else if (key === 'r') {
+        handled = resetActivePoseParams();
+      } else if (key === 'm') {
+        handled = toggleShotMode();
+      } else if (key === 'o') {
+        setDirectorFullscreenOpen(true);
+        handled = true;
+      } else if (key === 'c') {
+        void copyScenePrompt();
+        handled = true;
+      } else if (key === 'e') {
+        void exportSceneSnapshot();
+        handled = true;
+      } else if (event.key === '?' || (event.shiftKey && event.key === '/')) {
+        setShortcutHelpOpen(true);
+        handled = true;
+      } else if (event.key === 'Escape') {
+        if (shortcutHelpOpen) {
+          setShortcutHelpOpen(false);
+          handled = true;
+        } else if (directorFullscreenOpen) {
+          setDirectorFullscreenOpen(false);
+          handled = true;
+        } else if (avatarPickMode || hotspotPickMode || avatarIkEditMode) {
+          update({ panoramaAvatarPickMode: false, panoramaAvatarIkEditMode: false });
+          setHotspotPickMode(false);
+          handled = true;
+        }
+      }
+
+      if (handled) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [
+    activeAvatar,
+    activeOcclusionMaskId,
+    addAvatarAtCenter,
+    avatarIkEditMode,
+    avatarOverlayVisible,
+    avatarPickMode,
+    avatars,
+    copyScenePrompt,
+    cycleActivePose,
+    cycleAvatar,
+    directorFullscreenOpen,
+    exportSceneSnapshot,
+    hotspotPickMode,
+    occlusionMasks,
+    p.selected,
+    removeAvatar,
+    removeOcclusionMask,
+    resetActivePoseParams,
+    selectAvatarAtIndex,
+    shortcutHelpOpen,
+    toggleAvatarIkEditMode,
+    toggleShotMode,
+    update,
+  ]);
 
   const applyGeneratedPanorama = useCallback((url: string, params: {
     mode: PanoramaGenerationMode;
@@ -517,12 +3387,19 @@ const Panorama3DNode = (p: NodeProps) => {
       update({
         status: 'error',
         panoramaError: validation.error,
-        panoramaPromptFinal: buildPanoramaPromptFinal(prompt),
+        panoramaPromptFinal: buildPromptFinalFor(prompt),
       });
       setError(validation.error);
       return;
     }
-    const request = buildPanoramaImageRequest({ mode, prompt, sizeLevel, referenceUrl });
+    const request = buildPanoramaImageRequest({
+      mode,
+      prompt,
+      sizeLevel,
+      referenceUrl,
+      viewerPosition,
+      viewCenter,
+    });
     const finalPrompt = request.prompt;
     update({
       status: 'generating',
@@ -582,7 +3459,7 @@ const Panorama3DNode = (p: NodeProps) => {
       setError(msg);
       logBus.error(msg, `panorama:${p.id.slice(0, 6)}`);
     }
-  }, [applyGeneratedPanorama, imageReferenceUrl, p.id, panelMode, sizeLevel, update, userPrompt]);
+  }, [applyGeneratedPanorama, buildPromptFinalFor, imageReferenceUrl, p.id, panelMode, sizeLevel, update, userPrompt, viewCenter, viewerPosition]);
 
   const runNode = useCallback(async () => {
     if (panelMode === 'preview') {
@@ -637,7 +3514,15 @@ const Panorama3DNode = (p: NodeProps) => {
         kind: 'panorama',
         categoryId: category.id,
         title,
-        tags: ['3D全景', 'panorama', 'VR', sizeLevel, generationModeLabel(generationMode)],
+        tags: [
+          '3D全景',
+          'panorama',
+          'VR',
+          sizeLevel,
+          generationModeLabel(generationMode),
+          cameraViews.length ? `${cameraViews.length}机位` : '',
+          hotspots.length ? `${hotspots.length}热点` : '',
+        ].filter(Boolean),
         sourceNodeId: p.id,
         favorite: false,
       });
@@ -652,14 +3537,14 @@ const Panorama3DNode = (p: NodeProps) => {
     } catch (e: any) {
       setResourceState(e?.message || '保存资源失败');
     }
-  }, [d.prompt, generationMode, p.id, sizeLevel, sourceUrl, userPrompt]);
+  }, [cameraViews.length, d.prompt, generationMode, hotspots.length, p.id, sizeLevel, sourceUrl, userPrompt]);
 
   const useHistoryItem = useCallback((item: PanoramaGenerationHistoryItem) => {
     update({
       panoramaSourceUrl: item.url,
       panoramaGeneratedUrl: item.url,
       panoramaPrompt: item.prompt || '',
-      panoramaPromptFinal: item.promptFinal || buildPanoramaPromptFinal(item.prompt || ''),
+      panoramaPromptFinal: item.promptFinal || buildPromptFinalFor(item.prompt || ''),
       panoramaGenerationMode: item.mode,
       panoramaPanelMode: item.mode,
       panoramaSizeLevel: item.sizeLevel,
@@ -669,12 +3554,12 @@ const Panorama3DNode = (p: NodeProps) => {
       status: 'success',
       panoramaError: '',
     });
-  }, [update]);
+  }, [buildPromptFinalFor, update]);
 
   useRunTrigger(p.id, runNode, 'image');
 
   const nodeStyle = {
-    width: 760,
+    width: 1180,
     borderColor: p.selected ? COLOR : undefined,
     boxShadow: p.selected ? `0 0 0 2px ${COLOR}, var(--t8-shadow-strong, 0 18px 36px rgba(0,0,0,.22))` : undefined,
   };
@@ -696,7 +3581,81 @@ const Panorama3DNode = (p: NodeProps) => {
     ? 'border-slate-400/25 bg-slate-400/10 text-[var(--t8-text-muted)]'
     : 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
 
+  const renderActionPlannerPanel = (director = false) => (
+    <section className={`space-y-2 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] p-2 ${director ? '' : 'min-w-0'}`}>
+      <div className="flex items-center justify-between gap-2 text-xs font-bold text-[var(--t8-text-main)]">
+        <span className="flex items-center gap-1">
+          <Sparkles size={13} />
+          动作生成
+        </span>
+        <span className="text-[10px] text-[var(--t8-text-muted)]">
+          {actionPlan ? `${actionPlan.avatars.length} 角色草案` : '本地 / AI'}
+        </span>
+      </div>
+      <textarea
+        value={actionPrompt}
+        onChange={(event) => setActionPrompt(event.target.value)}
+        onBlur={() => update({ panoramaActionPrompt: actionPrompt })}
+        onKeyDown={(event) => {
+          if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+            event.preventDefault();
+            createLocalActionPlan('append');
+          }
+        }}
+        placeholder="角色B飞踢角色A，角色A受击后仰，脚部特写，8帧"
+        rows={director ? 3 : 2}
+        className="nodrag nopan nowheel w-full resize-none rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs leading-relaxed text-[var(--t8-text-main)] outline-none"
+      />
+      <div className="flex flex-wrap gap-1">
+        {actionQuickTerms.map((term) => (
+          <button
+            key={term.id}
+            type="button"
+            className="t8-btn h-7 px-2 text-[10px]"
+            onClick={() => setActionPrompt((current) => current ? `${current}，${term.label}` : term.label)}
+            title={term.description}
+          >
+            {term.label}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={() => createLocalActionPlan('append')}>
+          <Sparkles size={12} />
+          本地解析
+        </button>
+        <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={() => void createAiActionPlan()} disabled={isPlanningAction}>
+          {isPlanningAction ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+          AI解析
+        </button>
+      </div>
+      <div className="grid grid-cols-3 gap-1.5">
+        <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={() => applyActionPlan('update-selected')} disabled={!activeAvatar && avatars.length === 0}>
+          <Move size={12} />
+          应用当前
+        </button>
+        <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={() => applyActionPlan('append')}>
+          <Plus size={12} />
+          新增角色
+        </button>
+        <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={() => applyActionPlan('replace-actors')}>
+          <RotateCcw size={12} />
+          替换场景
+        </button>
+      </div>
+      {(actionPlanStatus || actionPlanSummary.length > 0) && (
+        <div className="max-h-32 overflow-y-auto rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] p-2 text-[10px] leading-relaxed text-[var(--t8-text-muted)]">
+          {actionPlanStatus && <div className="font-bold text-[var(--t8-text-main)]">{actionPlanStatus}</div>}
+          {actionPlanSummary.map((line) => (
+            <div key={line}>{line}</div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+
   return (
+    <>
     <div className="t8-node relative transition-all" style={nodeStyle}>
       <Handle type="target" position={Position.Left} style={{ background: COLOR, border: 0 }} />
       <Handle type="source" position={Position.Right} style={{ background: COLOR, border: 0 }} />
@@ -720,13 +3679,31 @@ const Panorama3DNode = (p: NodeProps) => {
               360
             </span>
           )}
+          <button
+            type="button"
+            className="t8-mini-icon-button nodrag nopan"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={() => setShortcutHelpOpen(true)}
+            title="3D 全景快捷键 (?)"
+          >
+            <HelpCircle size={13} />
+          </button>
         </div>
 
-        <div className="p-3 space-y-3 nodrag" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="grid grid-cols-[minmax(0,760px)_360px] gap-3 p-3 nodrag" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="min-w-0 space-y-3">
           <div
+            ref={previewStageRef}
             className={`relative overflow-hidden rounded-lg border border-[var(--t8-border)] bg-slate-950 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
             style={{ aspectRatio: `${ratio.w} / ${ratio.h}`, minHeight: 260 }}
             onWheel={onWheel}
+            onPointerDownCapture={(event) => handleInteractionStagePointerDownCapture(event, 'node')}
+            onPointerMove={handleStagePointerMove}
+            onPointerUp={handleStagePointerEnd}
+            onPointerCancel={handleStagePointerEnd}
           >
             <canvas
               ref={canvasRef}
@@ -737,6 +3714,285 @@ const Panorama3DNode = (p: NodeProps) => {
               onPointerCancel={endDrag}
               onPointerLeave={endDrag}
             />
+            <div className="absolute right-2 top-2 z-50 flex items-center gap-1">
+              <button
+                type="button"
+                className="t8-mini-icon-button nodrag nopan h-8 w-8 rounded-full border-2 text-slate-950"
+                style={PANORAMA_FLOATING_ICON_BUTTON_STYLE}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={() => setShortcutHelpOpen(true)}
+                title="快捷键 (?)"
+              >
+                <HelpCircle size={13} />
+              </button>
+              <button
+                type="button"
+                className="t8-mini-icon-button nodrag nopan h-8 w-8 rounded-full border-2 text-slate-950"
+                style={PANORAMA_FLOATING_ICON_BUTTON_STYLE}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={() => {
+                  setDirectorFullscreenOpen(true);
+                  window.setTimeout(refreshDirectorPreview, 0);
+                }}
+                title="打开全屏导演台 (O)"
+              >
+                <Maximize2 size={13} />
+              </button>
+            </div>
+            {visibleHotspots.map(({ item, pos }) => (
+              <button
+                key={item.id}
+                type="button"
+                className="absolute z-20 flex h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-1 rounded-full border border-sky-200 bg-sky-500/90 px-2 text-[10px] font-bold text-slate-950 shadow-lg shadow-sky-950/35"
+                style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+                title={`${item.label} · ${Math.round(item.yaw)}°/${Math.round(item.pitch)}°`}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  jumpToHotspot(item);
+                }}
+              >
+                <MapPin size={13} />
+                <span className="max-w-20 truncate">{item.label}</span>
+              </button>
+            ))}
+            {avatarOverlayVisible && visibleAvatarMarkers.map(({ item, index, pos }) => (
+              <div
+                key={item.id}
+                className={`pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 ${activeAvatarId === item.id ? 'z-[60]' : 'z-20'}`}
+                style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+              >
+                <button
+                  type="button"
+                  className={`nodrag nopan pointer-events-auto relative flex h-5 w-5 items-center justify-center overflow-hidden rounded-full border text-[9px] font-bold shadow-md transition-transform hover:scale-125 ${
+                    activeAvatarId === item.id
+                      ? 'border-white bg-white text-slate-950 ring-2 ring-white/40'
+                      : 'border-white/60 bg-slate-950/20 text-white'
+                  }`}
+                  style={{ touchAction: 'none' }}
+                  title={`${index + 1}. ${item.name} · 拖动移动角色`}
+                  onMouseDown={stopPanoramaMouseDown}
+                  onPointerDown={(event) => startAvatarDrag(event, item)}
+                  onPointerMove={moveAvatarDrag}
+                  onPointerUp={endAvatarDrag}
+                  onPointerCancel={endAvatarDrag}
+                  onDragStart={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    focusAvatar(item);
+                  }}
+                >
+                  <span className="absolute inset-1 rounded-full" style={{ background: item.color }} />
+                  <span className="relative text-[8px] leading-none">{index + 1}</span>
+                </button>
+                {activeAvatarId === item.id && !item.locked && (
+                  <div
+                    className="pointer-events-auto absolute z-[70] flex flex-col gap-1.5"
+                    style={getAvatarToolDockStyle(item, pos, 'node')}
+                  >
+                    <button
+                      type="button"
+                      className="nodrag nopan flex h-8 w-8 items-center justify-center rounded-full border-2 text-slate-950 transition-transform hover:scale-110"
+                      style={{ ...PANORAMA_MOVE_HANDLE_STYLE, touchAction: 'none' }}
+                      title={`${item.name} · 拖动平移角色位置`}
+                      onMouseDown={stopPanoramaMouseDown}
+                      onPointerDown={(event) => startAvatarDrag(event, item)}
+                      onPointerMove={moveAvatarDrag}
+                      onPointerUp={endAvatarDrag}
+                      onPointerCancel={endAvatarDrag}
+                      onDragStart={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                    >
+                      <Move size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="nodrag nopan flex h-8 w-8 items-center justify-center rounded-full border-2 text-slate-950 transition-transform hover:scale-110"
+                      style={{ ...PANORAMA_ROTATE_HANDLE_STYLE, touchAction: 'none' }}
+                      title={`${item.name} · 左右拖动旋转朝向，上下拖动前后倾`}
+                      onMouseDown={stopPanoramaMouseDown}
+                      onPointerDown={(event) => startAvatarRotate(event, item)}
+                      onPointerMove={moveAvatarRotate}
+                      onPointerUp={endAvatarRotate}
+                      onPointerCancel={endAvatarRotate}
+                      onDragStart={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                    >
+                      <RotateCcw size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+            {avatarOverlayVisible && avatarIkControls.map((control) => (
+              <button
+                key={`${control.avatarId}-${control.id}`}
+                type="button"
+                className={`nodrag nopan pointer-events-auto absolute z-30 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-slate-950/70 shadow-sm transition-transform hover:scale-150 ${
+                  control.kind === 'end' ? 'h-5 w-5 bg-white/95' : 'h-[18px] w-[18px] bg-amber-300/95'
+                }`}
+                style={{ left: `${control.x}%`, top: `${control.y}%`, touchAction: 'none' }}
+                data-panorama-ik-control="true"
+                data-panorama-ik-avatar-id={control.avatarId}
+                data-panorama-ik-handle-id={control.id}
+                title={`${control.label} · 直接拖动画面关节调整姿态`}
+                onMouseDown={stopPanoramaMouseDown}
+                onPointerDown={(event) => startAvatarIkDrag(event, control)}
+                onPointerMove={moveAvatarIkDrag}
+                onPointerUp={endAvatarIkDrag}
+                onPointerCancel={endAvatarIkDrag}
+                onDragStart={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+              >
+                <span className={`${control.kind === 'end' ? 'h-2 w-2' : 'h-1.5 w-1.5'} rounded-full bg-slate-950/85`} />
+              </button>
+            ))}
+            {guideStyle && (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                <div
+                  className="relative border border-white/75 shadow-[0_0_0_9999px_rgba(2,6,23,.22)]"
+                  style={guideStyle}
+                >
+                  <span className="absolute left-1 top-1 rounded bg-slate-950/75 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                    {compositionGuide}
+                  </span>
+                  <span className="absolute left-1/3 top-0 h-full border-l border-white/25" />
+                  <span className="absolute left-2/3 top-0 h-full border-l border-white/25" />
+                  <span className="absolute left-0 top-1/3 w-full border-t border-white/25" />
+                  <span className="absolute left-0 top-2/3 w-full border-t border-white/25" />
+                </div>
+              </div>
+            )}
+            {shotGuideStyle && (
+              <div className="pointer-events-none absolute inset-0 z-30">
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div
+                    className="relative border-2 border-dashed border-amber-300/95 shadow-[0_0_0_1px_rgba(2,6,23,.38)]"
+                    style={shotGuideStyle}
+                  >
+                    <span className="absolute left-1 top-1 rounded bg-slate-950/75 px-1.5 py-0.5 text-[9px] font-bold text-amber-100">
+                      导演镜头
+                    </span>
+                  </div>
+                </div>
+                {shotTargetLineStyle && (
+                  <span
+                    className="absolute h-px origin-left border-t border-amber-200/80"
+                    style={shotTargetLineStyle}
+                  />
+                )}
+                {shotTarget.visible && (
+                  <span
+                    className="absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border border-amber-200/80 bg-slate-950/75 px-1.5 py-0.5 text-[9px] font-bold text-amber-100 shadow-md"
+                    style={{ left: `${shotTarget.x}%`, top: `${shotTarget.y}%` }}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-300" />
+                    {shotTarget.label}
+                  </span>
+                )}
+              </div>
+            )}
+            {occlusionMaskVisible && occlusionMasks.map((mask, index) => (
+              <div
+                key={mask.id}
+                className={`nodrag nopan pointer-events-auto absolute z-30 rounded-sm border-2 shadow-[0_0_0_1px_rgba(2,6,23,.45)] ${
+                  activeOcclusionMaskId === mask.id ? 'border-amber-200 ring-2 ring-amber-300/70' : 'border-white/90'
+                }`}
+                style={{
+                  left: `${mask.x}%`,
+                  top: `${mask.y}%`,
+                  width: `${mask.w}%`,
+                  height: `${mask.h}%`,
+                  touchAction: 'none',
+                  cursor: 'move',
+                  backgroundColor: `rgba(14, 165, 233, ${Math.min(0.72, 0.2 + mask.strength / 200)})`,
+                  backgroundImage: 'repeating-linear-gradient(135deg, rgba(2,6,23,.32) 0 2px, transparent 2px 10px)',
+                }}
+                title={`${mask.label} · 拖动移动，拖边角缩放`}
+                onMouseDown={stopPanoramaMouseDown}
+                onPointerDown={(event) => startOcclusionMaskDrag(event, mask, 'move')}
+                onPointerMove={moveOcclusionMaskDrag}
+                onPointerUp={endOcclusionMaskDrag}
+                onPointerCancel={endOcclusionMaskDrag}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveOcclusionMaskId(mask.id);
+                }}
+                onDragStart={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+              >
+                <span
+                  className={OCCLUSION_MASK_LABEL_CLASS}
+                  style={OCCLUSION_MASK_LABEL_STYLE}
+                >
+                  {index + 1}. {mask.label}
+                </span>
+                {([
+                  ['nw', '-left-1.5 -top-1.5 cursor-nwse-resize'],
+                  ['n', 'left-1/2 -top-1.5 -translate-x-1/2 cursor-ns-resize'],
+                  ['ne', '-right-1.5 -top-1.5 cursor-nesw-resize'],
+                  ['e', '-right-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize'],
+                  ['se', '-bottom-1.5 -right-1.5 cursor-nwse-resize'],
+                  ['s', '-bottom-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize'],
+                  ['sw', '-bottom-1.5 -left-1.5 cursor-nesw-resize'],
+                  ['w', '-left-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize'],
+                ] as Array<[OcclusionDragMode, string]>).map(([mode, className]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={`nodrag nopan absolute h-3 w-3 rounded-full border border-slate-950 bg-white shadow-sm ${className}`}
+                    style={{ touchAction: 'none' }}
+                    title={`${mask.label} · 拖动缩放`}
+                    onMouseDown={stopPanoramaMouseDown}
+                    onPointerDown={(event) => startOcclusionMaskDrag(event, mask, mode)}
+                    onPointerMove={moveOcclusionMaskDrag}
+                    onPointerUp={endOcclusionMaskDrag}
+                    onPointerCancel={endOcclusionMaskDrag}
+                    onDragStart={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                  />
+                ))}
+              </div>
+            ))}
+            {hotspotPickMode && (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-sky-950/25 text-xs font-bold text-sky-100">
+                <div className="rounded-full border border-sky-200/60 bg-slate-950/80 px-3 py-1.5 shadow-lg">
+                  点击画面放置导览热点
+                </div>
+              </div>
+            )}
+            {avatarPickMode && (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-fuchsia-950/25 text-xs font-bold text-fuchsia-100">
+                <div className="rounded-full border border-fuchsia-200/60 bg-slate-950/80 px-3 py-1.5 shadow-lg">
+                  点击画面放置{activeAvatar ? `「${activeAvatar.name}」` : '新角色'}
+                </div>
+              </div>
+            )}
             {!hasSource && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950 text-center text-xs text-slate-300">
                 <Box size={24} className="text-sky-300" />
@@ -806,12 +4062,45 @@ const Panorama3DNode = (p: NodeProps) => {
                 {PANORAMA_FIXED_PROMPT}
               </div>
 
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">观看者站位</span>
+                  <input
+                    value={viewerPosition}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      update({
+                        panoramaViewerPosition: next,
+                        panoramaPromptFinal: buildPromptFinalFor(userPrompt, { viewerPosition: next }),
+                      });
+                    }}
+                    placeholder="站在大厅中央 / 门口向内看"
+                    className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">初始视线中心</span>
+                  <input
+                    value={viewCenter}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      update({
+                        panoramaViewCenter: next,
+                        panoramaPromptFinal: buildPromptFinalFor(userPrompt, { viewCenter: next }),
+                      });
+                    }}
+                    placeholder="正对入口 / 主展品 / 窗外城市"
+                    className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                  />
+                </label>
+              </div>
+
               <PromptTextarea
                 title="3D 全景提示词"
                 value={userPrompt}
                 onValueChange={(value) => update({
                   panoramaPrompt: value,
-                  panoramaPromptFinal: buildPanoramaPromptFinal(value),
+                  panoramaPromptFinal: buildPromptFinalFor(value),
                 })}
                 rows={3}
                 placeholder={panelMode === 'image' ? '可选补充：场景风格、天气、镜头中心...' : '场景提示词'}
@@ -827,7 +4116,7 @@ const Panorama3DNode = (p: NodeProps) => {
                     className="t8-btn h-7 px-2 text-[10px]"
                     onClick={() => {
                       const next = userPrompt.trim() ? `${userPrompt.trim()}，${tpl}` : tpl;
-                      update({ panoramaPrompt: next, panoramaPromptFinal: buildPanoramaPromptFinal(next) });
+                      update({ panoramaPrompt: next, panoramaPromptFinal: buildPromptFinalFor(next) });
                     }}
                   >
                     {tpl}
@@ -955,10 +4244,10 @@ const Panorama3DNode = (p: NodeProps) => {
           )}
 
           <div className="grid grid-cols-5 gap-2">
-            <button type="button" className="t8-btn py-2 text-xs" onClick={() => update({ panoramaFov: clampFov(fov * 0.92) })} title="放大">
+            <button type="button" className="t8-btn py-2 text-xs" onClick={() => applyView({ fov: clampFov(fov * 0.92) }, { panoramaActiveCameraViewId: '' })} title="放大">
               <ZoomIn size={14} />
             </button>
-            <button type="button" className="t8-btn py-2 text-xs" onClick={() => update({ panoramaFov: clampFov(fov / 0.92) })} title="缩小">
+            <button type="button" className="t8-btn py-2 text-xs" onClick={() => applyView({ fov: clampFov(fov / 0.92) }, { panoramaActiveCameraViewId: '' })} title="缩小">
               <ZoomOut size={14} />
             </button>
             <button type="button" className="t8-btn py-2 text-xs" onClick={resetView} title="重置视角">
@@ -972,14 +4261,990 @@ const Panorama3DNode = (p: NodeProps) => {
             </button>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 text-[10px] text-[var(--t8-text-muted)]">
+          <section className="rounded-lg border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] p-2">
+            <div className="flex items-center justify-between gap-2 text-xs font-bold text-[var(--t8-text-main)]">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <Camera size={14} />
+                摄像机 / 导览
+              </span>
+              <span className="min-w-0 truncate text-right text-[10px] text-[var(--t8-text-muted)]">{cameraViews.length} 机位 · {hotspots.length} 热点</span>
+            </div>
+            <div className="mt-2 space-y-2">
+              <div className="grid grid-cols-6 gap-1.5">
+                {PANORAMA_CAMERA_PRESETS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="t8-btn h-7 px-1 text-[10px]"
+                    onClick={() => applyView(item, { panoramaActiveCameraViewId: '' })}
+                    title={`${item.label} ${item.yaw}°/${item.pitch}°`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-[1fr_auto] gap-1.5">
+                <input
+                  value={cameraName}
+                  onChange={(event) => setCameraName(event.target.value)}
+                  placeholder="机位名，例如入口视角"
+                  className="rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                />
+                <button type="button" className="t8-btn t8-btn-primary px-2 text-[11px]" onClick={saveCameraView}>
+                  <Plus size={13} />
+                  保存机位
+                </button>
+              </div>
+
+              {cameraViews.length > 0 && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {cameraViews.map((item) => (
+                    <div key={item.id} className={`rounded-md border px-2 py-1.5 text-[10px] ${activeCameraViewId === item.id ? 'border-sky-300 bg-sky-400/15' : 'border-[var(--t8-border)] bg-[var(--t8-bg-panel)]'}`}>
+                      <div className="flex items-center justify-between gap-1">
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 truncate text-left font-bold text-[var(--t8-text-main)]"
+                          onClick={() => applyCameraView(item)}
+                          title={`${item.name} · Yaw ${Math.round(item.yaw)}° Pitch ${Math.round(item.pitch)}° FOV ${Math.round(item.fov)}°`}
+                        >
+                          {item.isDefault ? '默认 · ' : ''}{item.name}
+                        </button>
+                        <button type="button" className="t8-mini-icon-button" onClick={() => setDefaultCameraView(item)} title="设为默认">
+                          <Crosshair size={12} />
+                        </button>
+                        <button type="button" className="t8-mini-icon-button" onClick={() => removeCameraView(item)} title="删除机位">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                      <div className="mt-1 text-[9px] text-[var(--t8-text-muted)]">
+                        Y {Math.round(item.yaw)}° · P {Math.round(item.pitch)}° · FOV {Math.round(item.fov)}°
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] p-2">
+                <div className="mb-1.5 flex items-center gap-1 text-[10px] font-bold text-[var(--t8-text-muted)]">
+                  <MapPin size={12} />
+                  全景热点
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  <input
+                    value={hotspotLabel}
+                    onChange={(event) => setHotspotLabel(event.target.value)}
+                    placeholder="热点名"
+                    className="min-w-0 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                  />
+                  <select
+                    value={hotspotTargetId}
+                    onChange={(event) => setHotspotTargetId(event.target.value)}
+                    className="min-w-0 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                  >
+                    {panoramaTargets.map((item) => (
+                      <option key={item.id} value={item.id}>{item.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className={`t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap ${hotspotPickMode ? 't8-btn-primary' : ''}`}
+                    onClick={() => setHotspotPickMode((value) => !value)}
+                    title="点击画面放置热点"
+                  >
+                    <Crosshair size={12} />
+                    取点
+                  </button>
+                  <button
+                    type="button"
+                    className="t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap"
+                    onClick={() => addHotspotAt(viewRef.current)}
+                    title="把当前画面中心保存为热点"
+                  >
+                    <Plus size={12} />
+                    中心
+                  </button>
+                </div>
+                <div className="mt-1.5 text-[9px] leading-relaxed text-[var(--t8-text-muted)]">
+                  取点会把画面中的点击位置保存成热点；目标可选当前全景或其他 3D 全景节点。
+                </div>
+                {hotspots.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {hotspots.map((item) => (
+                      <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_28px_28px] items-center gap-1 rounded-md bg-[var(--t8-bg-panel-muted)] px-1.5 py-1">
+                        <input
+                          value={item.label}
+                          onChange={(event) => patchHotspot(item, { label: event.target.value })}
+                          className="min-w-0 rounded border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-1.5 py-1 text-[10px] text-[var(--t8-text-main)] outline-none"
+                        />
+                        <select
+                          value={item.targetNodeId || p.id}
+                          onChange={(event) => patchHotspot(item, { targetNodeId: event.target.value })}
+                          className="min-w-0 rounded border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-1.5 py-1 text-[10px] text-[var(--t8-text-main)] outline-none"
+                        >
+                          {panoramaTargets.map((target) => (
+                            <option key={target.id} value={target.id}>{target.label}</option>
+                          ))}
+                        </select>
+                        <button type="button" className="t8-mini-icon-button" onClick={() => jumpToHotspot(item)} title="跳转热点">
+                          <MapPin size={12} />
+                        </button>
+                        <button type="button" className="t8-mini-icon-button" onClick={() => removeHotspot(item)} title="删除热点">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {renderActionPlannerPanel(false)}
+
+          </div>
+
+          <div className="nodrag nowheel min-w-0 space-y-2" onWheel={(event) => event.stopPropagation()}>
+          <section className="rounded-lg border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] p-2">
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-xs font-bold text-[var(--t8-text-main)]">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <Users size={14} />
+                角色 / 场景
+              </span>
+              <span className="min-w-0 truncate text-right text-[10px] text-[var(--t8-text-muted)]">{avatars.filter((item) => item.visible).length}/{avatars.length} 人 · {compositionGuide === 'off' ? '无安全区' : compositionGuide} · {effectiveShotCamera.mode === 'shot-camera' ? '导演镜头' : '当前视角'}</span>
+            </div>
+            <div className="mt-2 flex flex-col gap-2">
+              <div className="order-[-40] grid grid-cols-4 gap-1.5">
+                <button type="button" className="t8-btn t8-btn-primary h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap" onClick={addAvatarAtCenter}>
+                  <UserPlus size={13} />
+                  小人
+                </button>
+                <button
+                  type="button"
+                  className={`t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap ${avatarPickMode ? 't8-btn-primary' : ''}`}
+                  onClick={() => update({ panoramaAvatarPickMode: !avatarPickMode, panoramaActorOverlayVisible: true })}
+                  disabled={textureStatus !== 'ready'}
+                >
+                  <Crosshair size={13} />
+                  放置
+                </button>
+                <button type="button" className="t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap" onClick={exportSceneSnapshot} disabled={textureStatus !== 'ready' || isGenerating} title="导出场景快照；有关键帧时会按序列帧数输出 F01-Fxx">
+                  {isGenerating && d.progress === '场景快照导出中' ? <Loader2 size={13} className="animate-spin" /> : <ImageIcon size={13} />}
+                  快照
+                </button>
+                <button type="button" className="t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap" onClick={exportControlSnapshot} disabled={textureStatus !== 'ready' || isGenerating}>
+                  {isGenerating && d.progress === '控制快照导出中' ? <Loader2 size={13} className="animate-spin" /> : <ScanLine size={13} />}
+                  控图
+                </button>
+                <button type="button" className="t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap" onClick={copyScenePrompt} disabled={!scenePrompt}>
+                  <Copy size={13} />
+                  {sceneCopyState || '场景词'}
+                </button>
+                <button type="button" className="t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap" onClick={sendSceneSnapshot} disabled={!outputUrl && !d.panoramaSceneSnapshot?.snapshotUrl}>
+                  <PackagePlus size={13} />
+                  发送
+                </button>
+                <button type="button" className="t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap" onClick={saveSceneSnapshotResource} disabled={sceneResourceState === '保存中' || (!outputUrl && !d.panoramaSceneSnapshot?.snapshotUrl)}>
+                  {sceneResourceState === '保存中' ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}
+                  {sceneResourceState || '入库'}
+                </button>
+                <button type="button" className="t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap" onClick={exportAvatarLayout}>
+                  <FileJson size={13} />
+                  导出
+                </button>
+                <button type="button" className="t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap" onClick={importAvatarLayout}>
+                  <Upload size={13} />
+                  导入
+                </button>
+              </div>
+
+              <div className="order-[-30] flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-[10px] text-[var(--t8-text-muted)]">
+                <span className="min-w-0">
+                  {activeAvatar ? `当前：${activeAvatar.name} · ${PANORAMA_AVATAR_POSES.find((pose) => pose.id === activeAvatar.poseId)?.label || '站立'}` : '还没有角色'}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    className={`t8-btn h-7 px-2 text-[10px] ${avatarIkEditMode ? 't8-btn-primary' : ''}`}
+                    onClick={toggleAvatarIkEditMode}
+                    disabled={!activeAvatar}
+                    title="画面关节编辑：直接拖动肩/肘/手/髋/膝/脚 (I)"
+                  >
+                    <Move size={12} />
+                    关节
+                  </button>
+                  <button type="button" className="t8-btn h-7 px-2 text-[10px]" onClick={() => setDirectorFullscreenOpen(true)} title="打开全屏导演台 (O)">
+                    <Maximize2 size={12} />
+                    全参数
+                  </button>
+                  <button type="button" className="t8-mini-icon-button" onClick={() => setShortcutHelpOpen(true)} title="快捷键 (?)">
+                    <HelpCircle size={12} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="order-[-10] grid grid-cols-[1fr_1fr_auto_auto] items-center gap-1.5">
+                <label className="min-w-0">
+                  <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">构图安全区</span>
+                  <select
+                    value={compositionGuide}
+                    onChange={(event) => update({ panoramaCompositionGuide: event.target.value })}
+                    className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                  >
+                    {PANORAMA_COMPOSITION_GUIDES.map((item) => (
+                      <option key={item.id} value={item.id}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="min-w-0">
+                  <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">快照图例</span>
+                  <select
+                    value={sceneLegendVisible ? '1' : '0'}
+                    onChange={(event) => update({ panoramaSceneLegendVisible: event.target.value === '1' })}
+                    className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                  >
+                    <option value="1">显示</option>
+                    <option value="0">隐藏</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className={`t8-mini-icon-button panorama-avatar-overlay-toggle self-end ${avatarOverlayVisible ? 'is-active' : ''}`}
+                  onClick={() => update({ panoramaActorOverlayVisible: !avatarOverlayVisible })}
+                  title="显示/隐藏角色控制点"
+                >
+                  {avatarOverlayVisible ? <Eye size={13} /> : <EyeOff size={13} />}
+                </button>
+                <button
+                  type="button"
+                  className="t8-mini-icon-button self-end"
+                  onClick={() => activeAvatar && focusAvatar(activeAvatar)}
+                  disabled={!activeAvatar}
+                  title="定位到选中角色"
+                >
+                  <ScanLine size={13} />
+                </button>
+              </div>
+
+              <section className="order-[-10] rounded-md border border-amber-300/35 bg-amber-400/10 p-2">
+                <div className="flex items-center justify-between gap-2 text-[10px] font-bold text-[var(--t8-text-main)]">
+                  <span className="flex items-center gap-1">
+                    <Camera size={12} />
+                    导演镜头
+                  </span>
+                  <span className="text-[9px] text-[var(--t8-text-muted)]">全屏导演台可调全部参数</span>
+                </div>
+                <div className="mt-2 space-y-2">
+                <div className="grid grid-cols-4 gap-1.5">
+                  <label className="min-w-0">
+                    <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">快照模式</span>
+                    <select
+                      value={effectiveShotCamera.mode}
+                      onChange={(event) => patchShotCamera({
+                        mode: event.target.value === 'shot-camera' ? 'shot-camera' : 'panorama-view',
+                        targetAvatarId: effectiveShotCamera.targetAvatarId || activeAvatar?.id || avatars[0]?.id || '',
+                      })}
+                      className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                    >
+                      <option value="panorama-view">当前视角</option>
+                      <option value="shot-camera">导演镜头</option>
+                    </select>
+                  </label>
+                  <label className="min-w-0">
+                    <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">镜头预设</span>
+                    <select
+                      value={effectiveShotCamera.presetId}
+                      onChange={(event) => changeShotPreset(event.target.value)}
+                      className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                    >
+                      {PANORAMA_SHOT_PRESETS.map((preset) => (
+                        <option key={preset.id} value={preset.id}>{preset.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="min-w-0">
+                    <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">镜头目标</span>
+                    <select
+                      value={effectiveShotCamera.targetAvatarId}
+                      onChange={(event) => patchShotCamera({ mode: 'shot-camera', targetAvatarId: event.target.value })}
+                      className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                    >
+                      {avatars.length === 0 && <option value="">无角色</option>}
+                      {avatars.map((avatar, index) => (
+                        <option key={avatar.id} value={avatar.id}>{index + 1}. {avatar.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="min-w-0">
+                    <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">身体部位</span>
+                    <select
+                      value={effectiveShotCamera.targetBone}
+                      onChange={(event) => patchShotCamera({ mode: 'shot-camera', targetBone: event.target.value as PanoramaShotCamera['targetBone'] })}
+                      className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                    >
+                      {PANORAMA_SHOT_TARGET_BONES.map((bone) => (
+                        <option key={bone.id} value={bone.id}>{bone.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-1.5">
+                  <label className="min-w-0">
+                    <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">镜头比例</span>
+                    <select
+                      value={effectiveShotCamera.framingRatio}
+                      onChange={(event) => patchShotCamera({ mode: 'shot-camera', framingRatio: event.target.value as PanoramaCompositionGuideId })}
+                      className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                    >
+                      {PANORAMA_COMPOSITION_GUIDES.filter((item) => item.id !== 'off').map((item) => (
+                        <option key={item.id} value={item.id}>{item.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">特写 {Math.round(effectiveShotCamera.closeupStrength)}</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={effectiveShotCamera.closeupStrength}
+                      onChange={(event) => patchShotCamera({ mode: 'shot-camera', closeupStrength: Number(event.target.value) })}
+                      className="w-full"
+                    />
+                  </label>
+                  <label>
+                    <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">低机位 {Math.round(effectiveShotCamera.lowAngle)}</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={effectiveShotCamera.lowAngle}
+                      onChange={(event) => patchShotCamera({ mode: 'shot-camera', lowAngle: Number(event.target.value) })}
+                      className="w-full"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="t8-btn h-8 px-2 text-[10px]"
+                    onClick={applyDirectorShotView}
+                    disabled={avatars.length === 0}
+                    title="套用导演镜头"
+                  >
+                    <Camera size={13} />
+                    套用
+                  </button>
+                </div>
+                </div>
+              </section>
+              <section className="rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] p-2">
+                <div className="flex items-center justify-between gap-2 text-[10px] font-bold text-[var(--t8-text-main)]">
+                  <span className="flex items-center gap-1">
+                    <History size={12} />
+                    动作时间轴
+                  </span>
+                  <span className="text-[9px] text-[var(--t8-text-muted)]">{avatarKeyframes.length} 关键帧 · {keyframeSequenceCount} 序列帧</span>
+                </div>
+                <div className="mt-2 space-y-2">
+                  <div className="grid grid-cols-[1fr_72px_auto] gap-1.5">
+                    <div className="rounded-md bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-[10px] leading-relaxed text-[var(--t8-text-muted)]">
+                      记录起始 / 结束姿势；点快照会自动生成序列帧。
+                    </div>
+                    <label className="min-w-0">
+                      <span className="mb-0.5 block text-[9px] font-bold text-[var(--t8-text-muted)]">序列帧</span>
+                      <input
+                        type="number"
+                        min={2}
+                        max={48}
+                        value={keyframeSequenceDraft}
+                        onChange={(event) => updateKeyframeSequenceDraft(event.target.value)}
+                        onBlur={commitKeyframeSequenceDraft}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            commitKeyframeSequenceDraft();
+                            event.currentTarget.blur();
+                          }
+                        }}
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-1.5 py-1 text-center text-[10px] text-[var(--t8-text-main)] outline-none"
+                      />
+                    </label>
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={saveAvatarKeyframe} disabled={!activeAvatar}>
+                      <Plus size={12} />
+                      记录
+                    </button>
+                  </div>
+                  {avatarKeyframes.length > 0 ? (
+                    <div className="space-y-1">
+                      {avatarKeyframes.map((frame) => (
+                        <div key={frame.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md bg-[var(--t8-bg-panel-muted)] px-1.5 py-1">
+                          <button type="button" className="min-w-0 truncate text-left text-[10px] text-[var(--t8-text-main)]" onClick={() => applyAvatarKeyframe(frame)} title="应用此关键帧">
+                            {frame.label} · {frame.time.toFixed(1)}s · {frame.avatarName} · {PANORAMA_AVATAR_POSES.find((pose) => pose.id === frame.poseId)?.label || '动作'}
+                          </button>
+                          <button type="button" className="t8-mini-icon-button" onClick={() => applyAvatarKeyframe(frame)} title="应用关键帧">
+                            <ScanLine size={12} />
+                          </button>
+                          <button type="button" className="t8-mini-icon-button" onClick={() => removeAvatarKeyframe(frame)} title="删除关键帧">
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed border-[var(--t8-border)] px-2 py-2 text-center text-[10px] text-[var(--t8-text-muted)]">
+                      暂无关键帧
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-md border border-sky-300/35 bg-sky-400/10 p-2">
+                <div className="flex items-center justify-between gap-2 text-[10px] font-bold text-[var(--t8-text-main)]">
+                  <span className="flex items-center gap-1">
+                    <ScanLine size={12} />
+                    遮挡参考
+                  </span>
+                  <span className="text-[9px] text-[var(--t8-text-muted)]">{occlusionMasks.length} 区域 · 非真实深度</span>
+                </div>
+                <div className="mt-2 space-y-2">
+                  <div className="grid grid-cols-[1fr_auto_auto] items-center gap-1.5">
+                    <div className="rounded-md bg-[var(--t8-bg-panel)] px-2 py-1.5 text-[10px] leading-relaxed text-[var(--t8-text-muted)]">
+                      手动画前景遮挡 / 接触边界，随快照和场景词一起输出。
+                    </div>
+                    <button type="button" className={`t8-mini-icon-button ${occlusionMaskVisible ? 'is-active' : ''}`} onClick={() => update({ panoramaOcclusionMaskVisible: !occlusionMaskVisible })} title="显示/隐藏遮挡参考">
+                      {occlusionMaskVisible ? <Eye size={13} /> : <EyeOff size={13} />}
+                    </button>
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={addOcclusionMask}>
+                      <Plus size={12} />
+                      添加
+                    </button>
+                  </div>
+                  {occlusionMasks.length > 0 && (
+                    <div className="space-y-1.5">
+                      {occlusionMasks.map((mask) => (
+                        <div
+                          key={mask.id}
+                          className={`space-y-1 rounded-md border bg-[var(--t8-bg-panel)] p-1.5 ${activeOcclusionMaskId === mask.id ? 'border-[var(--t8-accent)] shadow-[0_0_0_1px_var(--t8-accent)]' : 'border-[var(--t8-border)]'}`}
+                          onMouseDown={() => setActiveOcclusionMaskId(mask.id)}
+                        >
+                          <div className="grid grid-cols-[1fr_28px] gap-1">
+                            <input
+                              value={mask.label}
+                              onChange={(event) => patchOcclusionMask(mask, { label: event.target.value })}
+                              className="min-w-0 rounded border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-1.5 py-1 text-[10px] text-[var(--t8-text-main)] outline-none"
+                            />
+                            <button type="button" className="t8-mini-icon-button" onClick={() => removeOcclusionMask(mask)} title="删除遮挡区">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-5 gap-1">
+                            {([
+                              ['X', 'x', 0, 96],
+                              ['Y', 'y', 0, 96],
+                              ['宽', 'w', 4, 100],
+                              ['高', 'h', 4, 100],
+                              ['强', 'strength', 0, 100],
+                            ] as Array<[string, keyof PanoramaOcclusionMask, number, number]>).map(([label, keyName, min, max]) => (
+                              <label key={keyName} className="min-w-0">
+                                <span className="mb-0.5 block text-[9px] font-bold text-[var(--t8-text-muted)]">{label} {Math.round(Number(mask[keyName]) || 0)}</span>
+                                <input type="range" min={min} max={max} value={Number(mask[keyName]) || 0} onChange={(event) => patchOcclusionMask(mask, { [keyName]: Number(event.target.value) } as Partial<PanoramaOcclusionMask>)} className="w-full" />
+                              </label>
+                            ))}
+                          </div>
+                          <input
+                            value={mask.note || ''}
+                            onChange={(event) => patchOcclusionMask(mask, { note: event.target.value })}
+                            placeholder="说明：例如桌沿在前、门框遮挡角色腿部"
+                            className="w-full rounded border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-1.5 py-1 text-[10px] text-[var(--t8-text-main)] outline-none"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+              {layoutIoState && <div className="rounded-md bg-sky-400/10 px-2 py-1 text-[10px] font-bold text-sky-100">{layoutIoState}</div>}
+
+              <div className="order-[-20] space-y-2">
+              {sceneLegendVisible && avatars.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] p-1.5">
+                  {avatars.map((item, index) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`flex min-w-0 items-center gap-1 rounded-md border px-1.5 py-1 text-[10px] ${activeAvatarId === item.id ? 'border-sky-300 bg-sky-400/15' : 'border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)]'}`}
+                      onClick={() => focusAvatar(item)}
+                      title="选中并跳转到角色"
+                    >
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: item.color }} />
+                      <span>{index + 1}</span>
+                      <span className="max-w-20 truncate">{item.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {avatars.length === 0 ? (
+                <div className="rounded-md border border-dashed border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-3 py-4 text-center text-xs text-[var(--t8-text-muted)]">
+                  点“小人”会在当前视角中心添加角色；点“放置”后可直接在画面里选位置。
+                </div>
+              ) : activeAvatar ? (
+                <div className="space-y-2 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] p-2">
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] items-end gap-1.5">
+                    <label className="min-w-0">
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">名称</span>
+                      <input
+                        value={activeAvatar.name}
+                        onChange={(event) => patchAvatar(activeAvatar, { name: event.target.value })}
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                      />
+                    </label>
+                    <button type="button" className="t8-mini-icon-button" onClick={() => patchAvatar(activeAvatar, { visible: !activeAvatar.visible })} title="显隐">
+                      {activeAvatar.visible ? <Eye size={13} /> : <EyeOff size={13} />}
+                    </button>
+                    <button type="button" className="t8-mini-icon-button" onClick={() => patchAvatar(activeAvatar, { locked: !activeAvatar.locked })} title="锁定">
+                      {activeAvatar.locked ? <Lock size={13} /> : <Unlock size={13} />}
+                    </button>
+                    <button type="button" className="t8-mini-icon-button" onClick={() => removeAvatar(activeAvatar)} title="删除角色">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">动作</span>
+                      <select
+                        value={activeAvatar.poseId}
+                        onChange={(event) => changeAvatarPose(activeAvatar, safePanoramaAvatarPose(event.target.value))}
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                      >
+                        {PANORAMA_AVATAR_POSES.map((pose) => (
+                          <option key={pose.id} value={pose.id}>{pose.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">朝向</span>
+                      <select
+                        value={activeAvatar.faceMode}
+                        onChange={(event) => patchAvatar(activeAvatar, { faceMode: safePanoramaAvatarFaceMode(event.target.value) })}
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                      >
+                        <option value="camera">面向镜头</option>
+                        <option value="heading">手动朝向</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-1.5">
+                    <button
+                      type="button"
+                      className={`t8-btn h-8 px-2 text-[10px] ${avatarIkEditMode ? 't8-btn-primary' : ''}`}
+                      onClick={toggleAvatarIkEditMode}
+                      title="画面关节编辑：直接拖动肩/肘/手/髋/膝/脚 (I)"
+                    >
+                      <Move size={12} />
+                      关节
+                    </button>
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={resetActivePoseParams} title="重置姿势微调 (R)">
+                      <RotateCcw size={12} />
+                      重置
+                    </button>
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={() => duplicateAvatar(activeAvatar)}>
+                      <Plus size={12} />
+                      复制
+                    </button>
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={() => setDirectorFullscreenOpen(true)} title="打开全屏导演台 (O)">
+                      <Maximize2 size={12} />
+                      全屏
+                    </button>
+                  </div>
+
+                  <section className="rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] p-2">
+                    <div className="flex items-center justify-between gap-2 text-[10px] font-bold text-[var(--t8-text-main)]">
+                      <span>高级姿态 / 位置参数</span>
+                      <span className="text-[9px] text-[var(--t8-text-muted)]">离地、倾斜、四肢、颜色</span>
+                    </div>
+                    <div className="mt-2 space-y-2">
+                  {poseTargets.length > 0 && (
+                    <div className="grid grid-cols-[1fr_auto] gap-1.5">
+                      <label className="min-w-0">
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">姿势大师</span>
+                        <select
+                          value={poseSourceId || poseTargets[0]?.id || ''}
+                          onChange={(event) => setPoseSourceId(event.target.value)}
+                          className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                        >
+                          {poseTargets.map((item) => (
+                            <option key={item.id} value={item.id}>{item.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <button type="button" className="t8-btn self-end px-2 text-[10px]" onClick={importPoseToAvatar}>
+                        <UserPlus size={12} />
+                        导入姿势
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-4 gap-2">
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">贴地模式</span>
+                      <select
+                        value={activeAvatar.groundMode}
+                        onChange={(event) => patchAvatar(activeAvatar, { groundMode: safePanoramaAvatarGroundMode(event.target.value) as PanoramaAvatarGroundMode })}
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                      >
+                        <option value="grounded">贴地</option>
+                        <option value="floating">离地</option>
+                        <option value="manual">手动</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">离地 {Math.round(activeAvatar.rootHeight)}</span>
+                      <input
+                        type="range"
+                        min={-40}
+                        max={180}
+                        value={activeAvatar.rootHeight}
+                        disabled={activeAvatar.groundMode === 'grounded'}
+                        onChange={(event) => patchAvatar(activeAvatar, { rootHeight: Number(event.target.value), groundMode: activeAvatar.groundMode === 'grounded' ? 'manual' : activeAvatar.groundMode })}
+                        className="w-full"
+                      />
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">前后倾 {Math.round(activeAvatar.rootPitch)}°</span>
+                      <input type="range" min={-90} max={90} value={activeAvatar.rootPitch} onChange={(event) => patchAvatar(activeAvatar, { rootPitch: Number(event.target.value) })} className="w-full" />
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">翻滚 {Math.round(activeAvatar.rootRoll)}°</span>
+                      <input type="range" min={-120} max={120} value={activeAvatar.rootRoll} onChange={(event) => patchAvatar(activeAvatar, { rootRoll: Number(event.target.value) })} className="w-full" />
+                    </label>
+                  </div>
+
+                  <div className="space-y-2 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] p-2">
+                    <div className="grid grid-cols-4 gap-2">
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">左上臂 {Math.round(poseParamNumber(activeAvatar.poseParams, 'armLOffsetZ', 0) * 57.3)}°</span>
+                        <input
+                          type="range"
+                          min={-1.5}
+                          max={1.5}
+                          step={0.05}
+                          value={poseParamNumber(activeAvatar.poseParams, 'armLOffsetZ', 0)}
+                          onChange={(event) => patchAvatarPoseParam(activeAvatar, 'armLOffsetZ', Number(event.target.value))}
+                          className="w-full"
+                        />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">右上臂 {Math.round(poseParamNumber(activeAvatar.poseParams, 'armROffsetZ', 0) * 57.3)}°</span>
+                        <input
+                          type="range"
+                          min={-1.5}
+                          max={1.5}
+                          step={0.05}
+                          value={poseParamNumber(activeAvatar.poseParams, 'armROffsetZ', 0)}
+                          onChange={(event) => patchAvatarPoseParam(activeAvatar, 'armROffsetZ', Number(event.target.value))}
+                          className="w-full"
+                        />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">左大腿 {Math.round(poseParamNumber(activeAvatar.poseParams, 'legLOffsetZ', 0) * 57.3)}°</span>
+                        <input
+                          type="range"
+                          min={-1.5}
+                          max={1.5}
+                          step={0.05}
+                          value={poseParamNumber(activeAvatar.poseParams, 'legLOffsetZ', 0)}
+                          onChange={(event) => patchAvatarPoseParam(activeAvatar, 'legLOffsetZ', Number(event.target.value))}
+                          className="w-full"
+                        />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">右大腿 {Math.round(poseParamNumber(activeAvatar.poseParams, 'legROffsetZ', 0) * 57.3)}°</span>
+                        <input
+                          type="range"
+                          min={-1.5}
+                          max={1.5}
+                          step={0.05}
+                          value={poseParamNumber(activeAvatar.poseParams, 'legROffsetZ', 0)}
+                          onChange={(event) => patchAvatarPoseParam(activeAvatar, 'legROffsetZ', Number(event.target.value))}
+                          className="w-full"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">左肘 {Math.round(poseParamNumber(activeAvatar.poseParams, 'armLBendOffsetZ', 0) * 57.3)}°</span>
+                        <input
+                          type="range"
+                          min={-1.4}
+                          max={1.4}
+                          step={0.05}
+                          value={poseParamNumber(activeAvatar.poseParams, 'armLBendOffsetZ', 0)}
+                          onChange={(event) => patchAvatarPoseParam(activeAvatar, 'armLBendOffsetZ', Number(event.target.value))}
+                          className="w-full"
+                        />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">右肘 {Math.round(poseParamNumber(activeAvatar.poseParams, 'armRBendOffsetZ', 0) * 57.3)}°</span>
+                        <input
+                          type="range"
+                          min={-1.4}
+                          max={1.4}
+                          step={0.05}
+                          value={poseParamNumber(activeAvatar.poseParams, 'armRBendOffsetZ', 0)}
+                          onChange={(event) => patchAvatarPoseParam(activeAvatar, 'armRBendOffsetZ', Number(event.target.value))}
+                          className="w-full"
+                        />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">左膝 {Math.round(poseParamNumber(activeAvatar.poseParams, 'legLBendOffsetZ', 0) * 57.3)}°</span>
+                        <input
+                          type="range"
+                          min={-1.4}
+                          max={1.4}
+                          step={0.05}
+                          value={poseParamNumber(activeAvatar.poseParams, 'legLBendOffsetZ', 0)}
+                          onChange={(event) => patchAvatarPoseParam(activeAvatar, 'legLBendOffsetZ', Number(event.target.value))}
+                          className="w-full"
+                        />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">右膝 {Math.round(poseParamNumber(activeAvatar.poseParams, 'legRBendOffsetZ', 0) * 57.3)}°</span>
+                        <input
+                          type="range"
+                          min={-1.4}
+                          max={1.4}
+                          step={0.05}
+                          value={poseParamNumber(activeAvatar.poseParams, 'legRBendOffsetZ', 0)}
+                          onChange={(event) => patchAvatarPoseParam(activeAvatar, 'legRBendOffsetZ', Number(event.target.value))}
+                          className="w-full"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-4 gap-2">
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">远近 {Math.round(activeAvatar.distance)}</span>
+                      <input type="range" min={80} max={420} value={activeAvatar.distance} onChange={(event) => patchAvatar(activeAvatar, { distance: Number(event.target.value) })} className="w-full" />
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">大小 {activeAvatar.scale.toFixed(1)}</span>
+                      <input type="range" min={0.35} max={2.6} step={0.05} value={activeAvatar.scale} onChange={(event) => patchAvatar(activeAvatar, { scale: Number(event.target.value) })} className="w-full" />
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">脚底 {Math.round(activeAvatar.heightOffset)}</span>
+                      <input type="range" min={-80} max={120} value={activeAvatar.heightOffset} onChange={(event) => patchAvatar(activeAvatar, { heightOffset: Number(event.target.value) })} className="w-full" />
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">透明 {Math.round(activeAvatar.opacity * 100)}%</span>
+                      <input type="range" min={0.15} max={1} step={0.05} value={activeAvatar.opacity} onChange={(event) => patchAvatar(activeAvatar, { opacity: Number(event.target.value) })} className="w-full" />
+                    </label>
+                  </div>
+
+                  {activeAvatar.faceMode === 'heading' && (
+                    <label className="block">
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">手动朝向 {Math.round(activeAvatar.heading)}°</span>
+                      <input type="range" min={-180} max={180} value={activeAvatar.heading} onChange={(event) => patchAvatar(activeAvatar, { heading: Number(event.target.value) })} className="w-full" />
+                    </label>
+                  )}
+
+                  <div className="grid grid-cols-[1fr_auto] gap-2">
+                    <label className="min-w-0">
+                      <span className="mb-1 flex items-center gap-1 text-[10px] font-bold text-[var(--t8-text-muted)]"><Palette size={11} /> 颜色</span>
+                      <div className="flex flex-wrap gap-1">
+                        {PANORAMA_AVATAR_COLORS.map((color) => (
+                          <button
+                            key={color}
+                            type="button"
+                            className={`h-6 w-6 rounded-md border ${activeAvatar.color === color ? 'border-white ring-2 ring-white/40' : 'border-white/20'}`}
+                            style={{ background: color }}
+                            onClick={() => patchAvatar(activeAvatar, { color })}
+                            title={color}
+                          />
+                        ))}
+                      </div>
+                    </label>
+                    <button type="button" className="t8-btn self-end px-2 text-[10px]" onClick={() => duplicateAvatar(activeAvatar)}>
+                      <Plus size={12} />
+                      复制
+                    </button>
+                  </div>
+
+                  <label className="block">
+                    <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">角色设定（可选）</span>
+                    <input
+                      value={activeAvatar.characterPrompt || ''}
+                      onChange={(event) => patchAvatar(activeAvatar, { characterPrompt: event.target.value })}
+                      placeholder="红色外套、短发、拿着手电..."
+                      className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                    />
+                  </label>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+              </div>
+
+              {scenePrompt && (
+                <section className="rounded-md bg-[var(--t8-bg-panel)] px-2 py-1 text-[10px] text-[var(--t8-text-muted)]">
+                  <div className="font-bold text-[var(--t8-text-main)]">场景词预览</div>
+                  <div className="mt-1 max-h-28 overflow-y-auto whitespace-pre-wrap leading-relaxed">{scenePrompt}</div>
+                </section>
+              )}
+            </div>
+          </section>
+
+          <section className="hidden">
+            <div className="flex items-center justify-between gap-2 text-xs font-bold text-[var(--t8-text-main)]">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <Camera size={14} />
+                摄像机 / 导览
+              </span>
+              <span className="min-w-0 truncate text-right text-[10px] text-[var(--t8-text-muted)]">{cameraViews.length} 机位 · {hotspots.length} 热点</span>
+            </div>
+            <div className="mt-2 space-y-2">
+              <div className="grid grid-cols-6 gap-1.5">
+                {PANORAMA_CAMERA_PRESETS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="t8-btn h-7 px-1 text-[10px]"
+                    onClick={() => applyView(item, { panoramaActiveCameraViewId: '' })}
+                    title={`${item.label} ${item.yaw}°/${item.pitch}°`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-[1fr_auto] gap-1.5">
+                <input
+                  value={cameraName}
+                  onChange={(event) => setCameraName(event.target.value)}
+                  placeholder="机位名，例如入口视角"
+                  className="rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                />
+                <button type="button" className="t8-btn t8-btn-primary px-2 text-[11px]" onClick={saveCameraView}>
+                  <Plus size={13} />
+                  保存机位
+                </button>
+              </div>
+
+              {cameraViews.length > 0 && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {cameraViews.map((item) => (
+                    <div key={item.id} className={`rounded-md border px-2 py-1.5 text-[10px] ${activeCameraViewId === item.id ? 'border-sky-300 bg-sky-400/15' : 'border-[var(--t8-border)] bg-[var(--t8-bg-panel)]'}`}>
+                      <div className="flex items-center justify-between gap-1">
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 truncate text-left font-bold text-[var(--t8-text-main)]"
+                          onClick={() => applyCameraView(item)}
+                          title={`${item.name} · Yaw ${Math.round(item.yaw)}° Pitch ${Math.round(item.pitch)}° FOV ${Math.round(item.fov)}°`}
+                        >
+                          {item.isDefault ? '默认 · ' : ''}{item.name}
+                        </button>
+                        <button type="button" className="t8-mini-icon-button" onClick={() => setDefaultCameraView(item)} title="设为默认">
+                          <Crosshair size={12} />
+                        </button>
+                        <button type="button" className="t8-mini-icon-button" onClick={() => removeCameraView(item)} title="删除机位">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                      <div className="mt-1 text-[9px] text-[var(--t8-text-muted)]">
+                        Y {Math.round(item.yaw)}° · P {Math.round(item.pitch)}° · FOV {Math.round(item.fov)}°
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] p-2">
+                <div className="mb-1.5 flex items-center gap-1 text-[10px] font-bold text-[var(--t8-text-muted)]">
+                  <MapPin size={12} />
+                  全景热点
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <input
+                    value={hotspotLabel}
+                    onChange={(event) => setHotspotLabel(event.target.value)}
+                    placeholder="热点名"
+                    className="min-w-0 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                  />
+                  <select
+                    value={hotspotTargetId}
+                    onChange={(event) => setHotspotTargetId(event.target.value)}
+                    className="min-w-0 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                  >
+                    {panoramaTargets.map((item) => (
+                      <option key={item.id} value={item.id}>{item.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className={`t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap ${hotspotPickMode ? 't8-btn-primary' : ''}`}
+                    onClick={() => setHotspotPickMode((value) => !value)}
+                    title="点击画面放置热点"
+                  >
+                    <Crosshair size={12} />
+                    取点
+                  </button>
+                  <button
+                    type="button"
+                    className="t8-btn h-8 min-w-0 justify-center px-2 text-[10px] whitespace-nowrap"
+                    onClick={() => addHotspotAt(viewRef.current)}
+                    title="把当前画面中心保存为热点"
+                  >
+                    <Plus size={12} />
+                    中心
+                  </button>
+                </div>
+                <div className="mt-1.5 text-[9px] leading-relaxed text-[var(--t8-text-muted)]">
+                  取点会把画面中的点击位置保存成热点；目标可选当前全景或其他 3D 全景节点。
+                </div>
+                {hotspots.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {hotspots.map((item) => (
+                      <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_28px_28px] items-center gap-1 rounded-md bg-[var(--t8-bg-panel-muted)] px-1.5 py-1">
+                        <input
+                          value={item.label}
+                          onChange={(event) => patchHotspot(item, { label: event.target.value })}
+                          className="min-w-0 rounded border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-1.5 py-1 text-[10px] text-[var(--t8-text-main)] outline-none"
+                        />
+                        <select
+                          value={item.targetNodeId || p.id}
+                          onChange={(event) => patchHotspot(item, { targetNodeId: event.target.value })}
+                          className="min-w-0 rounded border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-1.5 py-1 text-[10px] text-[var(--t8-text-main)] outline-none"
+                        >
+                          {panoramaTargets.map((target) => (
+                            <option key={target.id} value={target.id}>{target.label}</option>
+                          ))}
+                        </select>
+                        <button type="button" className="t8-mini-icon-button" onClick={() => jumpToHotspot(item)} title="跳转热点">
+                          <MapPin size={12} />
+                        </button>
+                        <button type="button" className="t8-mini-icon-button" onClick={() => removeHotspot(item)} title="删除热点">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          </div>
+
+          <div className="col-span-2 grid grid-cols-3 gap-2 text-[10px] text-[var(--t8-text-muted)]">
             <div className="rounded-md bg-[var(--t8-bg-panel-muted)] px-2 py-1">Yaw {Math.round(yaw)}°</div>
             <div className="rounded-md bg-[var(--t8-bg-panel-muted)] px-2 py-1">Pitch {Math.round(pitch)}°</div>
             <div className="rounded-md bg-[var(--t8-bg-panel-muted)] px-2 py-1">{renderSize.width}×{renderSize.height}</div>
           </div>
 
           {textureStatus === 'ready' && quality && (
-            <div className={`rounded-md border px-2 py-1.5 text-[10px] leading-relaxed ${qualityClass}`} title={quality.hint}>
+            <div className={`col-span-2 rounded-md border px-2 py-1.5 text-[10px] leading-relaxed ${qualityClass}`} title={quality.hint}>
               <div className="flex items-center justify-between gap-2">
                 <span className="font-bold">{quality.seamLabel}</span>
                 <span>{quality.seamScore == null ? '像素不可读' : `${quality.seamScore}/100`} · {quality.aspectLabel}</span>
@@ -989,13 +5254,808 @@ const Panorama3DNode = (p: NodeProps) => {
           )}
 
           {outputUrl && !hasAutoOutput && (
-            <div className="rounded-lg border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] p-2">
+            <div className="col-span-2 rounded-lg border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] p-2">
               <SmartImage src={outputUrl} alt="导出画面" className="max-h-28 w-full rounded object-contain" draggable={false} thumbSize={720} />
             </div>
           )}
         </div>
       </div>
     </div>
+    {shortcutHelpOpen && typeof document !== 'undefined' ? createPortal(
+      <div
+        data-canvas-floating-ui
+        className="fixed inset-0 z-[9998] flex items-center justify-center bg-slate-950/70 p-4"
+        onMouseDown={() => setShortcutHelpOpen(false)}
+      >
+        <div
+          className="w-full max-w-xl rounded-lg border border-white/15 bg-[var(--t8-bg-panel)] p-4 text-[var(--t8-text-main)] shadow-2xl"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-bold">3D 全景快捷键</div>
+              <div className="text-[10px] text-[var(--t8-text-muted)]">只在当前 3D 全景节点被选中，或全屏导演台打开时生效。</div>
+            </div>
+            <button type="button" className="t8-mini-icon-button" onClick={() => setShortcutHelpOpen(false)} title="关闭">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {PANORAMA_DIRECTOR_SHORTCUTS.map(([keyLabel, help]) => (
+              <div key={keyLabel} className="grid grid-cols-[92px_1fr] items-center gap-2 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-[11px] text-[var(--t8-text-main)]">
+                <span className="rounded border border-[var(--t8-border-strong)] bg-[var(--t8-accent)] px-1.5 py-0.5 text-center font-bold text-[var(--t8-accent-text)] shadow-sm">{keyLabel}</span>
+                <span className="text-[var(--t8-text-main)]">{help}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>,
+      document.body,
+    ) : null}
+    {directorFullscreenOpen && typeof document !== 'undefined' ? createPortal(
+      <div
+        data-canvas-floating-ui
+        className="fixed inset-0 z-[9997] bg-slate-950 text-slate-100"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-sm font-bold">
+                <Globe2 size={16} />
+                3D 全景导演台
+              </div>
+              <div className="mt-0.5 truncate text-[10px] text-slate-400">
+                {avatars.length} 个角色 · {effectiveShotCamera.mode === 'shot-camera' ? '导演镜头' : '当前视角'} · {PANORAMA_AVATAR_POSES.find((pose) => pose.id === activeAvatar?.poseId)?.label || '未选角色'}
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={() => setShortcutHelpOpen(true)} title="快捷键 (?)">
+                <HelpCircle size={13} />
+                快捷键
+              </button>
+              <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={refreshDirectorPreview} title="刷新预览">
+                <ScanLine size={13} />
+                刷新
+              </button>
+              <button type="button" className="t8-mini-icon-button" onClick={() => setDirectorFullscreenOpen(false)} title="关闭 (Esc)">
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_430px] gap-3 p-3">
+            <div ref={directorPreviewWrapRef} className="relative min-h-0 overflow-hidden rounded-lg border border-white/10 bg-slate-950">
+              <div
+                ref={directorStageRef}
+                className={`absolute overflow-hidden ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                style={{
+                  left: `${directorStageBox.left}%`,
+                  top: `${directorStageBox.top}%`,
+                  width: `${directorStageBox.width}%`,
+                  height: `${directorStageBox.height}%`,
+                  touchAction: 'none',
+                }}
+                onWheel={onWheel}
+                onPointerDownCapture={(event) => handleInteractionStagePointerDownCapture(event, 'director')}
+                onPointerDown={onPointerDown}
+                onPointerMove={handleStagePointerMove}
+                onPointerUp={handleStagePointerEnd}
+                onPointerCancel={handleStagePointerEnd}
+              >
+                {directorPreviewUrl ? (
+                  <img src={directorPreviewUrl} alt="3D 全景导演台预览" className="pointer-events-none h-full w-full object-fill" draggable={false} />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-xs text-slate-400">
+                    预览刷新中
+                  </div>
+                )}
+
+                {visibleHotspots.map(({ item, pos }) => (
+                  <button
+                    key={`director-hotspot-${item.id}`}
+                    type="button"
+                    className="absolute z-20 flex h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-1 rounded-full border border-sky-200 bg-sky-500/90 px-2 text-[10px] font-bold text-slate-950 shadow-lg shadow-sky-950/35"
+                    style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+                    title={`${item.label} · ${Math.round(item.yaw)}°/${Math.round(item.pitch)}°`}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      jumpToHotspot(item);
+                    }}
+                  >
+                    <MapPin size={13} />
+                    <span className="max-w-20 truncate">{item.label}</span>
+                  </button>
+                ))}
+
+                {avatarOverlayVisible && visibleAvatarMarkers.map(({ item, index, pos }) => (
+                  <div
+                    key={`director-avatar-${item.id}`}
+                    className={`pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 ${activeAvatarId === item.id ? 'z-[60]' : 'z-20'}`}
+                    style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+                  >
+                    <button
+                      type="button"
+                      className={`nodrag nopan pointer-events-auto relative flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border text-[10px] font-bold shadow-md transition-transform hover:scale-125 ${
+                        activeAvatarId === item.id
+                          ? 'border-white bg-white text-slate-950 ring-2 ring-white/40'
+                          : 'border-white/60 bg-slate-950/20 text-white'
+                      }`}
+                      style={{ touchAction: 'none' }}
+                      title={`${index + 1}. ${item.name} · 拖动移动角色`}
+                      onMouseDown={stopPanoramaMouseDown}
+                      onPointerDown={(event) => startAvatarDrag(event, item, 'director')}
+                      onPointerMove={moveAvatarDrag}
+                      onPointerUp={endAvatarDrag}
+                      onPointerCancel={endAvatarDrag}
+                      onDragStart={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        focusAvatar(item);
+                      }}
+                    >
+                      <span className="absolute inset-1 rounded-full" style={{ background: item.color }} />
+                      <span className="relative text-[9px] leading-none">{index + 1}</span>
+                    </button>
+                    {activeAvatarId === item.id && !item.locked && (
+                      <div
+                        className="pointer-events-auto absolute z-[70] flex flex-col gap-2"
+                        style={getAvatarToolDockStyle(item, pos, 'director')}
+                      >
+                        <button
+                          type="button"
+                          className="nodrag nopan flex h-9 w-9 items-center justify-center rounded-full border-2 text-slate-950 transition-transform hover:scale-110"
+                          style={{ ...PANORAMA_MOVE_HANDLE_STYLE, touchAction: 'none' }}
+                          title={`${item.name} · 拖动平移角色位置`}
+                          onMouseDown={stopPanoramaMouseDown}
+                          onPointerDown={(event) => startAvatarDrag(event, item, 'director')}
+                          onPointerMove={moveAvatarDrag}
+                          onPointerUp={endAvatarDrag}
+                          onPointerCancel={endAvatarDrag}
+                          onDragStart={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                        >
+                          <Move size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="nodrag nopan flex h-9 w-9 items-center justify-center rounded-full border-2 text-slate-950 transition-transform hover:scale-110"
+                          style={{ ...PANORAMA_ROTATE_HANDLE_STYLE, touchAction: 'none' }}
+                          title={`${item.name} · 左右拖动旋转朝向，上下拖动前后倾`}
+                          onMouseDown={stopPanoramaMouseDown}
+                          onPointerDown={(event) => startAvatarRotate(event, item, 'director')}
+                          onPointerMove={moveAvatarRotate}
+                          onPointerUp={endAvatarRotate}
+                          onPointerCancel={endAvatarRotate}
+                          onDragStart={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                        >
+                          <RotateCcw size={14} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {avatarOverlayVisible && avatarIkControls.map((control) => (
+                  <button
+                    key={`director-ik-${control.avatarId}-${control.id}`}
+                    type="button"
+                    className={`nodrag nopan pointer-events-auto absolute z-30 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-slate-950/70 shadow-sm transition-transform hover:scale-150 ${
+                      control.kind === 'end' ? 'h-6 w-6 bg-white/95' : 'h-5 w-5 bg-amber-300/95'
+                    }`}
+                    style={{ left: `${control.x}%`, top: `${control.y}%`, touchAction: 'none' }}
+                    data-panorama-ik-control="true"
+                    data-panorama-ik-avatar-id={control.avatarId}
+                    data-panorama-ik-handle-id={control.id}
+                    title={`${control.label} · 直接拖动画面关节调整姿态`}
+                    onMouseDown={stopPanoramaMouseDown}
+                    onPointerDown={(event) => startAvatarIkDrag(event, control, 'director')}
+                    onPointerMove={moveAvatarIkDrag}
+                    onPointerUp={endAvatarIkDrag}
+                    onPointerCancel={endAvatarIkDrag}
+                    onDragStart={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                  >
+                    <span className={`${control.kind === 'end' ? 'h-2.5 w-2.5' : 'h-2 w-2'} rounded-full bg-slate-950/85`} />
+                  </button>
+                ))}
+
+                {guideStyle && (
+                  <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                    <div
+                      className="relative border border-white/75 shadow-[0_0_0_9999px_rgba(2,6,23,.22)]"
+                      style={guideStyle}
+                    >
+                      <span className="absolute left-1 top-1 rounded bg-slate-950/75 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                        {compositionGuide}
+                      </span>
+                      <span className="absolute left-1/3 top-0 h-full border-l border-white/25" />
+                      <span className="absolute left-2/3 top-0 h-full border-l border-white/25" />
+                      <span className="absolute left-0 top-1/3 w-full border-t border-white/25" />
+                      <span className="absolute left-0 top-2/3 w-full border-t border-white/25" />
+                    </div>
+                  </div>
+                )}
+
+                {shotGuideStyle && (
+                  <div className="pointer-events-none absolute inset-0 z-30">
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div
+                        className="relative border-2 border-dashed border-amber-300/95 shadow-[0_0_0_1px_rgba(2,6,23,.38)]"
+                        style={shotGuideStyle}
+                      >
+                        <span className="absolute left-1 top-1 rounded bg-slate-950/75 px-1.5 py-0.5 text-[9px] font-bold text-amber-100">
+                          导演镜头
+                        </span>
+                      </div>
+                    </div>
+                    {shotTargetLineStyle && (
+                      <span
+                        className="absolute h-px origin-left border-t border-amber-200/80"
+                        style={shotTargetLineStyle}
+                      />
+                    )}
+                    {shotTarget.visible && (
+                      <span
+                        className="absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border border-amber-200/80 bg-slate-950/75 px-1.5 py-0.5 text-[9px] font-bold text-amber-100 shadow-md"
+                        style={{ left: `${shotTarget.x}%`, top: `${shotTarget.y}%` }}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-300" />
+                        {shotTarget.label}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {occlusionMaskVisible && occlusionMasks.map((mask, index) => (
+                  <div
+                    key={`director-mask-${mask.id}`}
+                    className={`nodrag nopan pointer-events-auto absolute z-30 rounded-sm border-2 shadow-[0_0_0_1px_rgba(2,6,23,.45)] ${
+                      activeOcclusionMaskId === mask.id ? 'border-amber-200 ring-2 ring-amber-300/70' : 'border-white/90'
+                    }`}
+                    style={{
+                      left: `${mask.x}%`,
+                      top: `${mask.y}%`,
+                      width: `${mask.w}%`,
+                      height: `${mask.h}%`,
+                      touchAction: 'none',
+                      cursor: 'move',
+                      backgroundColor: `rgba(14, 165, 233, ${Math.min(0.72, 0.2 + mask.strength / 200)})`,
+                      backgroundImage: 'repeating-linear-gradient(135deg, rgba(2,6,23,.32) 0 2px, transparent 2px 10px)',
+                    }}
+                    title={`${mask.label} · 拖动移动，拖边角缩放`}
+                    onMouseDown={stopPanoramaMouseDown}
+                    onPointerDown={(event) => startOcclusionMaskDrag(event, mask, 'move', 'director')}
+                    onPointerMove={moveOcclusionMaskDrag}
+                    onPointerUp={endOcclusionMaskDrag}
+                    onPointerCancel={endOcclusionMaskDrag}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setActiveOcclusionMaskId(mask.id);
+                    }}
+                    onDragStart={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                  >
+                    <span
+                      className={OCCLUSION_MASK_LABEL_CLASS}
+                      style={OCCLUSION_MASK_LABEL_STYLE}
+                    >
+                      {index + 1}. {mask.label}
+                    </span>
+                    {([
+                      ['nw', '-left-1.5 -top-1.5 cursor-nwse-resize'],
+                      ['n', 'left-1/2 -top-1.5 -translate-x-1/2 cursor-ns-resize'],
+                      ['ne', '-right-1.5 -top-1.5 cursor-nesw-resize'],
+                      ['e', '-right-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize'],
+                      ['se', '-bottom-1.5 -right-1.5 cursor-nwse-resize'],
+                      ['s', '-bottom-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize'],
+                      ['sw', '-bottom-1.5 -left-1.5 cursor-nesw-resize'],
+                      ['w', '-left-1.5 top-1/2 -translate-y-1/2 cursor-ew-resize'],
+                    ] as Array<[OcclusionDragMode, string]>).map(([mode, className]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        className={`nodrag nopan absolute h-3.5 w-3.5 rounded-full border border-slate-950 bg-white shadow-sm ${className}`}
+                        style={{ touchAction: 'none' }}
+                        title={`${mask.label} · 拖动缩放`}
+                        onMouseDown={stopPanoramaMouseDown}
+                        onPointerDown={(event) => startOcclusionMaskDrag(event, mask, mode, 'director')}
+                        onPointerMove={moveOcclusionMaskDrag}
+                        onPointerUp={endOcclusionMaskDrag}
+                        onPointerCancel={endOcclusionMaskDrag}
+                        onDragStart={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <div className="absolute left-3 top-3 z-40 flex flex-wrap gap-1.5 text-[10px] font-bold">
+                <span className="rounded-full border border-white/20 bg-slate-950/75 px-2 py-1">Yaw {Math.round(yaw)}°</span>
+                <span className="rounded-full border border-white/20 bg-slate-950/75 px-2 py-1">Pitch {Math.round(pitch)}°</span>
+                <span className="rounded-full border border-white/20 bg-slate-950/75 px-2 py-1">FOV {Math.round(fov)}°</span>
+                {activeAvatar && <span className="rounded-full border border-white/20 bg-slate-950/75 px-2 py-1">{activeAvatar.name}</span>}
+              </div>
+            </div>
+
+            <div className="nodrag nowheel min-h-0 overflow-y-auto rounded-lg border border-white/10 bg-[var(--t8-bg-panel)] p-3 text-[var(--t8-text-main)]" onWheel={(event) => event.stopPropagation()}>
+              <div className="space-y-3">
+                <section className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 text-xs font-bold">
+                    <span>当前视角</span>
+                    <button type="button" className="t8-btn h-7 px-2 text-[10px]" onClick={resetView}>
+                      <RotateCcw size={12} />
+                      重置
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">Yaw {Math.round(yaw)}°</span>
+                      <input type="range" min={-180} max={180} value={Math.round(yaw)} onChange={(event) => applyView({ yaw: Number(event.target.value) }, { panoramaActiveCameraViewId: '' })} className="w-full" />
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">Pitch {Math.round(pitch)}°</span>
+                      <input type="range" min={-85} max={85} value={Math.round(pitch)} onChange={(event) => applyView({ pitch: Number(event.target.value) }, { panoramaActiveCameraViewId: '' })} className="w-full" />
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">FOV {Math.round(fov)}°</span>
+                      <input type="range" min={35} max={100} value={Math.round(fov)} onChange={(event) => applyView({ fov: Number(event.target.value) }, { panoramaActiveCameraViewId: '' })} className="w-full" />
+                    </label>
+                  </div>
+                </section>
+
+                <section className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 text-xs font-bold">
+                    <span>角色</span>
+                    <button type="button" className="t8-btn h-7 px-2 text-[10px]" onClick={addAvatarAtCenter}>
+                      <UserPlus size={12} />
+                      添加
+                    </button>
+                  </div>
+                  {avatars.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {avatars.map((item, index) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] ${activeAvatarId === item.id ? 'border-sky-300 bg-sky-400/15' : 'border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)]'}`}
+                          onClick={() => selectAvatarAtIndex(index)}
+                          title={`${index + 1} · ${item.name}`}
+                        >
+                          <span className="h-2.5 w-2.5 rounded-full" style={{ background: item.color }} />
+                          <span>{index + 1}</span>
+                          <span className="max-w-24 truncate">{item.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed border-[var(--t8-border)] px-3 py-4 text-center text-xs text-[var(--t8-text-muted)]">还没有角色</div>
+                  )}
+                </section>
+
+                {renderActionPlannerPanel(true)}
+
+                {activeAvatar && (
+                  <section className="space-y-2 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] p-2">
+                    <div className="grid grid-cols-[1fr_auto_auto_auto] items-end gap-1.5">
+                      <label className="min-w-0">
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">名称</span>
+                        <input
+                          value={activeAvatar.name}
+                          onChange={(event) => patchAvatar(activeAvatar, { name: event.target.value })}
+                          className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                        />
+                      </label>
+                      <button type="button" className="t8-mini-icon-button" onClick={() => patchAvatar(activeAvatar, { visible: !activeAvatar.visible })} title="显隐">
+                        {activeAvatar.visible ? <Eye size={13} /> : <EyeOff size={13} />}
+                      </button>
+                      <button type="button" className="t8-mini-icon-button" onClick={() => patchAvatar(activeAvatar, { locked: !activeAvatar.locked })} title="锁定">
+                        {activeAvatar.locked ? <Lock size={13} /> : <Unlock size={13} />}
+                      </button>
+                      <button type="button" className="t8-mini-icon-button" onClick={() => removeAvatar(activeAvatar)} title="删除角色">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">动作</span>
+                        <select
+                          value={activeAvatar.poseId}
+                          onChange={(event) => changeAvatarPose(activeAvatar, safePanoramaAvatarPose(event.target.value))}
+                          className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                        >
+                          {PANORAMA_AVATAR_POSES.map((pose) => (
+                            <option key={pose.id} value={pose.id}>{pose.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">朝向</span>
+                        <select
+                          value={activeAvatar.faceMode}
+                          onChange={(event) => patchAvatar(activeAvatar, { faceMode: safePanoramaAvatarFaceMode(event.target.value) })}
+                          className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                        >
+                          <option value="camera">面向镜头</option>
+                          <option value="heading">手动朝向</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-2">
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">贴地模式</span>
+                        <select
+                          value={activeAvatar.groundMode}
+                          onChange={(event) => patchAvatar(activeAvatar, { groundMode: safePanoramaAvatarGroundMode(event.target.value) as PanoramaAvatarGroundMode })}
+                          className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                        >
+                          <option value="grounded">贴地</option>
+                          <option value="floating">离地</option>
+                          <option value="manual">手动</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">离地 {Math.round(activeAvatar.rootHeight)}</span>
+                        <input type="range" min={-40} max={180} value={activeAvatar.rootHeight} disabled={activeAvatar.groundMode === 'grounded'} onChange={(event) => patchAvatar(activeAvatar, { rootHeight: Number(event.target.value), groundMode: activeAvatar.groundMode === 'grounded' ? 'manual' : activeAvatar.groundMode })} className="w-full" />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">前后倾 {Math.round(activeAvatar.rootPitch)}°</span>
+                        <input type="range" min={-90} max={90} value={activeAvatar.rootPitch} onChange={(event) => patchAvatar(activeAvatar, { rootPitch: Number(event.target.value) })} className="w-full" />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">翻滚 {Math.round(activeAvatar.rootRoll)}°</span>
+                        <input type="range" min={-120} max={120} value={activeAvatar.rootRoll} onChange={(event) => patchAvatar(activeAvatar, { rootRoll: Number(event.target.value) })} className="w-full" />
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-2">
+                      {([
+                        ['左上臂', 'armLOffsetZ', -1.5, 1.5],
+                        ['右上臂', 'armROffsetZ', -1.5, 1.5],
+                        ['左大腿', 'legLOffsetZ', -1.5, 1.5],
+                        ['右大腿', 'legROffsetZ', -1.5, 1.5],
+                        ['左肘', 'armLBendOffsetZ', -1.4, 1.4],
+                        ['右肘', 'armRBendOffsetZ', -1.4, 1.4],
+                        ['左膝', 'legLBendOffsetZ', -1.4, 1.4],
+                        ['右膝', 'legRBendOffsetZ', -1.4, 1.4],
+                      ] as Array<[string, string, number, number]>).map(([label, keyName, min, max]) => (
+                        <label key={keyName}>
+                          <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">{label} {Math.round(poseParamNumber(activeAvatar.poseParams, keyName, 0) * 57.3)}°</span>
+                          <input type="range" min={min} max={max} step={0.05} value={poseParamNumber(activeAvatar.poseParams, keyName, 0)} onChange={(event) => patchAvatarPoseParam(activeAvatar, keyName, Number(event.target.value))} className="w-full" />
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-2">
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">远近 {Math.round(activeAvatar.distance)}</span>
+                        <input type="range" min={80} max={420} value={activeAvatar.distance} onChange={(event) => patchAvatar(activeAvatar, { distance: Number(event.target.value) })} className="w-full" />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">大小 {activeAvatar.scale.toFixed(1)}</span>
+                        <input type="range" min={0.35} max={2.6} step={0.05} value={activeAvatar.scale} onChange={(event) => patchAvatar(activeAvatar, { scale: Number(event.target.value) })} className="w-full" />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">脚底 {Math.round(activeAvatar.heightOffset)}</span>
+                        <input type="range" min={-80} max={120} value={activeAvatar.heightOffset} onChange={(event) => patchAvatar(activeAvatar, { heightOffset: Number(event.target.value) })} className="w-full" />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">透明 {Math.round(activeAvatar.opacity * 100)}%</span>
+                        <input type="range" min={0.15} max={1} step={0.05} value={activeAvatar.opacity} onChange={(event) => patchAvatar(activeAvatar, { opacity: Number(event.target.value) })} className="w-full" />
+                      </label>
+                    </div>
+
+                    {activeAvatar.faceMode === 'heading' && (
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">手动朝向 {Math.round(activeAvatar.heading)}°</span>
+                        <input type="range" min={-180} max={180} value={activeAvatar.heading} onChange={(event) => patchAvatar(activeAvatar, { heading: Number(event.target.value) })} className="w-full" />
+                      </label>
+                    )}
+
+                    <div className="flex flex-wrap gap-1">
+                      {PANORAMA_AVATAR_COLORS.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          className={`h-6 w-6 rounded-md border ${activeAvatar.color === color ? 'border-white ring-2 ring-white/40' : 'border-white/20'}`}
+                          style={{ background: color }}
+                          onClick={() => patchAvatar(activeAvatar, { color })}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-1.5">
+                      <button type="button" className={`t8-btn h-8 px-2 text-[10px] ${avatarIkEditMode ? 't8-btn-primary' : ''}`} onClick={toggleAvatarIkEditMode} title="画面关节编辑：直接拖动肩/肘/手/髋/膝/脚 (I)">
+                        <Move size={12} />
+                        关节
+                      </button>
+                      <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={resetActivePoseParams}>
+                        <RotateCcw size={12} />
+                        重置
+                      </button>
+                      <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={() => duplicateAvatar(activeAvatar)}>
+                        <Plus size={12} />
+                        复制
+                      </button>
+                      <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={() => focusAvatar(activeAvatar)}>
+                        <ScanLine size={12} />
+                        定位
+                      </button>
+                    </div>
+
+                    <label className="block">
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">角色设定</span>
+                      <input
+                        value={activeAvatar.characterPrompt || ''}
+                        onChange={(event) => patchAvatar(activeAvatar, { characterPrompt: event.target.value })}
+                        placeholder="红色外套、短发、拿着手电..."
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                      />
+                    </label>
+                  </section>
+                )}
+
+                <section className="space-y-2 rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] p-2">
+                  <div className="flex items-center justify-between gap-2 text-xs font-bold">
+                    <span>动作时间轴</span>
+                    <span className="text-[10px] text-[var(--t8-text-muted)]">{avatarKeyframes.length} 关键帧 · {keyframeSequenceCount} 序列帧</span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_84px_auto] items-end gap-1.5">
+                    <div className="rounded-md bg-[var(--t8-bg-panel)] px-2 py-1.5 text-[10px] leading-relaxed text-[var(--t8-text-muted)]">
+                      快照会按关键帧自动插值输出序列帧。
+                    </div>
+                    <label className="min-w-0">
+                      <span className="mb-0.5 block text-[9px] font-bold text-[var(--t8-text-muted)]">序列帧</span>
+                      <input
+                        type="number"
+                        min={2}
+                        max={48}
+                        value={keyframeSequenceDraft}
+                        onChange={(event) => updateKeyframeSequenceDraft(event.target.value)}
+                        onBlur={commitKeyframeSequenceDraft}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            commitKeyframeSequenceDraft();
+                            event.currentTarget.blur();
+                          }
+                        }}
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-1.5 py-1 text-center text-[10px] text-[var(--t8-text-main)] outline-none"
+                      />
+                    </label>
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={saveAvatarKeyframe} disabled={!activeAvatar}>
+                      <Plus size={12} />
+                      记录
+                    </button>
+                  </div>
+                  {avatarKeyframes.length > 0 ? (
+                    <div className="space-y-1">
+                      {avatarKeyframes.map((frame) => (
+                        <div key={frame.id} className="grid grid-cols-[minmax(0,1fr)_28px_28px] items-center gap-1 rounded-md bg-[var(--t8-bg-panel)] px-1.5 py-1">
+                          <button type="button" className="min-w-0 truncate text-left text-[10px] text-[var(--t8-text-main)]" onClick={() => applyAvatarKeyframe(frame)}>
+                            {frame.label} · {frame.time.toFixed(1)}s · {frame.avatarName} · {PANORAMA_AVATAR_POSES.find((pose) => pose.id === frame.poseId)?.label || '动作'}
+                          </button>
+                          <button type="button" className="t8-mini-icon-button" onClick={() => applyAvatarKeyframe(frame)} title="应用关键帧">
+                            <ScanLine size={12} />
+                          </button>
+                          <button type="button" className="t8-mini-icon-button" onClick={() => removeAvatarKeyframe(frame)} title="删除关键帧">
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed border-[var(--t8-border)] px-3 py-3 text-center text-xs text-[var(--t8-text-muted)]">暂无关键帧</div>
+                  )}
+                </section>
+
+                <section className="space-y-2 rounded-md border border-sky-300/35 bg-sky-400/10 p-2">
+                  <div className="flex items-center justify-between gap-2 text-xs font-bold">
+                    <span>遮挡参考</span>
+                    <div className="flex items-center gap-1">
+                      <button type="button" className={`t8-mini-icon-button ${occlusionMaskVisible ? 'is-active' : ''}`} onClick={() => update({ panoramaOcclusionMaskVisible: !occlusionMaskVisible })} title="显示/隐藏遮挡参考">
+                        {occlusionMaskVisible ? <Eye size={13} /> : <EyeOff size={13} />}
+                      </button>
+                      <button type="button" className="t8-btn h-7 px-2 text-[10px]" onClick={addOcclusionMask}>
+                        <Plus size={12} />
+                        添加
+                      </button>
+                    </div>
+                  </div>
+                  {occlusionMasks.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {occlusionMasks.map((mask) => (
+                        <div
+                          key={mask.id}
+                          className={`space-y-1 rounded-md border bg-[var(--t8-bg-panel)] p-1.5 ${activeOcclusionMaskId === mask.id ? 'border-[var(--t8-accent)] shadow-[0_0_0_1px_var(--t8-accent)]' : 'border-[var(--t8-border)]'}`}
+                          onMouseDown={() => setActiveOcclusionMaskId(mask.id)}
+                        >
+                          <div className="grid grid-cols-[1fr_28px] gap-1">
+                            <input value={mask.label} onChange={(event) => patchOcclusionMask(mask, { label: event.target.value })} className="min-w-0 rounded border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-1.5 py-1 text-[10px] text-[var(--t8-text-main)] outline-none" />
+                            <button type="button" className="t8-mini-icon-button" onClick={() => removeOcclusionMask(mask)} title="删除遮挡区">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-5 gap-1">
+                            {([
+                              ['X', 'x', 0, 96],
+                              ['Y', 'y', 0, 96],
+                              ['宽', 'w', 4, 100],
+                              ['高', 'h', 4, 100],
+                              ['强', 'strength', 0, 100],
+                            ] as Array<[string, keyof PanoramaOcclusionMask, number, number]>).map(([label, keyName, min, max]) => (
+                              <label key={keyName} className="min-w-0">
+                                <span className="mb-0.5 block text-[9px] font-bold text-[var(--t8-text-muted)]">{label} {Math.round(Number(mask[keyName]) || 0)}</span>
+                                <input type="range" min={min} max={max} value={Number(mask[keyName]) || 0} onChange={(event) => patchOcclusionMask(mask, { [keyName]: Number(event.target.value) } as Partial<PanoramaOcclusionMask>)} className="w-full" />
+                              </label>
+                            ))}
+                          </div>
+                          <input value={mask.note || ''} onChange={(event) => patchOcclusionMask(mask, { note: event.target.value })} placeholder="说明：桌沿在前、门框遮挡角色腿部..." className="w-full rounded border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-1.5 py-1 text-[10px] text-[var(--t8-text-main)] outline-none" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed border-sky-200/30 px-3 py-3 text-center text-xs text-[var(--t8-text-muted)]">暂无遮挡区</div>
+                  )}
+                </section>
+
+                <section className="space-y-2 rounded-md border border-amber-300/35 bg-amber-400/10 p-2">
+                  <div className="text-xs font-bold">导演镜头</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">快照模式</span>
+                      <select
+                        value={effectiveShotCamera.mode}
+                        onChange={(event) => patchShotCamera({ mode: event.target.value === 'shot-camera' ? 'shot-camera' : 'panorama-view', targetAvatarId: effectiveShotCamera.targetAvatarId || activeAvatar?.id || avatars[0]?.id || '' })}
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                      >
+                        <option value="panorama-view">当前视角</option>
+                        <option value="shot-camera">导演镜头</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">镜头预设</span>
+                      <select
+                        value={effectiveShotCamera.presetId}
+                        onChange={(event) => changeShotPreset(event.target.value)}
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                      >
+                        {PANORAMA_SHOT_PRESETS.map((preset) => (
+                          <option key={preset.id} value={preset.id}>{preset.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">目标角色</span>
+                      <select
+                        value={effectiveShotCamera.targetAvatarId}
+                        onChange={(event) => patchShotCamera({ mode: 'shot-camera', targetAvatarId: event.target.value })}
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                      >
+                        {avatars.length === 0 && <option value="">无角色</option>}
+                        {avatars.map((avatar, index) => (
+                          <option key={avatar.id} value={avatar.id}>{index + 1}. {avatar.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">身体部位</span>
+                      <select
+                        value={effectiveShotCamera.targetBone}
+                        onChange={(event) => patchShotCamera({ mode: 'shot-camera', targetBone: event.target.value as PanoramaShotCamera['targetBone'] })}
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                      >
+                        {PANORAMA_SHOT_TARGET_BONES.map((bone) => (
+                          <option key={bone.id} value={bone.id}>{bone.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">镜头比例</span>
+                      <select
+                        value={effectiveShotCamera.framingRatio}
+                        onChange={(event) => patchShotCamera({ mode: 'shot-camera', framingRatio: event.target.value as PanoramaCompositionGuideId })}
+                        className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none"
+                      >
+                        {PANORAMA_COMPOSITION_GUIDES.filter((item) => item.id !== 'off').map((item) => (
+                          <option key={item.id} value={item.id}>{item.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">特写 {Math.round(effectiveShotCamera.closeupStrength)}</span>
+                      <input type="range" min={0} max={100} value={effectiveShotCamera.closeupStrength} onChange={(event) => patchShotCamera({ mode: 'shot-camera', closeupStrength: Number(event.target.value) })} className="w-full" />
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">低机位 {Math.round(effectiveShotCamera.lowAngle)}</span>
+                      <input type="range" min={0} max={100} value={effectiveShotCamera.lowAngle} onChange={(event) => patchShotCamera({ mode: 'shot-camera', lowAngle: Number(event.target.value) })} className="w-full" />
+                    </label>
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={applyDirectorShotView} disabled={avatars.length === 0}>
+                      <Camera size={13} />
+                      套用
+                    </button>
+                  </div>
+                </section>
+
+                <section className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">构图安全区</span>
+                      <select value={compositionGuide} onChange={(event) => update({ panoramaCompositionGuide: event.target.value })} className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none">
+                        {PANORAMA_COMPOSITION_GUIDES.map((item) => (
+                          <option key={item.id} value={item.id}>{item.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="mb-1 block text-[10px] font-bold text-[var(--t8-text-muted)]">快照图例</span>
+                      <select value={sceneLegendVisible ? '1' : '0'} onChange={(event) => update({ panoramaSceneLegendVisible: event.target.value === '1' })} className="w-full rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] px-2 py-1.5 text-xs text-[var(--t8-text-main)] outline-none">
+                        <option value="1">显示</option>
+                        <option value="0">隐藏</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={exportSceneSnapshot} disabled={textureStatus !== 'ready' || isGenerating} title="导出场景快照；有关键帧时会按序列帧数输出 F01-Fxx">
+                      <ImageIcon size={12} />
+                      快照
+                    </button>
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={exportControlSnapshot} disabled={textureStatus !== 'ready' || isGenerating}>
+                      <ScanLine size={12} />
+                      控图
+                    </button>
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={copyScenePrompt} disabled={!scenePrompt}>
+                      <Copy size={12} />
+                      场景词
+                    </button>
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={sendSceneSnapshot} disabled={!outputUrl && !d.panoramaSceneSnapshot?.snapshotUrl}>
+                      <PackagePlus size={12} />
+                      发送
+                    </button>
+                    <button type="button" className="t8-btn h-8 px-2 text-[10px]" onClick={saveSceneSnapshotResource} disabled={sceneResourceState === '保存中' || (!outputUrl && !d.panoramaSceneSnapshot?.snapshotUrl)}>
+                      <PackagePlus size={12} />
+                      入库
+                    </button>
+                  </div>
+                  {scenePrompt && (
+                    <div className="max-h-40 overflow-y-auto rounded-md border border-[var(--t8-border)] bg-[var(--t8-bg-panel-muted)] p-2 text-[10px] leading-relaxed text-[var(--t8-text-muted)]">
+                      {scenePrompt}
+                    </div>
+                  )}
+                </section>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    ) : null}
+    </>
   );
 };
 

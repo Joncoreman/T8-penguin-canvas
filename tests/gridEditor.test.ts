@@ -152,6 +152,9 @@ test('grid editor supports adaptive full-image fit without constraining the prev
   assert.match(node, /value="adaptive"/);
   assert.match(node, /fit === 'adaptive'/);
   assert.match(node, /overflow-auto/);
+  assert.match(node, /className="nodrag nowheel space-y-2\.5 p-3"/);
+  assert.match(node, /data-grid-editor-stage[\s\S]*onWheelCapture=\{\(e\) => e\.stopPropagation\(\)\}/);
+  assert.match(node, /className="nowheel w-full overflow-auto overscroll-contain rounded-md border"/);
   assert.doesNotMatch(node, /maxHeight:\s*360/);
   assert.match(backend, /s === 'adaptive'/);
   assert.match(backend, /cell\.fit === 'adaptive'\s*\?\s*'contain'\s*:\s*cell\.fit/);
